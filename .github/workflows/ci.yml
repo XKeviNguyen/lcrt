@@ -22,8 +22,6 @@ jobs:
     name: sherpa-spike
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    env:
-      SHERPA_ONNX_ARCHIVE_DIR: ${{ runner.temp }}/lcrt-sherpa-native
     defaults:
       run:
         working-directory: experiments/sherpa-streaming
@@ -35,14 +33,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$SHERPA_ONNX_ARCHIVE_DIR"
-          archive="$SHERPA_ONNX_ARCHIVE_DIR/sherpa-onnx-v1.13.7-linux-x64-static-lib.tar.bz2"
+          archive_dir="$RUNNER_TEMP/lcrt-sherpa-native"
+          mkdir -p "$archive_dir"
+          archive="$archive_dir/sherpa-onnx-v1.13.7-linux-x64-static-lib.tar.bz2"
           curl --fail --location --silent --show-error \
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-linux-x64-static-lib.tar.bz2 \
             --output "$archive"
           printf '%s  %s\n' \
             d1be7a69ac2b30120058d8302e624239a3064085383cfa47994a14fdc44c32d6 \
             "$archive" | sha256sum --check
+          printf 'SHERPA_ONNX_ARCHIVE_DIR=%s\n' "$archive_dir" >> "$GITHUB_ENV"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo test --locked --all-features
