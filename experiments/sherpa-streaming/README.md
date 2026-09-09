@@ -5,16 +5,29 @@ It is outside the production workspace and has an independent lockfile. It is
 not an LCRT backend. No app, Whisper, or PipeWire code consumes it.
 
 The official `sherpa-onnx = 1.13.7` crate uses its default static native libraries.
-Its build script downloads the versioned upstream native archive on the first
-build. Review the provenance and local archive hash in
+Its build script can download native code outside Cargo.lock's checksum coverage.
+Use the verified archive preparation below before building. CI enforces the same
+check in a fresh runner. Review provenance in
 [the report](../../docs/SHERPA_STREAMING_SPIKE.md). Models and native binaries
 must stay outside Git; the nested `target/` is ignored.
 
 ## Build and check
 
-Run from this directory, before any benchmark:
+Run from this directory on Ubuntu AMD64, before any benchmark. Supply the
+verified archive through the official build-script override. Use a fresh target
+directory if a previous build populated an unverified native cache; the build
+script prefers an already extracted cache over the archive override.
 
 ```sh
+set -eu
+export SHERPA_ONNX_ARCHIVE_DIR="$(mktemp -d /tmp/lcrt-sherpa-native.XXXXXX)"
+archive="$SHERPA_ONNX_ARCHIVE_DIR/sherpa-onnx-v1.13.7-linux-x64-static-lib.tar.bz2"
+curl --fail --location --silent --show-error \
+  https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-v1.13.7-linux-x64-static-lib.tar.bz2 \
+  --output "$archive"
+printf '%s  %s\n' \
+  d1be7a69ac2b30120058d8302e624239a3064085383cfa47994a14fdc44c32d6 \
+  "$archive" | sha256sum --check
 cargo build --release --locked
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings

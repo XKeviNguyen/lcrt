@@ -49,8 +49,13 @@ libc, and the Linux loader; no separate ONNX Runtime shared library is required.
 The model and native archive are outside tracked files. The production lockfile
 is unchanged; the experiment's independent lockfile pins its Rust graph.
 Native archive contents are not secured by Cargo.lock: the recorded archive
-hash is an additional reproducibility check. A future integration needs native
-artifact verification, license/dependency review, and target-specific builds.
+hash is an additional reproducibility check. Following automated review, CI now
+downloads and verifies this exact archive before Cargo, passing it through
+`SHERPA_ONNX_ARCHIVE_DIR` on a fresh runner. Local reproduction requires the
+same verification; an existing unverified extracted cache must not be reused.
+The measured local archive already matched this hash; benchmark source and
+results are unchanged. A future integration also needs license/dependency review
+and target-specific builds.
 
 ## Machine, configuration, and metric contract
 
@@ -268,7 +273,8 @@ hang cancellation, multi-hour soak, or battery/power measurement was performed.
 
 Final simplification review: the standalone package is the smallest separate
 Cargo boundary that avoids burdening production with the native dependency.
-No custom download/build framework was retained. Inputs are bounded to the JFK
+No custom download/build framework was retained; CI uses a direct pinned curl
+and SHA-256 check for the native archive. Inputs are bounded to the JFK
 format and at most 60 repeats; detailed hypothesis traces are omitted for the
 stability run. The small driver remains useful for reproducing the latency/CPU
 trade-off before any separately authorized integration milestone.
