@@ -18,6 +18,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sherpa-spike:
+    name: sherpa-spike
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: experiments/sherpa-streaming
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install repository Rust toolchain
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --all-features
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
+
   portable-core:
     name: portable-core (${{ matrix.name }})
     runs-on: ubuntu-24.04

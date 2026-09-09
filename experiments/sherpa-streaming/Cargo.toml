@@ -1,0 +1,17 @@
+[package]
+name = "lcrt-sherpa-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+# Intentionally independent: no production workspace dependency or lock change.
+[workspace]
+
+[dependencies]
+sherpa-onnx = "=1.13.7"
+hound = "3.5.1"
+serde_json = "1.0"
+
+[lints.rust]
+unsafe_code = "forbid"
