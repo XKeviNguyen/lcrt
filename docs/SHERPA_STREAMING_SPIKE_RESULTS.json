@@ -1,0 +1,1561 @@
+{
+  "reference": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country",
+  "normalization": "lowercase, remove ASCII punctuation, collapse whitespace",
+  "runs": [
+    {
+      "run": "sherpa-offline-1",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 796.149984,
+        "decode_calls": 35,
+        "decode_wall_ms": 759.521149,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 398.692965,
+        "first_partial_ms": 70.719744,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 70.719744,
+            "text": "AND"
+          },
+          {
+            "ms": 92.111501,
+            "text": "AND SO"
+          },
+          {
+            "ms": 113.468652,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 135.016011,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 156.875641,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 221.210703,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 286.41853699999996,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 309.277916,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 420.55818,
+            "text": "WHAT"
+          },
+          {
+            "ms": 442.63067900000004,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 464.647809,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 486.631081,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 508.81605399999995,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 531.1488079999999,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 619.642437,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 642.132408,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 666.643905,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 692.828566,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 718.80764,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 745.0181540000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "offline",
+        "model_startup_ms": 1628.4870090000002,
+        "real_time_factor": 0.07237727127272728,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "10.48",
+        "system_seconds": "0.35",
+        "cpu_percent": "437%",
+        "max_rss_kib": "266924",
+        "elapsed_seconds": "2.47",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-offline-2",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 888.14062,
+        "decode_calls": 35,
+        "decode_wall_ms": 846.6505989999999,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 456.06637700000005,
+        "first_partial_ms": 73.815208,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 73.815208,
+            "text": "AND"
+          },
+          {
+            "ms": 99.120076,
+            "text": "AND SO"
+          },
+          {
+            "ms": 124.550158,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 149.853956,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 175.677025,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 251.59889,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 328.25332499999996,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 353.805352,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 481.110667,
+            "text": "WHAT"
+          },
+          {
+            "ms": 506.439125,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 531.644078,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 556.9806699999999,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 582.266406,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 607.839749,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 709.1264900000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 734.493967,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 760.02006,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 785.534333,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 811.6870859999999,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 837.555416,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "offline",
+        "model_startup_ms": 1574.2843899999998,
+        "real_time_factor": 0.08074005636363636,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "11.35",
+        "system_seconds": "0.34",
+        "cpu_percent": "466%",
+        "max_rss_kib": "267736",
+        "elapsed_seconds": "2.50",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-offline-3",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 658.062827,
+        "decode_calls": 35,
+        "decode_wall_ms": 630.740874,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 334.53094799999997,
+        "first_partial_ms": 59.167854999999996,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 59.167854999999996,
+            "text": "AND"
+          },
+          {
+            "ms": 76.97952099999999,
+            "text": "AND SO"
+          },
+          {
+            "ms": 95.030422,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 113.226525,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 131.913591,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 186.184446,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 241.065386,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 259.39484400000003,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 353.489681,
+            "text": "WHAT"
+          },
+          {
+            "ms": 372.445994,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 391.542321,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 410.492445,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 429.375777,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 448.490221,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 524.423744,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 543.4955500000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 562.462652,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 581.6000700000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 600.793283,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 620.2311609999999,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "offline",
+        "model_startup_ms": 1516.702899,
+        "real_time_factor": 0.05982389336363636,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "9.00",
+        "system_seconds": "0.31",
+        "cpu_percent": "419%",
+        "max_rss_kib": "271964",
+        "elapsed_seconds": "2.22",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-offline-4",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 645.391493,
+        "decode_calls": 35,
+        "decode_wall_ms": 618.5103760000001,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 330.42411100000004,
+        "first_partial_ms": 59.634581,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 59.634581,
+            "text": "AND"
+          },
+          {
+            "ms": 77.477251,
+            "text": "AND SO"
+          },
+          {
+            "ms": 95.254371,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 113.30189,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 131.450424,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 185.640091,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 239.73797299999998,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 258.012772,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 348.178576,
+            "text": "WHAT"
+          },
+          {
+            "ms": 366.062743,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 383.977376,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 401.996597,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 420.056121,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 438.168362,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 512.70181,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 531.6008380000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 550.486176,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 569.518327,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 588.639417,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 607.809273,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "offline",
+        "model_startup_ms": 1578.403945,
+        "real_time_factor": 0.058671953909090906,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "8.94",
+        "system_seconds": "0.33",
+        "cpu_percent": "409%",
+        "max_rss_kib": "269096",
+        "elapsed_seconds": "2.27",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-offline-5",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 711.292141,
+        "decode_calls": 35,
+        "decode_wall_ms": 684.289779,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 360.16008700000003,
+        "first_partial_ms": 63.135785999999996,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 63.135785999999996,
+            "text": "AND"
+          },
+          {
+            "ms": 81.774336,
+            "text": "AND SO"
+          },
+          {
+            "ms": 100.594209,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 119.394745,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 138.431549,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 195.19571399999998,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 252.48261100000002,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 272.199551,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 381.211723,
+            "text": "WHAT"
+          },
+          {
+            "ms": 401.84944099999996,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 422.740958,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 443.604059,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 464.331792,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 485.056373,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 566.9436,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 587.435009,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 607.952445,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 628.503409,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 649.135181,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 670.645945,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "offline",
+        "model_startup_ms": 1520.097094,
+        "real_time_factor": 0.06466292190909091,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "9.54",
+        "system_seconds": "0.31",
+        "cpu_percent": "433%",
+        "max_rss_kib": "268708",
+        "elapsed_seconds": "2.27",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-offline-warmup",
+      "excluded_warmup": true,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 917.1869310000001,
+        "decode_calls": 35,
+        "decode_wall_ms": 879.4273009999999,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 421.640183,
+        "first_partial_ms": 70.31311099999999,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 70.31311099999999,
+            "text": "AND"
+          },
+          {
+            "ms": 92.635361,
+            "text": "AND SO"
+          },
+          {
+            "ms": 114.45090300000001,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 136.144613,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 158.01793,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 223.40892100000002,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 289.367373,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 311.440112,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 449.83747400000004,
+            "text": "WHAT"
+          },
+          {
+            "ms": 478.375,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 506.88132900000005,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 535.3147110000001,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 563.881816,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 592.5614820000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 707.298543,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 736.3873600000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 765.4231500000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 797.8247630000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 829.296446,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 858.774741,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "offline",
+        "model_startup_ms": 1570.8123970000001,
+        "real_time_factor": 0.0833806300909091,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "11.63",
+        "system_seconds": "0.34",
+        "cpu_percent": "472%",
+        "max_rss_kib": "268968",
+        "elapsed_seconds": "2.53",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-paced-1",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 11033.036996,
+        "decode_calls": 35,
+        "decode_wall_ms": 896.7430320000001,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 5884.211673000001,
+        "first_partial_ms": 1079.531868,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 1079.531868,
+            "text": "AND"
+          },
+          {
+            "ms": 1406.820363,
+            "text": "AND SO"
+          },
+          {
+            "ms": 1726.402484,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 2046.8944869999998,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 2366.897661,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 3326.856385,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 4284.005692,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 4606.519241,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 6204.379016,
+            "text": "WHAT"
+          },
+          {
+            "ms": 6524.406141,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 6844.536053,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 7164.3083369999995,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 7486.344026000001,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 7806.641113,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 9084.768899,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 9406.916914,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 9726.629137,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 10046.66538,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 10366.589523,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 10686.558304,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "paced",
+        "model_startup_ms": 1495.658766,
+        "real_time_factor": null,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "91.38",
+        "system_seconds": "0.33",
+        "cpu_percent": "728%",
+        "max_rss_kib": "269660",
+        "elapsed_seconds": "12.58",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-paced-2",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 11027.335572,
+        "decode_calls": 35,
+        "decode_wall_ms": 830.824613,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 5883.597441,
+        "first_partial_ms": 1083.742621,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 1083.742621,
+            "text": "AND"
+          },
+          {
+            "ms": 1403.6475340000002,
+            "text": "AND SO"
+          },
+          {
+            "ms": 1723.680222,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 2044.0470500000001,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 2364.0993670000003,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 3323.858571,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 4283.990334,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 4603.695176,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 6203.893627,
+            "text": "WHAT"
+          },
+          {
+            "ms": 6523.744170999999,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 6843.907013,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 7164.862202,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 7483.747128,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 7803.787399,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 9083.969595999999,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 9403.779273,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 9724.065362,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 10043.851691,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 10363.838375,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 10683.774097000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "paced",
+        "model_startup_ms": 1574.584385,
+        "real_time_factor": null,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "91.90",
+        "system_seconds": "0.36",
+        "cpu_percent": "729%",
+        "max_rss_kib": "269456",
+        "elapsed_seconds": "12.65",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-paced-3",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 11029.571837000001,
+        "decode_calls": 35,
+        "decode_wall_ms": 874.8717379999999,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 5884.697162,
+        "first_partial_ms": 1088.065874,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 1088.065874,
+            "text": "AND"
+          },
+          {
+            "ms": 1404.516785,
+            "text": "AND SO"
+          },
+          {
+            "ms": 1726.2340539999998,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 2046.798749,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 2366.926458,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 3324.58354,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 4284.596374000001,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 4604.787633,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 6205.640329999999,
+            "text": "WHAT"
+          },
+          {
+            "ms": 6524.3391280000005,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 6844.464915,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 7164.368792,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 7484.837095999999,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 7804.904237,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 9085.281411,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 9405.164662000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 9725.546812999999,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 10045.113408000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 10365.098174,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 10684.931537,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "paced",
+        "model_startup_ms": 1536.27712,
+        "real_time_factor": null,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "91.74",
+        "system_seconds": "0.32",
+        "cpu_percent": "729%",
+        "max_rss_kib": "270816",
+        "elapsed_seconds": "12.61",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-paced-4",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 11030.083371,
+        "decode_calls": 35,
+        "decode_wall_ms": 857.0300629999999,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 5884.8632880000005,
+        "first_partial_ms": 1083.5795990000001,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 1083.5795990000001,
+            "text": "AND"
+          },
+          {
+            "ms": 1404.4229719999998,
+            "text": "AND SO"
+          },
+          {
+            "ms": 1724.890808,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 2044.3995670000002,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 2364.634657,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 3324.390209,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 4285.9911520000005,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 4604.904638,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 6204.841221,
+            "text": "WHAT"
+          },
+          {
+            "ms": 6524.28029,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 6844.342576,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 7164.897594,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 7484.958924,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 7803.355262,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 9085.349398,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 9405.028428,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 9720.526310000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 10040.273857,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 10365.10713,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 10685.056384,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "paced",
+        "model_startup_ms": 1535.9530619999998,
+        "real_time_factor": null,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "91.92",
+        "system_seconds": "0.35",
+        "cpu_percent": "731%",
+        "max_rss_kib": "265988",
+        "elapsed_seconds": "12.61",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-paced-5",
+      "excluded_warmup": false,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 11028.756336,
+        "decode_calls": 35,
+        "decode_wall_ms": 743.104965,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 5877.776070000001,
+        "first_partial_ms": 1079.989673,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 1079.989673,
+            "text": "AND"
+          },
+          {
+            "ms": 1403.7932879999998,
+            "text": "AND SO"
+          },
+          {
+            "ms": 1723.5696900000003,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 2043.853199,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 2363.993484,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 3323.6498389999997,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 4285.166045000001,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 4603.719596,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 6198.6099509999995,
+            "text": "WHAT"
+          },
+          {
+            "ms": 6518.821151,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 6837.983550999999,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 7158.39357,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 7478.225907,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 7798.534942,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 9077.954155000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 9398.125088,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 9721.089686,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 10044.483355,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 10364.495117,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 10684.574408999999,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "paced",
+        "model_startup_ms": 1557.653606,
+        "real_time_factor": null,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "91.94",
+        "system_seconds": "0.37",
+        "cpu_percent": "730%",
+        "max_rss_kib": "268868",
+        "elapsed_seconds": "12.64",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "sherpa-paced-warmup",
+      "excluded_warmup": true,
+      "metrics": {
+        "audio_duration_ms": 11000.0,
+        "completion_ms": 11028.38927,
+        "decode_calls": 35,
+        "decode_wall_ms": 869.345411,
+        "endpoints": 1,
+        "first_final_kind": "endpoint",
+        "first_final_ms": 5884.216316,
+        "first_partial_ms": 1086.114362,
+        "first_partial_text": "AND",
+        "hypothesis_changes": [
+          {
+            "ms": 1086.114362,
+            "text": "AND"
+          },
+          {
+            "ms": 1408.67378,
+            "text": "AND SO"
+          },
+          {
+            "ms": 1728.292488,
+            "text": "AND SO MY"
+          },
+          {
+            "ms": 2045.831469,
+            "text": "AND SO MY FELLOW"
+          },
+          {
+            "ms": 2366.8025,
+            "text": "AND SO MY FELLOW AMERICAN"
+          },
+          {
+            "ms": 3325.7142169999997,
+            "text": "AND SO MY FELLOW AMERICANS"
+          },
+          {
+            "ms": 4285.337598,
+            "text": "AND SO MY FELLOW AMERICANS ASK"
+          },
+          {
+            "ms": 4604.294764,
+            "text": "AND SO MY FELLOW AMERICANS ASK NOT"
+          },
+          {
+            "ms": 6204.289186000001,
+            "text": "WHAT"
+          },
+          {
+            "ms": 6524.217896,
+            "text": "WHAT YOUR"
+          },
+          {
+            "ms": 6844.444566,
+            "text": "WHAT YOUR COUNTRY"
+          },
+          {
+            "ms": 7164.393502,
+            "text": "WHAT YOUR COUNTRY CAN"
+          },
+          {
+            "ms": 7484.332276,
+            "text": "WHAT YOUR COUNTRY CAN DO"
+          },
+          {
+            "ms": 7804.2149819999995,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU"
+          },
+          {
+            "ms": 9084.434041,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK"
+          },
+          {
+            "ms": 9404.280165999999,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT"
+          },
+          {
+            "ms": 9724.249478000002,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU"
+          },
+          {
+            "ms": 10044.438967,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO"
+          },
+          {
+            "ms": 10364.398334000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR"
+          },
+          {
+            "ms": 10684.375680000001,
+            "text": "WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+          }
+        ],
+        "mode": "paced",
+        "model_startup_ms": 1592.891415,
+        "real_time_factor": null,
+        "repeats": 1,
+        "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+      },
+      "gnu_time": {
+        "user_seconds": "91.89",
+        "system_seconds": "0.36",
+        "cpu_percent": "728%",
+        "max_rss_kib": "266620",
+        "elapsed_seconds": "12.67",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "whisper-paced-1",
+      "excluded_warmup": false,
+      "metrics": {
+        "schema_version": 1,
+        "mode": "paced",
+        "model_startup_ms": 120.756,
+        "audio_duration_ms": 11000.0,
+        "first_partial_ms": 2560.128,
+        "first_final_ms": 11886.325,
+        "completion_ms": 11886.328,
+        "real_time_factor": null,
+        "inference_count": 7,
+        "update_count": 7,
+        "transcript": "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country."
+      },
+      "gnu_time": {
+        "user_seconds": "21.88",
+        "system_seconds": "0.30",
+        "cpu_percent": "184%",
+        "max_rss_kib": "220784",
+        "elapsed_seconds": "12.02",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "whisper-paced-2",
+      "excluded_warmup": false,
+      "metrics": {
+        "schema_version": 1,
+        "mode": "paced",
+        "model_startup_ms": 117.863,
+        "audio_duration_ms": 11000.0,
+        "first_partial_ms": 2560.076,
+        "first_final_ms": 11871.732,
+        "completion_ms": 11871.734,
+        "real_time_factor": null,
+        "inference_count": 7,
+        "update_count": 7,
+        "transcript": "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country."
+      },
+      "gnu_time": {
+        "user_seconds": "21.92",
+        "system_seconds": "0.31",
+        "cpu_percent": "185%",
+        "max_rss_kib": "221072",
+        "elapsed_seconds": "12.00",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "whisper-paced-3",
+      "excluded_warmup": false,
+      "metrics": {
+        "schema_version": 1,
+        "mode": "paced",
+        "model_startup_ms": 120.932,
+        "audio_duration_ms": 11000.0,
+        "first_partial_ms": 2560.328,
+        "first_final_ms": 11842.48,
+        "completion_ms": 11842.483,
+        "real_time_factor": null,
+        "inference_count": 7,
+        "update_count": 7,
+        "transcript": "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country."
+      },
+      "gnu_time": {
+        "user_seconds": "21.99",
+        "system_seconds": "0.35",
+        "cpu_percent": "186%",
+        "max_rss_kib": "221244",
+        "elapsed_seconds": "11.97",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    },
+    {
+      "run": "whisper-paced-warmup",
+      "excluded_warmup": true,
+      "metrics": {
+        "schema_version": 1,
+        "mode": "paced",
+        "model_startup_ms": 115.77,
+        "audio_duration_ms": 11000.0,
+        "first_partial_ms": 2540.229,
+        "first_final_ms": 11859.501,
+        "completion_ms": 11859.503,
+        "real_time_factor": null,
+        "inference_count": 7,
+        "update_count": 7,
+        "transcript": "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country."
+      },
+      "gnu_time": {
+        "user_seconds": "21.92",
+        "system_seconds": "0.31",
+        "cpu_percent": "185%",
+        "max_rss_kib": "220784",
+        "elapsed_seconds": "11.99",
+        "exit_status": "0"
+      },
+      "stderr": "",
+      "normalized_exact_match": true
+    }
+  ],
+  "stability": {
+    "metrics": {
+      "audio_duration_ms": 308000.0,
+      "completion_ms": 308024.713144,
+      "decode_calls": 963,
+      "decode_wall_ms": 23154.43069,
+      "endpoints": 34,
+      "first_final_kind": "endpoint",
+      "first_final_ms": 5883.582434,
+      "first_partial_ms": 1086.838498,
+      "first_partial_text": "AND",
+      "hypothesis_changes": [],
+      "mode": "paced",
+      "model_startup_ms": 1600.4736099999998,
+      "real_time_factor": null,
+      "repeats": 28,
+      "transcript": "AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY AND SO MY FELLOW AMERICANS ASK NOT WHAT YOUR COUNTRY CAN DO FOR YOU ASK WHAT YOU CAN DO FOR YOUR COUNTRY"
+    },
+    "proc": {
+      "samples": [
+        {
+          "seconds": 0.002,
+          "VmSize": "32240 kB",
+          "VmHWM": "504 kB",
+          "VmRSS": "504 kB",
+          "Threads": "1"
+        },
+        {
+          "seconds": 30.002,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 60.003,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 90.003,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 120.003,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 150.004,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 180.004,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 210.005,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 240.005,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 270.005,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        },
+        {
+          "seconds": 300.006,
+          "VmSize": "943608 kB",
+          "VmHWM": "268988 kB",
+          "VmRSS": "268988 kB",
+          "Threads": "10"
+        }
+      ],
+      "exit_status": 0,
+      "elapsed_seconds": 309.691452778
+    },
+    "stderr": ""
+  }
+}
