@@ -1,6 +1,10 @@
 # Sherpa streaming ASR spike — milestone #23
 
 This is an English feasibility measurement, not a production backend integration.
+Follow-up: [the viability gate](SHERPA_VIABILITY_GATE.md) demonstrates supported
+CPU reduction and compares equal word-count milestones. The historical results
+below remain unchanged; the original CPU-heavy configuration is not a limit of
+this candidate.
 The candidate and settings were selected before any performance runs. Only one
 model and one configuration were measured; no fastest-model selection occurred.
 
