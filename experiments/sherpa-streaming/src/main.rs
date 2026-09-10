@@ -91,9 +91,9 @@ impl Observations {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
-    if !(args.len() == 4 || args.len() == 5) || !matches!(args[1].as_str(), "paced" | "offline") {
+    if !(4..=7).contains(&args.len()) || !matches!(args[1].as_str(), "paced" | "offline") {
         return Err(
-            "usage: lcrt-sherpa-spike <paced|offline> <model-dir> <jfk.wav> [repeats:1..60]".into(),
+            "usage: lcrt-sherpa-spike <paced|offline> <model-dir> <jfk.wav> [repeats:1..60] [threads:1..16] [cpu-config-file]".into(),
         );
     }
     let paced = args[1] == "paced";
@@ -101,6 +101,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !(1..=60).contains(&repeats) {
         return Err("repeats must be 1..60".into());
     }
+    let num_threads: i32 = args.get(5).map(|s| s.parse()).transpose()?.unwrap_or(4);
+    if !(1..=16).contains(&num_threads) {
+        return Err("threads must be 1..16".into());
+    }
+    let provider = if let Some(path) = args.get(6) {
+        if path.contains('\0') || !Path::new(path).is_file() {
+            return Err("CPU config must be an existing file with no NUL in its path".into());
+        }
+        format!("cpu:{path}")
+    } else {
+        "cpu".to_owned()
+    };
     let mut reader = hound::WavReader::open(&args[3])?;
     let spec = reader.spec();
     if spec.channels != 1
@@ -141,8 +153,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     config.model_config.transducer.decoder = Some(model_file("decoder-epoch-99-avg-1.onnx")?);
     config.model_config.transducer.joiner = Some(model_file("joiner-epoch-99-avg-1.int8.onnx")?);
     config.model_config.tokens = Some(model_file("tokens.txt")?);
-    config.model_config.num_threads = 4;
-    config.model_config.provider = Some("cpu".into());
+    config.model_config.num_threads = num_threads;
+    config.model_config.provider = Some(provider.clone());
     let startup = Instant::now();
     let recognizer = OnlineRecognizer::create(&config).ok_or("recognizer construction failed")?;
     // Stream is dropped before the recognizer; one driver owns all calls.
@@ -174,6 +186,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "{}",
         json!({
+            "num_threads": num_threads, "provider": provider,
             "mode": args[1], "repeats": repeats, "audio_duration_ms": milliseconds(deadline(delivered)),
             "model_startup_ms": startup_ms, "first_partial_ms": observations.first_partial,
             "first_partial_text": observations.first_text,

@@ -57,6 +57,7 @@ impl WavAudio {
 #[derive(Default)]
 struct TranscriptMetrics {
     first_partial: Option<Duration>,
+    word_milestones: [Option<(Duration, String)>; 3],
     first_final: Option<Duration>,
     latest_text: String,
     update_count: usize,
@@ -65,6 +66,19 @@ struct TranscriptMetrics {
 impl TranscriptMetrics {
     fn observe(&mut self, updates: Vec<TranscriptUpdate>, elapsed: Duration) {
         for update in updates {
+            // Match the JFK benchmark normalization: remove ASCII punctuation,
+            // then count whitespace-separated tokens. Revisions never reset a milestone.
+            let normalized: String = update
+                .text()
+                .chars()
+                .filter(|c| !c.is_ascii_punctuation())
+                .collect();
+            let words = normalized.split_whitespace().count();
+            for (threshold, milestone) in [1, 3, 5].into_iter().zip(&mut self.word_milestones) {
+                if words >= threshold && milestone.is_none() {
+                    *milestone = Some((elapsed, update.text().to_owned()));
+                }
+            }
             match update.status() {
                 CaptionStatus::Partial if self.first_partial.is_none() => {
                     self.first_partial = Some(elapsed);
@@ -85,6 +99,7 @@ struct BenchmarkResult {
     model_startup: Duration,
     audio_duration: Duration,
     first_partial: Option<Duration>,
+    word_milestones: [Option<(Duration, String)>; 3],
     first_final: Option<Duration>,
     completion: Duration,
     real_time_factor: Option<f64>,
@@ -203,6 +218,7 @@ fn run_benchmark(mode: BenchmarkMode, input: Input) -> Result<(), Box<dyn Error>
         model_startup,
         audio_duration: audio.duration(),
         first_partial: transcript.first_partial,
+        word_milestones: transcript.word_milestones,
         first_final: transcript.first_final,
         completion,
         real_time_factor,
@@ -275,14 +291,32 @@ fn calculate_rtf(processing: Duration, audio: Duration) -> f64 {
 }
 
 fn benchmark_json(result: &BenchmarkResult) -> String {
+    let milestones = [1, 3, 5]
+        .into_iter()
+        .zip(&result.word_milestones)
+        .map(|(words, milestone)| {
+            let (ms, text) = milestone.as_ref().map_or_else(
+                || ("null".to_owned(), "null".to_owned()),
+                |(elapsed, text)| {
+                    (
+                        optional_milliseconds(Some(*elapsed)),
+                        format!("\"{}\"", escape_json(text)),
+                    )
+                },
+            );
+            format!("{{\"words\":{words},\"ms\":{ms},\"text\":{text}}}")
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
         concat!(
-            "{{\"schema_version\":1,\"mode\":\"{}\",",
+            "{{\"schema_version\":1,\"word_milestones\":[{}],\"mode\":\"{}\",",
             "\"model_startup_ms\":{:.3},\"audio_duration_ms\":{:.3},",
             "\"first_partial_ms\":{},\"first_final_ms\":{},",
             "\"completion_ms\":{:.3},\"real_time_factor\":{},",
             "\"inference_count\":{},\"update_count\":{},\"transcript\":\"{}\"}}"
         ),
+        milestones,
         result.mode.name(),
         milliseconds(result.model_startup),
         milliseconds(result.audio_duration),
@@ -375,7 +409,8 @@ fn print_updates(updates: Vec<TranscriptUpdate>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        TranscriptMetrics, calculate_rtf, duration_for_frames, escape_json, paced_chunk_frames,
+        BenchmarkMode, BenchmarkResult, TranscriptMetrics, benchmark_json, calculate_rtf,
+        duration_for_frames, escape_json, paced_chunk_frames,
     };
     use lcrt_core::TranscriptUpdate;
     use std::time::Duration;
@@ -415,6 +450,40 @@ mod tests {
         assert_eq!(metrics.first_final, Some(Duration::from_millis(1_900)));
         assert_eq!(metrics.latest_text, "done");
         assert_eq!(metrics.update_count, 3);
+    }
+
+    #[test]
+    fn word_milestones_ignore_punctuation_and_survive_revisions() {
+        let mut metrics = TranscriptMetrics::default();
+        for (ms, text) in [(10, "..."), (20, "And,"), (30, "And so, my"), (40, "And")] {
+            metrics.observe(
+                vec![TranscriptUpdate::partial(text).unwrap()],
+                Duration::from_millis(ms),
+            );
+        }
+        assert!(metrics.word_milestones[2].is_none());
+        metrics.observe(
+            vec![TranscriptUpdate::finalized("And so, my fellow Americans.").unwrap()],
+            Duration::from_millis(50),
+        );
+        for (milestone, ms) in metrics.word_milestones.iter().zip([20, 30, 50]) {
+            assert_eq!(milestone.as_ref().unwrap().0, Duration::from_millis(ms));
+        }
+        assert_eq!(metrics.word_milestones[1].as_ref().unwrap().1, "And so, my");
+        let json = benchmark_json(&BenchmarkResult {
+            mode: BenchmarkMode::Paced,
+            model_startup: Duration::ZERO,
+            audio_duration: Duration::from_secs(11),
+            first_partial: metrics.first_partial,
+            word_milestones: metrics.word_milestones,
+            first_final: metrics.first_final,
+            completion: Duration::from_millis(50),
+            real_time_factor: None,
+            inference_count: 1,
+            update_count: metrics.update_count,
+            transcript: metrics.latest_text,
+        });
+        assert!(json.contains("\"words\":3,\"ms\":30.000,\"text\":\"And so, my\""));
     }
 
     #[test]

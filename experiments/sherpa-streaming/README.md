@@ -103,3 +103,47 @@ not neural-network inferences; `decode_wall_ms` is time inside those calls.
 There is no interactive cancellation protocol in this diagnostic; invalid
 arguments and input errors return nonzero, and an external timeout bounds a
 native hang. Production cancellation remains future integration work.
+
+## Viability gate (#24)
+
+The [viability report](../../docs/SHERPA_VIABILITY_GATE.md) supersedes the
+five-run protocol above for this follow-up: only paced replay, one excluded
+warm-up and three measurements per configuration, then one short selected smoke.
+Build both release diagnostics first and allow 10 seconds to settle per series.
+The optional positional arguments now are `[repeats:1..60] [threads:1..16]
+[cpu-config-file]`; existing invocations still use four threads and CPU defaults.
+From the repository root, use the same GNU time wrapper with these arguments:
+
+```sh
+# Current control
+experiments/sherpa-streaming/target/release/lcrt-sherpa-spike \
+  paced /tmp/lcrt-sherpa/model /tmp/lcrt-jfk.wav 1 4
+# One lower-thread configuration
+experiments/sherpa-streaming/target/release/lcrt-sherpa-spike \
+  paced /tmp/lcrt-sherpa/model /tmp/lcrt-jfk.wav 1 1
+# Same four threads, supported ONNX Runtime spinning controls
+experiments/sherpa-streaming/target/release/lcrt-sherpa-spike \
+  paced /tmp/lcrt-sherpa/model /tmp/lcrt-jfk.wav 1 4 \
+  experiments/sherpa-streaming/cpu-no-spinning.conf
+```
+
+The config file is passed through `OnlineModelConfig.provider` as
+`cpu:<path>`. Its `SessionConfig.*` keys are forwarded by pinned Sherpa 1.13.7
+to ONNX Runtime `AddConfigEntry`; no dependency patch or environment trick is
+needed. The JSON records the thread count and provider. Archive/model/fixture
+verification remains mandatory; the report records the config and binary hashes.
+
+Whisper's diagnostic now emits three bounded `word_milestones` entries with
+`words`, replay `ms`, and the actual hypothesis `text` (null if never reached).
+They record the first hypothesis containing at least 1, 3, and 5 tokens, including
+final updates. Remove ASCII punctuation, then split whitespace; case does not
+change the count. Later revisions do not reset the first-observed timestamps.
+This does not measure correctness or stability of the partial words.
+
+Sherpa already retains `hypothesis_changes`. For this JFK gate, derive the same
+milestones by selecting the first change whose normalized token count meets
+each threshold. All thresholds are reached before the first endpoint, so no
+cross-segment concatenation is needed. Do not reuse that derivation as a general
+multi-segment caption metric. The evidence JSON retains these derived entries
+alongside the original traces. Historical Whisper traces cannot be reconstructed
+from the final transcript, so its historical 3/5-word metrics remain unknown.
