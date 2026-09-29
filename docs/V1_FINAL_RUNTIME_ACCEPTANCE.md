@@ -7,21 +7,23 @@ reuses evidence from PRs #19–#24 where it still applies.
 ## Final identity
 
 - Base `develop`: `1b084aa50bb30f377b0f7cdec095279121bf8a6c`.
-- Final code commit: `e265a72f8b804a67c64565c3626fb9732c621f73`. The final PR
-  head adds only this report on top of it; `git diff e265a72 <head> -- crates`
+- Final code commit: `b6e385c04b46437dde38b539269baa01f54759cc`. The final PR
+  head adds only this report on top of it; `git diff b6e385c <head> -- crates`
   is empty.
 - Runtime evidence ran on three builds:
-  - The rows marked `e265a72` in the runtime table ran on the final code.
-  - The other rows ran on `294af25`. It differs from the final code in three
+  - The rows marked `b6e385c` in the runtime table ran on the final code.
+  - The other rows ran on `294af25`. It differs from the final code in four
     ways:
-    - Backlog reservations round up instead of down, adding at most 1 µs per
+    - Backlog reservations round up instead of down, adding under 1 µs per
       chunk.
+    - Each chunk reserves at least 100 µs. Real quanta already exceed that:
+      the 21–43 ms chunks observed here are charged exactly.
     - The deferral branch also counts the incoming chunk toward the
       minimum-speech gate. That branch runs only when a pass leaves a whole
       window of unseen audio.
-    - One config test changed.
+    - Configuration validation and its test changed.
   - Those differences are why the checks that exercise backlog accounting on
-    the live path were rerun on `e265a72`.
+    the live path were rerun on `b6e385c`.
   - The full 30-minute soak ran on `64f2d55`; the soak section explains why it
     still applies.
 - OS: Ubuntu 26.04 LTS, Linux 7.0.0-34-generic, x86_64, GNOME Shell 50.1 on
@@ -80,8 +82,11 @@ reuses evidence from PRs #19–#24 where it still applies.
        the bound, a live session fails with "Whisper input backlog reached 8s
        of audio; transcription cannot keep up with capture". A waiting
        producer waits on the same reservation. Each chunk reserves its
-       duration rounded up to the next microsecond, so every non-empty chunk
-       counts and the bound is never exceeded.
+       duration rounded up to the next microsecond, and at least 100 µs, so
+       neither queued audio nor the number of queued commands can exceed the
+       bound. An 8 s backlog admits at most 80,000 commands. Real PipeWire
+       quanta are charged exactly, since even the 32-frame minimum lasts
+       167 µs at 192 kHz. `max_input_backlog` must be at least 100 µs.
      - Decode length is capped at whisper.cpp's own limit of 220 tokens per
        30 s segment, scaled to the window: 59 tokens for 8 s. English speech
        in 8 s is far below that. The cap is per segment. Passes decode
@@ -99,7 +104,7 @@ rolling-window heuristic that dropped suspected garbled leading words was tried
 and removed, because review showed it could silently delete real speech. V1
 prefers a visible repeated phrase over silent loss.
 
-## Final-code automated verification (`e265a72`)
+## Final-code automated verification (`b6e385c`)
 
 | Command | Result |
 | --- | --- |
@@ -131,9 +136,11 @@ channel and real chunks with no model:
 Further tests cover:
 
 - the backlog admitting at most 8 s at 1,024- and 2,048-frame quanta;
-- every non-empty chunk reserving at least its duration (a 1-frame chunk at
-  2 MHz reserves 1 µs);
-- the backlog-bound validation;
+- reservations charging real quanta exactly (1,024 frames at 48 kHz reserve
+  21,334 µs; 32 frames at 192 kHz reserve 167 µs) and tiny chunks at least
+  100 µs, so an 8 s backlog admits at most 80,000 one-frame commands;
+- the backlog-bound validation, including rejection of a sub-microsecond
+  limit;
 - the window-scaled token limit;
 - the 3,600-second smoke bound.
 
@@ -144,9 +151,9 @@ it; those are recorded on PR #25.
 
 | Check | Build | Result |
 | --- | --- | --- |
-| JFK paced replay | `e265a72` | Transcript identical to `develop`; 7 passes; first partial 2.38 s; completion 11.68 s |
-| System audio: JFK played twice into the output-monitor diagnostic, 40 s | `e265a72` | The first caption appeared 2.51 s and 2.46 s after `pw-play` started. Exit 0; no warnings; no leftovers. Finals contained the accepted exact-overlap repetition |
-| Repetitive speech through output monitor → PipeWire → Whisper → GTK, 100 s | `e265a72` | Survived. Exit 0; 50 passes; median 1.68 s; worst 2.36 s; no warnings; no leftovers |
+| JFK paced replay | `b6e385c` | Transcript identical to `develop`; 7 passes; first partial 2.48 s; completion 11.69 s |
+| System audio: JFK played twice into the output-monitor diagnostic, 40 s | `b6e385c` | The first caption appeared 2.62 s and 2.44 s after `pw-play` started. Exit 0; no warnings; no leftovers |
+| Repetitive speech through output monitor → PipeWire → Whisper → GTK, 100 s | `b6e385c` | Survived. Exit 0; 46 passes; median 1.79 s; worst 2.95 s; no warnings; no leftovers |
 | JFK paced replay (`lcrt-whisper-transcribe benchmark paced`) | `294af25` | Transcript identical to `develop`: "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country." 7 passes; first partial 3.14 s; completion 12.61 s |
 | JFK transcribe mode (waiting producer, 2 s backlog) | `294af25` | 5 passes. The final contained the accepted exact-overlap repetition ("…can do for you. America. Ask not what your country can do for you…"). Earlier runs of this mode on intermediate code were clean; the outcome depends on producer timing |
 | Repetitive speech through output monitor → PipeWire → Whisper → GTK, 100 s, 2 runs | `294af25` | Both survived. Exit 0; 44 and 47 passes; median 1.86 s and 1.87 s; worst 3.58 s and 2.55 s; one Stop final each; no warnings; no leftovers |
@@ -161,7 +168,7 @@ it; those are recorded on PR #25.
 ### Integrated soak
 
 The full 30-minute soak ran on code commit `64f2d55`. From `64f2d55` to the
-final `e265a72`, two code changes could affect this scenario:
+final `b6e385c`, three code changes could affect this scenario:
 
 - **The minimum-speech condition on the deferral branch in `drain_backlog`.**
   That branch runs only when appending a chunk would evict unseen audio, which
@@ -170,6 +177,11 @@ final `e265a72`, two code changes could affect this scenario:
 - **Rounding each backlog reservation up by less than 1 µs.** This affects a
   decision only when pending audio nears the 8 s bound. The soak's pending
   audio never exceeded about one pass (under 2 s).
+- **The 100 µs minimum reservation.** In every run where chunk sizes were
+  logged, PipeWire delivered 1,024- and 2,048-frame quanta (21–43 ms). The
+  soak's 50,181 chunks over 1,830 s average 36 ms. The minimum applies only
+  to chunks shorter than about 5 frames at 48 kHz, which the soak did not
+  produce.
 
 Both builds therefore behave identically in this scenario. A 16.9-minute
 continuation on `294af25` is reported below as corroboration.
@@ -247,8 +259,8 @@ diagnostic session.
 - Live captioning requires each pass, partial or natural final, to finish
   within the 8 s window. If a pass does not, the session fails with the backlog
   error rather than dropping audio. The worst observed pass was 3.58 s
-  (repetitive speech on `294af25`), 45% of the window. The `e265a72`
-  repetitive-speech worst was 2.36 s, the real-microphone worst 2.45 s, the
+  (repetitive speech on `294af25`), 45% of the window. The `b6e385c`
+  repetitive-speech worst was 2.95 s, the real-microphone worst 2.45 s, the
   full `64f2d55` soak's worst 1.71 s, and the `294af25` continuation's
   1.24 s.
   Much slower CPUs, or heavy contention, can still reach the bound.
