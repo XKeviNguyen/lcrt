@@ -11,7 +11,9 @@ pub struct WhisperConfig {
     pub language: Option<String>,
     /// CPU threads used by whisper.cpp inference.
     pub inference_threads: u8,
-    /// Maximum captured audio chunks waiting behind inference.
+    /// Maximum captured audio chunks waiting behind inference. Pending audio
+    /// is also bounded to one `window_duration`, so this count is a
+    /// structural ceiling that must not bind first at small audio quanta.
     pub input_queue_capacity: usize,
     /// Rolling audio context retained for each inference pass.
     pub window_duration: Duration,
@@ -38,7 +40,7 @@ impl WhisperConfig {
             model_path: model_path.into(),
             language: None,
             inference_threads: 4,
-            input_queue_capacity: 256,
+            input_queue_capacity: 2_048,
             window_duration: Duration::from_secs(8),
             partial_step: Duration::from_millis(1_500),
             minimum_speech: Duration::from_millis(750),

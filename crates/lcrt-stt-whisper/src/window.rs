@@ -18,6 +18,7 @@ pub(crate) struct StreamingWindow {
     final_silence_samples: usize,
     speech_samples: usize,
     speech_samples_since_inference: usize,
+    samples_since_inference: usize,
     silence_samples: usize,
     heard_speech: bool,
     rolled_since_inference: bool,
@@ -34,6 +35,7 @@ impl StreamingWindow {
             final_silence_samples: duration_samples(config.final_silence)?,
             speech_samples: 0,
             speech_samples_since_inference: 0,
+            samples_since_inference: 0,
             silence_samples: 0,
             heard_speech: false,
             rolled_since_inference: false,
@@ -82,6 +84,7 @@ impl StreamingWindow {
             }
             self.samples.extend_from_slice(samples);
         }
+        self.samples_since_inference = self.samples_since_inference.saturating_add(samples.len());
 
         if contains_speech {
             self.speech_samples = self.speech_samples.saturating_add(samples.len());
@@ -123,12 +126,14 @@ impl StreamingWindow {
         self.rolled_since_inference
     }
 
-    pub(crate) fn is_at_capacity(&self) -> bool {
-        self.samples.len() == self.max_samples
+    /// Whether appending more audio would evict audio no pass has inferred.
+    pub(crate) fn uninferred_audio_fills_window(&self) -> bool {
+        self.samples_since_inference >= self.max_samples
     }
 
     pub(crate) fn mark_inferred(&mut self, kind: InferenceKind) {
         self.speech_samples_since_inference = 0;
+        self.samples_since_inference = 0;
         self.rolled_since_inference = false;
         if kind == InferenceKind::Final {
             self.reset_utterance();
@@ -139,6 +144,7 @@ impl StreamingWindow {
         self.samples.clear();
         self.speech_samples = 0;
         self.speech_samples_since_inference = 0;
+        self.samples_since_inference = 0;
         self.silence_samples = 0;
         self.heard_speech = false;
         self.rolled_since_inference = false;
