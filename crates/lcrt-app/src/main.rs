@@ -520,9 +520,9 @@ fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> Result<Pars
                 let value = os_to_string(next_value(&mut arguments, "--smoke-seconds")?)?;
                 let seconds = value
                     .parse::<u64>()
-                    .map_err(|_| "--smoke-seconds must be an integer from 1 to 120".to_owned())?;
-                if !(1..=120).contains(&seconds) {
-                    return Err("--smoke-seconds must be an integer from 1 to 120".to_owned());
+                    .map_err(|_| "--smoke-seconds must be an integer from 1 to 3600".to_owned())?;
+                if !(1..=3_600).contains(&seconds) {
+                    return Err("--smoke-seconds must be an integer from 1 to 3600".to_owned());
                 }
                 smoke_duration = Duration::from_secs(seconds);
             }
@@ -564,7 +564,7 @@ fn usage() -> &'static str {
         "Usage:\n",
         "  lcrt [--model PATH] [--language CODE]\n",
         "  lcrt --list-sources\n",
-        "  lcrt --model PATH --smoke-source ID [--smoke-seconds 1..120]\n\n",
+        "  lcrt --model PATH --smoke-source ID [--smoke-seconds 1..3600]\n\n",
         "Configuration:\n",
         "  LCRT_MODEL_PATH may be used instead of --model.\n",
         "  RUST_LOG controls structured diagnostic logging."
@@ -623,6 +623,21 @@ mod tests {
         assert!(parse_arguments([OsString::from("--smoke-seconds"), OsString::from("0")]).is_err());
         assert!(parse_arguments([OsString::from("--smoke-seconds"), OsString::from("5")]).is_err());
         assert!(parse_arguments([OsString::from("--unknown")]).is_err());
+    }
+
+    #[test]
+    fn smoke_duration_allows_a_bounded_integrated_soak() {
+        let smoke_seconds = |seconds: &str| {
+            parse_arguments([
+                OsString::from("--smoke-source"),
+                OsString::from("source-id"),
+                OsString::from("--smoke-seconds"),
+                OsString::from(seconds),
+            ])
+        };
+
+        assert!(smoke_seconds("3600").is_ok());
+        assert!(smoke_seconds("3601").is_err());
     }
 
     #[test]

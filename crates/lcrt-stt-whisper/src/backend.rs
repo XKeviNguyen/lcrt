@@ -552,6 +552,11 @@ fn transcribe_window(
     parameters.set_print_timestamps(false);
     parameters.set_suppress_blank(true);
     parameters.set_suppress_nst(true);
+    // whisper.cpp otherwise re-decodes a rejected (typically repetitive)
+    // result at up to five higher temperatures. On noisy live input that
+    // multiplies one pass several-fold and overflows the bounded input queue,
+    // while the next rolling-window pass re-decodes the same audio anyway.
+    parameters.set_temperature_inc(0.0);
     state
         .full(parameters, samples)
         .map_err(|error| WhisperBackendError::Whisper(error.to_string()))?;

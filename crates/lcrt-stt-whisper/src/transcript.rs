@@ -3,6 +3,10 @@ use lcrt_core::TranscriptUpdate;
 use crate::{WhisperBackendError, window::InferenceKind};
 
 const TRUNCATION_MARKER: &str = "…";
+/// A rolled window starts mid-utterance, so Whisper may garble its first words.
+const MAX_GARBLED_LEADING_WORDS: usize = 2;
+/// Matching words required before garbled leading words may be dropped.
+const MIN_ANCHORED_OVERLAP_WORDS: usize = 3;
 
 /// Bounded transcript state for one utterance.
 ///
@@ -36,9 +40,11 @@ impl TranscriptAssembler {
             InferenceKind::Partial => {
                 let previous = self.joined();
                 let previous_stable = self.committed.clone();
-                if window_rolled {
-                    self.commit_prefix_not_in(text);
-                }
+                let text = if window_rolled {
+                    self.commit_prefix_not_in(text)
+                } else {
+                    text
+                };
                 self.partial.clear();
                 self.partial.push_str(text);
                 self.enforce_bound();
@@ -51,9 +57,11 @@ impl TranscriptAssembler {
             }
             InferenceKind::Final => {
                 if !text.is_empty() {
-                    if window_rolled {
-                        self.commit_prefix_not_in(text);
-                    }
+                    let text = if window_rolled {
+                        self.commit_prefix_not_in(text)
+                    } else {
+                        text
+                    };
                     self.partial.clear();
                     self.partial.push_str(text);
                 }
@@ -72,12 +80,12 @@ impl TranscriptAssembler {
         }
     }
 
-    fn commit_prefix_not_in(&mut self, next_partial: &str) {
-        let prefix = non_overlapping_prefix(&self.partial, next_partial);
-        if prefix.is_empty() {
-            return;
-        }
+    /// Commits the part of the previous partial that the rolled window no
+    /// longer covers and returns the part of `next_partial` to keep.
+    fn commit_prefix_not_in<'a>(&mut self, next_partial: &'a str) -> &'a str {
+        let (prefix, partial_start) = non_overlapping_prefix(&self.partial, next_partial);
         self.committed.push_str(&prefix);
+        &next_partial[partial_start..]
     }
 
     fn enforce_bound(&mut self) {
@@ -101,32 +109,50 @@ impl TranscriptAssembler {
     }
 }
 
-fn non_overlapping_prefix(previous: &str, current: &str) -> String {
+/// Returns the prefix of `previous` not covered by `current`, and the byte
+/// offset where `current` starts to overlap `previous`.
+///
+/// Up to [`MAX_GARBLED_LEADING_WORDS`] leading words of `current` are treated
+/// as a re-recognition of already committed audio when the remainder anchors
+/// on at least [`MIN_ANCHORED_OVERLAP_WORDS`] matching words.
+fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
     if contains_unsegmented_script(previous) || contains_unsegmented_script(current) {
-        return non_overlapping_character_prefix(previous, current);
+        return (non_overlapping_character_prefix(previous, current), 0);
     }
 
     let previous_words = word_spans(previous);
     let current_words = word_spans(current);
-    let maximum = previous_words.len().min(current_words.len());
-    let word_overlap = (1..=maximum)
-        .rev()
-        .find(|&count| {
-            previous_words[previous_words.len() - count..]
-                .iter()
-                .zip(&current_words[..count])
-                .all(|(left, right)| normalized_word(left.2) == normalized_word(right.2))
+    let overlap = (0..=MAX_GARBLED_LEADING_WORDS.min(current_words.len()))
+        .filter_map(|skipped| {
+            let minimum = if skipped == 0 {
+                1
+            } else {
+                MIN_ANCHORED_OVERLAP_WORDS
+            };
+            let maximum = previous_words.len().min(current_words.len() - skipped);
+            (minimum..=maximum)
+                .rev()
+                .find(|&count| {
+                    previous_words[previous_words.len() - count..]
+                        .iter()
+                        .zip(&current_words[skipped..skipped + count])
+                        .all(|(left, right)| normalized_word(left.2) == normalized_word(right.2))
+                })
+                .map(|count| (count, skipped))
         })
-        .unwrap_or(0);
-    if word_overlap > 0 {
-        let overlap_start = previous_words[previous_words.len() - word_overlap].0;
-        return previous[..overlap_start].to_owned();
+        .max_by_key(|&(count, skipped)| (count, std::cmp::Reverse(skipped)));
+    if let Some((count, skipped)) = overlap {
+        let overlap_start = previous_words[previous_words.len() - count].0;
+        return (
+            previous[..overlap_start].to_owned(),
+            current_words[skipped].0,
+        );
     }
 
     if previous.is_empty() {
-        String::new()
+        (String::new(), 0)
     } else {
-        format!("{} ", previous.trim_end())
+        (format!("{} ", previous.trim_end()), 0)
     }
 }
 
@@ -264,6 +290,61 @@ mod tests {
             "alpha beta gamma delta epsilon zeta eta theta"
         );
         assert_eq!(third.stable_text(), "alpha beta gamma delta ");
+    }
+
+    #[test]
+    fn rolled_window_with_garbled_leading_words_does_not_duplicate_sentence() {
+        let mut transcript = TranscriptAssembler::new(256);
+        transcript
+            .apply(
+                InferenceKind::Partial,
+                "Great time, Captain. Route time caption, have me follow every conversation."
+                    .to_owned(),
+                false,
+            )
+            .unwrap();
+
+        let update = transcript
+            .apply(
+                InferenceKind::Partial,
+                "Roo-time caption, have me follow every conversation.".to_owned(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        let unchanged = transcript
+            .apply(
+                InferenceKind::Partial,
+                "Root time caption, have me follow every conversation.".to_owned(),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(
+            update.text(),
+            "Great time, Captain. Route time caption, have me follow every conversation."
+        );
+        assert_eq!(update.stable_text(), "Great time, Captain. Route time ");
+        assert!(unchanged.is_none());
+    }
+
+    #[test]
+    fn short_overlap_after_leading_words_is_not_treated_as_repetition() {
+        let mut transcript = TranscriptAssembler::new(256);
+        transcript
+            .apply(InferenceKind::Partial, "alpha beta gamma".to_owned(), false)
+            .unwrap();
+
+        let update = transcript
+            .apply(
+                InferenceKind::Partial,
+                "delta gamma epsilon".to_owned(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(update.text(), "alpha beta gamma delta gamma epsilon");
     }
 
     #[test]
