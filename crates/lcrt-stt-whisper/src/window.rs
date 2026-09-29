@@ -219,4 +219,16 @@ mod tests {
         assert!(window.samples().is_empty());
         assert_eq!(window.finish_kind(), None);
     }
+
+    #[test]
+    fn final_is_reported_only_while_its_silence_persists() {
+        let mut window = StreamingWindow::new(&test_config()).unwrap();
+        window.push(&vec![0.1; 8_000]);
+        window.mark_inferred(InferenceKind::Partial);
+
+        // The chunk that crosses final silence reports the final once; if
+        // speech resumes before the caller acts, the final is no longer due.
+        assert_eq!(window.push(&vec![0.0; 4_800]), Some(InferenceKind::Final));
+        assert_eq!(window.push(&vec![0.1; 1_600]), None);
+    }
 }

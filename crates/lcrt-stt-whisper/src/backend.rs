@@ -370,11 +370,21 @@ fn run_worker(
                         &inference_count,
                     )?;
                 }
-                // The window gates inference by level, not by edge, so a pass
-                // this chunk would make due is reported again by a later push
-                // or by `finish_kind`.
-                if let Some(samples) = drained.deferred {
-                    window.push(&samples);
+                // A held-back chunk can itself complete an utterance. Run that
+                // pass now: resumed speech in the next chunk would clear the
+                // silence that made it due.
+                if let Some(samples) = drained.deferred
+                    && let Some(kind) = window.push(&samples)
+                {
+                    infer_and_publish(
+                        kind,
+                        &mut window,
+                        &mut state,
+                        &parameters,
+                        &events,
+                        &mut transcript,
+                        &inference_count,
+                    )?;
                 }
             }
             WorkerCommand::Finish => {
@@ -577,6 +587,10 @@ fn decoding_parameters(config: &WhisperConfig) -> FullParams<'_, '_> {
 /// decode emits up to 220 tokens for 8 s of audio on each of whisper.cpp's
 /// fallback attempts, and one such pass was measured to outlast the window
 /// itself, which no backlog bound can absorb.
+///
+/// `max_tokens` is per segment. Because passes decode without timestamps,
+/// whisper.cpp ends each segment by advancing 30 s, so a window of at most
+/// 30 s is one segment per fallback attempt and this bounds the whole pass.
 fn window_token_limit(window: Duration) -> i32 {
     const SEGMENT_TOKEN_LIMIT: f64 = 220.0;
     const SEGMENT_SECONDS: f64 = 30.0;
