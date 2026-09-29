@@ -12,17 +12,23 @@ evidence that was still missing.
 - Two builds were runtime-measured. **Build A** disabled the Whisper fallback
   for every pass and contained the smoke bound change. **Build B** is head
   `4335dad`, which added the first transcript-overlap fix.
-- The final head adds four review corrections. All are unit-tested:
-  - Final passes keep the fallback.
+- The final head adds four review corrections. Three are unit-tested:
   - An exact leading overlap takes precedence.
   - Punctuation-only tokens cannot anchor a skip.
-  - Skipped words are retained unless recognized text precedes the anchor.
+  - Skipped words are retained unless enough words of the previous partial
+    precede the anchor.
+- The fourth correction, final passes keeping the fallback, is not directly
+  tested. No test covers that branch, and none of the final-source runtime
+  final passes fell back. It is verified only by code inspection: final
+  passes simply keep whisper.cpp's default, which is the pre-PR behaviour
+  exercised by PRs #19–#24.
 - Runtime checks on the final source:
   - A deterministic paced replay of the fixture (see
     [fixes](#fixes-made-by-this-pull-request)).
-  - Stop re-measured on the final source, because the final-pass fallback runs
-    on Stop. The final source ran three 15-second noisy-microphone cycles in
-    one offline window. Stop took 1.37–1.51 s each time, the final passes took
+  - Stop re-measured, because the final-pass fallback runs on Stop. This used
+    head `9a6414f`, whose backend and Stop code are identical to the final
+    source; only transcript assembly changed afterwards. It ran three
+    15-second noisy-microphone cycles in one offline window. Stop took 1.37–1.51 s each time, the final passes took
     0.58 s (none fell back), and the window closed with exit 0 and no
     leftovers.
 - All other system-audio, soak, microphone, and lifecycle results below come
@@ -253,8 +259,9 @@ frame. The two starting points differ:
    - Fix: an exact overlap at the start of the new hypothesis still always
      wins. Only when there is none may up to two garbled leading words be
      dropped, only when at least three further non-punctuation words anchor
-     the overlap, and only when at least as many recognized words precede the
-     anchor. This keeps a legitimately repeated phrase such as "go home … go
+     the overlap, and only when at least as many words of the previous partial
+     precede the anchor. Committed text does not count, because it may belong
+     to audio that the window no longer covers. This keeps a legitimately repeated phrase such as "go home … go
      home". A genuine leading word such as the "but" in "but I want to go
      home" is retained, and noise markers such as `♪` cannot delete words.
    - Evidence: five regression tests. On head `4335dad`, a paced replay of
@@ -262,7 +269,7 @@ frame. The two starting points differ:
      duplicated renditions, and the fixture output was unchanged. The
      recording was then deleted. The later corrections affect only
      hypotheses that have an exact leading overlap or punctuation-only
-     anchors, or no recognized text before the anchor. The observed
+     anchors, or too few previous-partial words before the anchor. The observed
      duplicates had none of these. On the final source, a paced fixture
      replay produced the identical transcript in 7 passes.
 3. **Smoke diagnostic too short for a soak.** `--smoke-seconds` now accepts up
@@ -275,6 +282,10 @@ frame. The two starting points differ:
   exceeds it, utterances finalize only on Stop, and Whisper keeps re-decoding
   and hallucinating on non-speech ("you", "♪", repeated phrases). An adaptive
   noise floor or VAD is future work.
+- When a window's leading words were already committed by an earlier skip, a
+  later pass can keep a short echo such as "Route time Root time caption…".
+  It is at most two words and does not grow; this was chosen over risking
+  the deletion of genuine words.
 - Rolling-window overlap is still exact after the leading words. A word that
   Whisper changes mid-overlap (for example "help" and "have") can still repeat
   a phrase in continuous noisy input.

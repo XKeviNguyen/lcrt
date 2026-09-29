@@ -83,13 +83,7 @@ impl TranscriptAssembler {
     /// Commits the part of the previous partial that the rolled window no
     /// longer covers and returns the part of `next_partial` to keep.
     fn commit_prefix_not_in<'a>(&mut self, next_partial: &'a str) -> &'a str {
-        let committed_words = self
-            .committed
-            .split_whitespace()
-            .take(MAX_GARBLED_LEADING_WORDS)
-            .count();
-        let (prefix, partial_start) =
-            non_overlapping_prefix(&self.partial, next_partial, committed_words);
+        let (prefix, partial_start) = non_overlapping_prefix(&self.partial, next_partial);
         self.committed.push_str(&prefix);
         &next_partial[partial_start..]
     }
@@ -122,14 +116,10 @@ impl TranscriptAssembler {
 /// exists are up to [`MAX_GARBLED_LEADING_WORDS`] leading words of `current`
 /// treated as a re-recognition of already recognized audio, and only when the
 /// remainder anchors on at least [`MIN_ANCHORED_OVERLAP_WORDS`] matching words.
-/// Skipped words are dropped only when at least as many recognized words
-/// (`committed_words` plus the previous words before the anchor) precede the
-/// anchor; otherwise they are retained as genuine leading speech.
-fn non_overlapping_prefix(
-    previous: &str,
-    current: &str,
-    committed_words: usize,
-) -> (String, usize) {
+/// Skipped words are dropped only when at least as many words of `previous`
+/// precede the anchor, since only those can be the audio they re-recognize;
+/// otherwise they are retained as genuine leading speech.
+fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
     if contains_unsegmented_script(previous) || contains_unsegmented_script(current) {
         return (non_overlapping_character_prefix(previous, current), 0);
     }
@@ -160,8 +150,7 @@ fn non_overlapping_prefix(
     });
     if let Some((count, skipped)) = overlap {
         let overlap_start = previous_words[previous_words.len() - count].0;
-        let words_before_anchor = previous_words.len() - count + committed_words;
-        let partial_start = if words_before_anchor >= skipped {
+        let partial_start = if previous_words.len() - count >= skipped {
             current_words[skipped].0
         } else {
             0
@@ -332,12 +321,13 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        let unchanged = transcript
+        let next = transcript
             .apply(
                 InferenceKind::Partial,
                 "Root time caption, have me follow every conversation.".to_owned(),
                 true,
             )
+            .unwrap()
             .unwrap();
 
         assert_eq!(
@@ -345,7 +335,13 @@ mod tests {
             "Great time, Captain. Route time caption, have me follow every conversation."
         );
         assert_eq!(update.stable_text(), "Great time, Captain. Route time ");
-        assert!(unchanged.is_none());
+        // No earlier word of the previous partial proves that "Root time"
+        // re-recognizes committed audio, so it is kept rather than dropped.
+        // The sentence itself is still not duplicated.
+        assert_eq!(
+            next.text(),
+            "Great time, Captain. Route time Root time caption, have me follow every conversation."
+        );
     }
 
     #[test]
@@ -389,6 +385,32 @@ mod tests {
             .unwrap();
 
         assert_eq!(update.text(), "but I want to go home");
+    }
+
+    #[test]
+    fn committed_text_does_not_justify_dropping_leading_words() {
+        let mut transcript = TranscriptAssembler::new(256);
+        transcript
+            .apply(
+                InferenceKind::Partial,
+                "alpha I want to go".to_owned(),
+                false,
+            )
+            .unwrap();
+        transcript
+            .apply(InferenceKind::Partial, "I want to go".to_owned(), true)
+            .unwrap();
+
+        let update = transcript
+            .apply(
+                InferenceKind::Partial,
+                "but I want to go home".to_owned(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(update.text(), "alpha but I want to go home");
     }
 
     #[test]
