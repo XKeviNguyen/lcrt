@@ -1,230 +1,196 @@
 # V1 final runtime acceptance
 
-This report records the Ubuntu AMD64 end-to-end acceptance work for the current
-local Whisper V1 path. It reuses established evidence from PRs #19–#24 and adds
-the runtime checks that were still missing in PR #25.
+This report records whether the offline LCRT V1 path — PipeWire capture, local
+Whisper, controller, and GTK captions — works end to end on Ubuntu AMD64. It
+reuses evidence from PRs #19–#24 where it still applies.
 
-## Final scope
+## Final identity
 
-Base `develop`: `1b084aa50bb30f377b0f7cdec095279121bf8a6c`.
-
-The final PR intentionally retains only two production changes:
-
-1. rolling **partial** Whisper passes disable temperature fallback so noisy live
-   input cannot multiply a single partial inference into several retries and
-   overflow the bounded input queue; final passes keep whisper.cpp's existing
-   fallback behavior;
-2. `--smoke-seconds` accepts up to 3600 seconds so the existing integrated
-   diagnostic can run a 30-minute soak.
-
-An attempted rolling-window heuristic that skipped up to two leading words was
-**fully reverted after repeated review found cases where it could silently delete
-real speech**. `crates/lcrt-stt-whisper/src/transcript.rs` is therefore restored
-exactly to the protected `develop` implementation. V1 deliberately prefers a
-visible repeated phrase over silently losing spoken words.
-
-## Test identity
-
+- Base `develop`: `1b084aa50bb30f377b0f7cdec095279121bf8a6c`.
+- Final code commit: `cecb0dd7d4ae0942c1f35d9423422861fb92d774`. The final PR
+  head adds only this report on top of it; `git diff cecb0dd <head> -- crates`
+  is empty. Every "final code" result below ran a release build of `cecb0dd`
+  with a clean worktree.
 - OS: Ubuntu 26.04 LTS, Linux 7.0.0-34-generic, x86_64, GNOME Shell 50.1 on
-  Wayland, PipeWire 1.6.2.
-- CPU: 12th Gen Intel Core i5-12500H, 16 logical CPUs. Rust 1.98.0.
+  Wayland, PipeWire 1.6.2. GNOME did not advertise layer shell, so windows used
+  the standard-window fallback.
+- CPU: 12th Gen Intel Core i5-12500H, 16 logical CPUs. Rust 1.98.0; whisper-rs
+  pinned at 0.15.1 with four inference threads.
 - Model: `ggml-tiny.en.bin`, 77,704,715 bytes, SHA-256
-  `921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f`.
-  This model is English-only.
-- System-audio fixture: whisper.cpp v1.7.6 `samples/jfk.wav`, SHA-256
+  `921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f`
+  (English-only).
+- Speech fixture: whisper.cpp v1.7.6 `samples/jfk.wav`, SHA-256
   `59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e`.
-- Source discovery exposed the built-in microphone and built-in output monitor.
-- GNOME did not advertise layer shell, so tested windows used the standard-window
-  fallback.
+- Repetitive-speech fixture: the fixture's 3.0–3.7 s slice looped 129 times
+  (90.3 s), generated locally with `ffmpeg` and not committed.
+- Every application run used `bwrap --unshare-net` (loopback only; an HTTPS
+  request fails name resolution). Wayland, D-Bus, PipeWire, and the
+  accessibility bus are filesystem-path sockets, so the GUI and audio paths
+  still worked. No root access or workstation network change was used.
+- The window's controls were driven through AT-SPI accessibility, which invokes
+  the GTK button handlers. It is not pointer input. System-audio runs used the
+  existing `--smoke-source` diagnostic, because the source dropdown exposes no
+  usable accessibility selection.
 
-Every application runtime used a local model inside a network-isolated
-`bwrap --unshare-net` environment. No sudo or workstation-wide network change
-was used.
+## Production changes in PR #25
 
-## Acceptance summary
+1. **Live Whisper input stays bounded without disabling fallback**
+   (`crates/lcrt-stt-whisper`).
+   - Root cause, reproduced on `develop`:
+     - Once the 8 s window was full, the worker consumed only one 1.5 s partial
+       step of queued audio per pass, so any pass slower than the step carried
+       backlog forward.
+     - The queue was bounded at 256 *chunks*. PipeWire delivered 1,024- or
+       2,048-frame chunks, and switched between them mid-stream, so that bound
+       meant 5.5 s or 10.9 s of audio.
+     - On repetitive speech, each of whisper.cpp's fallback decodes ran to 220
+       tokens, so one pass could outlast the whole window.
+   - Fix:
+     - whisper.cpp's default temperature fallback stays on every pass, exactly
+       as on `develop`. No hypothesis is decoded with fallback disabled.
+     - The worker drains the whole backlog into the window before each pass. It
+       stops only when more audio would evict audio that no pass has inferred.
+     - Pending input is bounded by one rolling window of audio duration, not a
+       chunk count. When the bound is reached, the session fails with
+       "Whisper input backlog reached one 8s rolling window of audio;
+       transcription cannot keep up with capture". The chunk-count ceiling
+       rises to 2,048, so it never binds first.
+     - Decode length is capped at whisper.cpp's own limit of 220 tokens per
+       30 s segment, scaled to the window: 59 tokens for 8 s. English speech
+       in 8 s is far below that.
+     - Decoding parameters are built once per worker. whisper-rs 0.15 leaks
+       the language string every time parameters are constructed, and
+       `develop` built them for every pass.
+2. **`--smoke-seconds` accepts up to 3,600 seconds** instead of 120, so the
+   existing integrated diagnostic can run a 30-minute soak.
 
-| Acceptance item | Result |
+`crates/lcrt-stt-whisper/src/transcript.rs` is identical to `develop`. A
+rolling-window heuristic that dropped suspected garbled leading words was tried
+and removed, because review showed it could silently delete real speech. V1
+prefers a visible repeated phrase over silent loss.
+
+## Final-code automated verification (`cecb0dd`)
+
+| Command | Result |
 | --- | --- |
-| Audible human microphone transcription | PROVEN, limited accuracy on noisy mic |
-| Real system-audio transcription | PROVEN |
-| Same-window Start → Stop → Start | PROVEN |
-| Stop while startup is in progress | LIMITED: acquisition-first branch runtime-tested; cancel-first branch unit-tested |
-| Window close / termination | PROVEN |
-| Offline operation with local model | PROVEN for exercised runs |
-| Integrated PipeWire → Whisper → controller → GTK soak | PROVEN for 30 minutes on an acceptance build |
-| Speech-to-visible-caption latency | LIMITED practical measurement |
-| No stuck LCRT process / PipeWire node | PROVEN |
-| Vietnamese / Japanese speech | NOT TESTED; model is English-only |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
+| `cargo test --locked --workspace --all-features` | 92 passed, 0 failed |
+| `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
+| `git diff --check` | clean |
+| `git diff 1b084aa -- crates/lcrt-stt-whisper/src/transcript.rs Cargo.toml Cargo.lock` | empty |
 
-## Microphone live speech
+New deterministic tests cover:
 
-The owner read:
+- the drain continuing past a due partial until un-inferred audio fills the
+  window (it fails under `develop`'s policy);
+- the backlog admitting the same 8 s of audio at 1,024- and 2,048-frame quanta;
+- the window-scaled token limit;
+- the 3,600-second smoke bound.
 
-> Real-time captions help me follow every conversation.
+This report does not record CI or review results for the commit that contains
+it; those are recorded on PR #25.
 
-Observed results:
+## Final-code runtime verification (`cecb0dd`)
 
-- speech reached the production caption UI and partial text changed while the
-  owner was speaking;
-- best output included `Real-time captions ... help me follow every conversation`;
-- `Real-time` was also misrecognized as `Route time` / `Root time`;
-- the beginning of speech was not dropped, but the first words were frequently
-  inaccurate;
-- partials changed roughly every 1.5 seconds;
-- one measured Stop returned the UI to idle in about 1.0 second.
+| Check | Result |
+| --- | --- |
+| JFK paced replay (`lcrt-whisper-transcribe benchmark paced`) | Transcript identical to `develop`: "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country." 7 passes; first partial 2.38 s; completion 11.71 s |
+| JFK transcribe mode (waiting producer) | Correct final; 4 passes (5 before coalescing) |
+| Repetitive speech through output monitor → PipeWire → Whisper → GTK, 100 s, 2 runs | Both survived. Exit 0; 48 and 49 passes; median 1.83 s and 1.76 s; worst 2.41 s and 2.45 s (31% of the window); one Stop final each; no warnings; no leftovers |
+| Same reproducer on `develop` (`1b084aa`), 2 runs | Both failed after 4 passes with the 256-chunk queue error. One run then exited with SIGSEGV (see limitations) |
+| Real microphone, room noise, normal window: 150 s session, Stop, 20 s session, Stop, Close | 114 passes; median 0.63 s; worst 1.34 s; no warnings or errors. Stop 1.82 s and 1.23 s; statuses "Stopped · 7049 chunks · 60 captions" and "Stopped · 957 chunks · 8 captions". One LCRT node while active, none when idle; 12 threads when idle. Close 0.31 s, exit 0, no leftovers |
+| Close during active inference, 8 launches, 2.1–7.4 s after Listening | 8/8 exit 0 in 0.31–0.36 s; no `lcrt` process or LCRT node left |
+| Natural-silence finals and same-session continuation | See [integrated soak](#integrated-soak) |
+| System audio: JFK played twice through the default sink into the output-monitor diagnostic, 40 s | The first caption appeared 2.44 s and 2.46 s after `pw-play` started. Exit 0; no warnings; no leftovers. Each final contained a visible repeated clause ("…can do for you. America ask Not what your country can do for you…"), the accepted exact-overlap limitation |
+| Stop during startup, 3 attempts in one window | Stop arrived 260–269 ms after Start, after audio acquisition had committed. Each ended as a short cancelled session (8–9 chunks, 0 captions) with no LCRT node and a stable thread count. A full session afterwards worked; Close exit 0 |
+| Offline | Every run above ran inside `bwrap --unshare-net` |
 
-The microphone noise floor was well above the fixed speech RMS threshold. That
-kept the rolling window active during room noise and exposed the queue-overflow
-bug described below.
+### Integrated soak
 
-## System audio
+The soak ran after all builds had finished, with no concurrent Cargo work. The
+path was output monitor → PipeWire → Whisper → controller → GTK caption label,
+as one 1,830 s diagnostic session.
 
-The output monitor was exercised with the checksum-pinned JFK fixture.
+- **Input:** the JFK fixture played 139 times, with a 2 s silence after each
+  play, during a 1,815 s observation window.
+- **Passes:** 952 passes: 813 partials and 139 finals (138 natural-silence
+  finals and the Stop final). 138 of 139 finals were followed by further
+  partials in the same session. Median pass 0.64 s; slowest 4.37 s, a fallback
+  final.
+- **Captions:** the label changed 947 times. The longest interval without a
+  change was 4.4 s. The pipeline reported 49,763 chunks and 952 caption
+  updates.
+- **Memory:** 61 RSS samples, one every 30 s. RSS was 237,624 KiB before the
+  first inference, then 349,212 KiB (first steady sample) → 351,668 KiB
+  (last). The growth was step-shaped:
+  - +336 KiB by minute 14;
+  - flat from minute 14 to 22, about 250 passes;
+  - one +2,056 KiB step at 23.7–24.1 min, exactly when the soak's four
+    slowest passes ran (3.9–4.4 s, two of them fallback finals);
+  - +64 KiB over the last 4 min.
 
-- first visible caption: approximately 2.65–2.69 seconds after playback start;
-- final quotation recognized correctly for the acceptance purpose;
-- process exited 0;
-- no leftover LCRT process or PipeWire node.
+  That pattern fits whisper.cpp retaining its peak decode working set after a
+  fallback burst, not a per-pass leak.
+- **Threads and nodes:** 17–20 threads; exactly one LCRT PipeWire node
+  throughout.
+- **Health:** no warnings or errors in a 158 KB log.
+- **Shutdown:** process exit 0, 8.3 s after the observation window (the
+  remaining smoke time plus the Stop flush); no `lcrt` process or LCRT node
+  afterwards.
 
-## Same-window lifecycle
+## Reused evidence
 
-One retained normal application window completed four Start / Stop sessions and
-additional fast Stops around startup.
-
-- every Start acquired fresh audio;
-- one LCRT PipeWire node existed while active and zero while idle;
-- session state did not carry into the next session;
-- idle thread count returned to the expected level;
-- the window remained usable after the fast-stop attempts.
-
-In all runtime startup-stop attempts, audio acquisition committed before Stop.
-The opposite linearization remains covered by the deterministic PR #21 test
-`cancellation_winning_at_the_audio_boundary_does_not_start_audio`; no sleeps or
-production hooks were added just to force the race.
-
-## Close and termination
-
-Idle and active-session closes exited successfully and left no LCRT process or
-LCRT PipeWire node. Accessibility-driven close exercised the GTK close path; an
-owner UI close was also observed as window disappearance, but the exact physical
-pointer action was not independently verified.
-
-## Offline operation
-
-The exercised GUI/audio runs operated inside a network namespace with no normal
-network access while retaining local Wayland, D-Bus and PipeWire Unix sockets.
-The local Whisper path required no network. This does not claim physical network
-disconnection.
-
-## Integrated soak
-
-A 30-minute integrated acceptance run exercised:
-
-`output monitor → PipeWire → Whisper → controller/event path → GTK caption label`
-
-Observed:
-
-- 139 JFK plays;
-- 966 visible caption changes;
-- longest observed gap between caption changes: about 3.0 seconds;
-- steady RSS approximately 348,924 → 348,972 KiB (+48 KiB);
-- 17–21 threads during the active soak;
-- no warnings or errors;
-- clean Stop / exit and no leftovers.
-
-The soak was performed on an intermediate acceptance build while the discarded
-transcript experiment was still present. It remains evidence for the integrated
-capture/controller/UI stability path, but it is **not claimed as a 30-minute run
-of the exact final PR source**. The final transcript assembler is not a newer
-unverified heuristic: it has been restored exactly to the already-established
-`develop` implementation.
-
-## Latency evidence
-
-The GTK caption label was observed through AT-SPI; this is label-update timing,
-not direct pixel photometry.
-
-- system audio: about 2.65–2.69 seconds from playback start to first label text;
-- one human-microphone session: first text about 0.8 seconds after estimated
-  speech onset; first recognizable words about 2.3 seconds after onset; complete
-  sentence about 1.2 seconds after speech energy ended;
-- microphone onset uncertainty was about ±0.3 seconds and the single session is
-  not a latency distribution.
-
-## Production defect fixed: noisy-mic queue overflow
-
-On unmodified `develop`, the noisy real microphone ended sessions after roughly
-24–28 seconds with:
-
-`Whisper input queue reached its 256-chunk bound`
-
-This reproduced three times.
-
-Normal partial inference took around 0.8 seconds, but whisper.cpp temperature
-fallback could re-decode repetitive/hallucinated partials several times, turning
-individual passes into multi-second work and letting the bounded queue fill.
-
-Final behavior in this PR:
-
-- `InferenceKind::Partial`: `temperature_inc = 0`, so each rolling partial is a
-  single decode; the next rolling-window pass will see the audio again.
-- `InferenceKind::Final`: keep whisper.cpp's normal fallback, because no later
-  rolling pass re-decodes that final audio.
-
-After disabling fallback on the partial-driven noisy path, the same condition ran
-60 seconds and stopped cleanly. A later final-source Stop check ran three 15-second
-noisy-microphone cycles with Stop around 1.37–1.51 seconds; those final passes did
-not happen to trigger fallback. Worst-case fallback Stop latency was therefore
-not observed and remains bounded by the existing finish timeout.
-
-The deterministic JFK path retained the same final transcript.
-
-## Transcript repetition decision
-
-The acceptance run also exposed repeated phrases when Whisper changes words at a
-rolling-window boundary. Several increasingly guarded heuristics were tried to
-drop suspected garbled leading words. Codex review repeatedly produced valid
-counterexamples where those rules could delete genuinely new speech.
-
-The heuristic has therefore been removed rather than made more complicated.
-The final policy is conservative:
-
-- keep the established exact overlap algorithm from `develop`;
-- tolerate visible repeated text when Whisper changes boundary words;
-- never silently discard unmatched leading words based on a fuzzy/count-only
-  guess.
-
-Adaptive VAD/noise-floor handling or a future ASR/backend may reduce repetition
-without introducing lossy transcript heuristics.
-
-## Verification boundaries
-
-The PR must finish with:
-
-- formatting clean;
-- Clippy with warnings denied;
-- workspace tests green;
-- rustdoc with warnings denied;
-- `git diff --check` clean;
-- all PR CI jobs green on the final HEAD;
-- Codex review on the final HEAD with no open P0/P1/P2;
-- post-merge CI green on the exact merge SHA.
-
-Removing the unsafe transcript heuristic does not justify repeating the 30-minute
-soak or the human microphone checkpoint. A focused deterministic replay plus the
-normal quality gates is sufficient to verify the reversion and retained fixes.
+- **Human microphone checkpoint** (an intermediate build that disabled fallback
+  on partials):
+  - The owner read "Real-time captions help me follow every conversation." in
+    the window.
+  - Partial text updated about every 1.5 s while speaking.
+  - Best rendition: "Real-time captions, real-time captions, help me follow
+    every conversation." "Real-time" was often heard as "Route time" or "Root
+    time".
+  - Stop returned to idle in 1.0 s.
+  - Latency: the first caption text changed 0.8 s after speech onset, and the
+    complete sentence was visible about 1.2 s after speech ended. Onset carries
+    ±0.3 s uncertainty (noisy microphone), and this is one session.
+  - Applicability: the capture, controller, and UI path is unchanged. The final
+    decoding restores whisper.cpp's fallback on partials, and the 59-token cap
+    is far above an 8 s spoken sentence, so exact recognition could differ
+    wherever fallback triggers. That was not re-tested with a human.
+- **Earlier same-window lifecycle**: four sessions and six early Stops in one
+  window; no stale transcript between sessions. The controller, startup gate,
+  and UI code are unchanged by this PR.
+- **Cancel-before-acquisition** remains covered only by the PR #21 unit test
+  `cancellation_winning_at_the_audio_boundary_does_not_start_audio`. Warm model
+  loading finishes before an accessibility Stop can arrive.
 
 ## Known limitations
 
-- Fixed RMS speech detection is weak when the microphone noise floor exceeds the
-  threshold; adaptive VAD/noise-floor behavior is future work.
-- Exact rolling-window overlap can visibly repeat phrases when Whisper changes
-  boundary words. This is explicitly preferred over risking silent word loss.
-- A final Whisper pass may use temperature fallback and therefore take longer
-  than a partial pass; the existing bounded finish timeout remains the guard.
-- Accuracy evidence here is one English speaker/sentence and one English JFK
-  fixture on `tiny.en`.
-- Vietnamese and Japanese require a suitable multilingual path and were not
-  tested here.
-- Pointer-click Start/Stop, layer-shell always-on-top presentation, X11, ARM64
-  hardware, Windows runtime and multi-hour stability were not validated here.
+- The speech gate is a fixed RMS threshold. On a microphone whose noise floor
+  exceeds it, utterances finalize only on Stop, and Whisper hallucinates on
+  non-speech. Adaptive VAD or noise-floor handling is future work.
+- The exact rolling-window overlap can visibly repeat a phrase when Whisper
+  changes boundary words. This is preferred over risking silent word loss.
+- Live captioning requires each pass, partial or natural final, to finish
+  within the 8 s window. If a pass does not, the session fails with the backlog
+  error rather than dropping audio. On this CPU the worst observed pass was
+  2.45 s on pathological input. Much slower CPUs, or heavy contention, can
+  still reach the bound.
+- Only a Stop-triggered final is bounded by the 30 s finish timeout. A
+  natural-silence final has no timeout of its own; it is bounded only by the
+  backlog limit above.
+- A pass that reaches the 59-token cap is truncated. That requires more than
+  7.3 tokens per second of audio, the same density whisper.cpp allows for a
+  full 30 s segment.
+- **SIGSEGV after a failed session (pre-existing):** a session that fails while
+  whisper.cpp is still inside a long pass leaves its worker running. If the
+  process exits before that pass ends, native teardown can crash. This was
+  reproduced on `develop` and was not observed on normal close (8/8 during
+  active inference).
+- whisper-rs 0.15.1 `set_abort_callback_safe` reads its user data with the
+  wrong type for a plain closure; LCRT does not use it.
+- Accuracy evidence is one English speaker, one sentence, and the English JFK
+  fixture on `tiny.en`. Vietnamese and Japanese need a multilingual model and
+  were not tested.
+- Pointer-click input, layer-shell always-on-top presentation, X11, ARM64
+  hardware, Windows, and runs longer than 30 minutes were not tested.
