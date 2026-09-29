@@ -16,7 +16,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="$(realpath -m -- "${1:-${repo_root}/target/debian}")"
 cd -- "${repo_root}"
 
-for tool in cargo dpkg-deb dpkg-shlibdeps python3 strip; do
+for tool in cargo dpkg-deb dpkg-shlibdeps python3 rustc strip; do
   command -v "${tool}" >/dev/null || {
     printf 'missing required tool: %s\n' "${tool}" >&2
     exit 1
@@ -48,32 +48,15 @@ install -Dm644 "packaging/linux/${APP_ID}.svg" \
 install -Dm644 README.md "${doc_dir}/README.md"
 install -Dm644 docs/PRIVACY.md "${doc_dir}/PRIVACY.md"
 
-# Debian copyright: LCRT itself plus every statically linked Rust crate
+# Debian copyright: LCRT itself plus every Rust crate linked into the binary
 # (including the vendored whisper.cpp) with its declared license.
 {
   printf 'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n'
   printf 'Upstream-Name: LCRT\nSource: https://github.com/hoangnguyen7474/lcrt\n'
   printf 'Comment: Statically linked third-party crates and their licenses:\n'
-  cargo metadata --locked --format-version 1 \
-    --filter-platform "$(rustc -vV | sed -n 's/^host: //p')" |
-    python3 -c '
-import json, sys
-metadata = json.load(sys.stdin)
-packages = {package["id"]: package for package in metadata["packages"]}
-nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
-root = next(p["id"] for p in metadata["packages"] if p["name"] == "lcrt-app")
-seen, pending = set(), [root]
-while pending:
-    node = nodes[pending.pop()]
-    for dependency in node["deps"]:
-        linked = any(kind["kind"] is None for kind in dependency["dep_kinds"])
-        if linked and dependency["pkg"] not in seen:
-            seen.add(dependency["pkg"])
-            pending.append(dependency["pkg"])
-for package in sorted((packages[i] for i in seen), key=lambda p: (p["name"], p["version"])):
-    if package["source"] is not None:
-        print(" %s %s: %s" % (package["name"], package["version"], package["license"] or "see crate"))
-'
+  cargo tree --locked -e normal -p lcrt-app --prefix none --format ' {p}: {l}' \
+    --target "$(rustc -vV | sed -n 's/^host: //p')" |
+    grep -v ' (/' | sed 's/ (\*)$//; s/ v\([0-9]\)/ \1/' | LC_ALL=C sort -u
   printf '\nFiles: *\nCopyright: %s\nLicense: MIT\n' \
     "$(sed -n 's/^Copyright (c) //p' LICENSE)"
   sed '1,/^Copyright (c)/d; s/^$/./; s/^/ /' LICENSE
