@@ -7,10 +7,10 @@ reuses evidence from PRs #19–#24 where it still applies.
 ## Final identity
 
 - Base `develop`: `1b084aa50bb30f377b0f7cdec095279121bf8a6c`.
-- Final code commit: `33d74df089fee84dd9f06a3b6cf8a4375bbbb3c6`. The final PR
-  head adds only this report on top of it; `git diff 33d74df <head> -- crates`
-  is empty. Every "final code" result below ran a release build of `33d74df`
-  with a clean worktree.
+- Final code commit: `64f2d5537fe675af496f59f107513d07fca5e756`. The final PR
+  head adds only this report on top of it; `git diff 64f2d55 <head> -- crates`
+  is empty. Every "final code" result below ran a release build of `64f2d55`
+  whose `crates/` tree matched that commit.
 - OS: Ubuntu 26.04 LTS, Linux 7.0.0-34-generic, x86_64, GNOME Shell 50.1 on
   Wayland, PipeWire 1.6.2. GNOME did not advertise layer shell, so windows used
   the standard-window fallback.
@@ -51,8 +51,12 @@ reuses evidence from PRs #19–#24 where it still applies.
      - The worker drains the whole backlog into the window before each pass. A
        chunk that would evict audio no pass has inferred is checked *before*
        it is appended, held back until after a pass, and forces that pass if
-       none is due. Every captured sample is therefore inferred, including
-       sparse speech that never meets the step gate.
+       none is due. A pass that the held-back chunk itself makes due, such as a
+       natural final, runs before any later audio. Audio of an utterance that
+       passes the minimum-speech gate is therefore never evicted uninferred,
+       including sparse speech that never meets the step gate. Speech shorter
+       than `minimum_speech` followed by final silence is still discarded by
+       the pre-existing gate.
      - Audio duration is the only input bound. `max_input_backlog` defaults to
        one 8 s window and may not exceed it. The command channel has no
        chunk-count capacity that small PipeWire quanta could exhaust first. At
@@ -61,7 +65,10 @@ reuses evidence from PRs #19–#24 where it still applies.
        producer waits on the same reservation.
      - Decode length is capped at whisper.cpp's own limit of 220 tokens per
        30 s segment, scaled to the window: 59 tokens for 8 s. English speech
-       in 8 s is far below that.
+       in 8 s is far below that. The cap is per segment. Passes decode
+       without timestamps, so whisper.cpp ends each segment by advancing 30 s,
+       and an 8 s window is one segment per fallback attempt. A pass is
+       therefore at most six 59-token decodes.
      - Decoding parameters are built once per worker. whisper-rs 0.15 leaks
        the language string every time parameters are constructed, and
        `develop` built them for every pass.
@@ -73,13 +80,13 @@ rolling-window heuristic that dropped suspected garbled leading words was tried
 and removed, because review showed it could silently delete real speech. V1
 prefers a visible repeated phrase over silent loss.
 
-## Final-code automated verification (`33d74df`)
+## Final-code automated verification (`64f2d55`)
 
 | Command | Result |
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
-| `cargo test --locked --workspace --all-features` | 94 passed, 0 failed |
+| `cargo test --locked --workspace --all-features` | 95 passed, 0 failed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
 | `git diff --check` | clean |
 | `git diff 1b084aa -- crates/lcrt-stt-whisper/src/transcript.rs Cargo.toml Cargo.lock` | empty |
@@ -93,6 +100,8 @@ channel and real chunks with no model:
   chunk's backlog reservation (under `develop`'s policy it stopped after one
   step);
 - sparse speech forces a pass instead of rolling unseen audio away;
+- a final is reported only while its silence persists, which is why a final
+  made due by a held-back chunk runs before later audio;
 - a finish request during a drain is reported.
 
 Further tests cover:
@@ -105,46 +114,42 @@ Further tests cover:
 This report does not record CI or review results for the commit that contains
 it; those are recorded on PR #25.
 
-## Final-code runtime verification (`33d74df`)
+## Final-code runtime verification (`64f2d55`)
 
 | Check | Result |
 | --- | --- |
-| JFK paced replay (`lcrt-whisper-transcribe benchmark paced`) | Transcript identical to `develop`: "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country." 7 passes; first partial 2.42 s; completion 12.00 s |
-| JFK transcribe mode (waiting producer, 2 s backlog) | Correct final; 5 passes |
-| Repetitive speech through output monitor → PipeWire → Whisper → GTK, 100 s, 2 runs | Both survived. Exit 0; 45 and 47 passes; median 2.08 s and 1.84 s; worst 2.67 s and 2.74 s; one Stop final each; no warnings; no leftovers |
+| JFK paced replay (`lcrt-whisper-transcribe benchmark paced`) | Transcript identical to `develop`: "And so, my fellow Americans Ask not what your country can do for you. Ask what you can do for your country." 7 passes; first partial 2.56 s; completion 11.91 s |
+| JFK transcribe mode (waiting producer, 2 s backlog) | Correct final; 6 passes (4–6 across runs, depending on producer timing) |
+| Repetitive speech through output monitor → PipeWire → Whisper → GTK, 100 s, 2 runs | Both survived. Exit 0; 43 and 45 passes; median 1.99 s and 1.98 s; worst 3.09 s and 2.72 s; one Stop final each; no warnings; no leftovers |
 | Same reproducer on `develop` (`1b084aa`), 2 runs | Both failed after 4 passes with the 256-chunk queue error. One run then exited with SIGSEGV (see limitations) |
-| Real microphone, room noise, normal window: 150 s session, Stop, 20 s session, Stop, Close | 113 passes; median 0.89 s; worst 2.58 s; no warnings or errors. Stop 1.59 s and 1.58 s; statuses "Stopped · 7056 chunks · 71 captions" and "Stopped · 959 chunks · 5 captions". One LCRT node while active, none when idle; 12 threads when idle. Close 0.40 s, exit 0, no leftovers |
-| Close during active inference, 8 launches, 2.1–7.4 s after Listening | 8/8 exit 0 in 0.37–0.48 s; no `lcrt` process or LCRT node left |
-| System audio: JFK played twice through the default sink into the output-monitor diagnostic, 40 s | The first caption appeared 2.51 s and 2.73 s after `pw-play` started. Exit 0; no warnings; no leftovers. Each final contained a visible repeated clause ("…can do for you. America ask Not what your country can do for you…"), the accepted exact-overlap limitation |
-| Stop during startup, 3 attempts in one window | Stop arrived 255–265 ms after Start, after audio acquisition had committed. Each ended as a short cancelled session (3–6 chunks, 0 captions) with no LCRT node. A full session afterwards worked; Close exit 0 |
+| Real microphone, room noise, normal window: 150 s session, Stop, 20 s session, Stop, Close | 114 passes; median 0.91 s; worst 1.43 s; no warnings or errors. Stop 2.35 s and 1.33 s; statuses "Stopped · 7049 chunks · 82 captions" and "Stopped · 964 chunks · 14 captions". One LCRT node while active, none when idle; 12 threads when idle. Close 0.33 s, exit 0, no leftovers |
+| Close during active inference, 8 launches, 2.1–7.4 s after Listening | 8/8 exit 0 in 0.35–0.51 s; no `lcrt` process or LCRT node left |
+| System audio: JFK played twice through the default sink into the output-monitor diagnostic, 40 s | The first caption appeared 2.68 s after `pw-play` started, both times. Exit 0; no warnings; no leftovers. Finals can contain a visible repeated clause ("…can do for you. America ask Not what your country can do for you…"), the accepted exact-overlap limitation |
+| Stop during startup, 3 attempts in one window | Stop arrived 265–266 ms after Start, after audio acquisition had committed. Each ended as a short cancelled session (4–6 chunks, 0 captions) with no LCRT node. A full session afterwards worked; Close exit 0 |
 | Natural-silence finals and same-session continuation | See [integrated soak](#integrated-soak) |
 | Offline | Every run above ran inside `bwrap --unshare-net` |
 
 ### Integrated soak
 
-The soak ran on `33d74df` after all builds had finished, with no concurrent
+The soak ran on `64f2d55` after all builds had finished, with no concurrent
 Cargo work. The path was output monitor → PipeWire → Whisper → controller →
 GTK caption label, as one 1,830 s diagnostic session.
 
-- **Input:** the JFK fixture played 138 times, with a 2 s silence after each
+- **Input:** the JFK fixture played 139 times, with a 2 s silence after each
   play, during a 1,815 s observation window.
-- **Passes:** 942 passes: 804 partials and 138 finals (137 natural-silence
-  finals and the Stop final). All 137 natural finals were followed by further
-  partials in the same session. Median pass 0.90 s; slowest 3.83 s, a fallback
-  final.
-- **Captions:** the label changed 940 times. The longest interval without a
-  change was 4.7 s. The pipeline reported 49,940 chunks and 942 caption
+- **Passes:** 973 passes: 834 partials and 139 finals (138 natural-silence
+  finals and the Stop final). All 138 natural finals were followed by further
+  partials in the same session. Median pass 0.90 s; slowest 1.71 s, a final.
+- **Captions:** the label changed 967 times. The longest interval without a
+  change was 3.4 s. The pipeline reported 50,181 chunks and 973 caption
   updates.
-- **Memory:** 61 RSS samples, one every 30 s. RSS was 237,988 KiB before the
-  first inference, then 349,216 KiB (first steady sample) → 350,912 KiB
-  (last). The growth was step-shaped: +68 KiB by minute 8, +596 KiB by
-  minute 10, +1,696 KiB by minute 14, then **flat from minute 14 to 28.5**
-  (about 450 passes). That fits whisper.cpp retaining its peak decode working
-  set, not a per-pass leak.
+- **Memory:** 61 RSS samples, one every 30 s. RSS was 238,460 KiB before the
+  first inference, then 349,760 KiB (first steady sample) → 350,104 KiB
+  (last). That is +344 KiB in total, flat from minute 16 to 30.
 - **Threads and nodes:** 17–20 threads; exactly one LCRT PipeWire node
   throughout.
-- **Health:** no warnings or errors in a 157 KB log.
-- **Shutdown:** process exit 0, 14.6 s after the observation window (the
+- **Health:** no warnings or errors in a 162 KB log.
+- **Shutdown:** process exit 0, 7.4 s after the observation window (the
   remaining smoke time plus the Stop flush); no `lcrt` process or LCRT node
   afterwards.
 
@@ -184,8 +189,8 @@ GTK caption label, as one 1,830 s diagnostic session.
 - Live captioning requires each pass, partial or natural final, to finish
   within the 8 s window. If a pass does not, the session fails with the backlog
   error rather than dropping audio. Across all final-code runs, the worst
-  observed pass was 3.83 s (a fallback final in the soak), 48% of the window;
-  the repetitive-speech worst was 2.74 s and the real-microphone worst 2.58 s.
+  observed pass was 3.09 s (repetitive speech), 39% of the window; the soak
+  worst was 1.71 s and the real-microphone worst 1.43 s.
   Much slower CPUs, or heavy contention, can still reach the bound.
 - Only a Stop-triggered final is bounded by the 30 s finish timeout. A
   natural-silence final has no timeout of its own; it is bounded only by the
