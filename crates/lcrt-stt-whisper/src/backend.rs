@@ -417,10 +417,10 @@ struct DrainedAudio {
 /// backlog never carries over from one pass to the next.
 ///
 /// Draining stops at a due final, at a finish request, or before a chunk
-/// would evict un-inferred audio of an utterance that has passed the
-/// minimum-speech gate. That chunk is deferred until after a pass, which is
-/// forced if none is due. Below the gate the window rolls as before, because
-/// that audio is not eligible for inference.
+/// would evict un-inferred audio of an utterance that passes the
+/// minimum-speech gate, counting that chunk. The chunk is deferred until after
+/// a pass, which is forced if none is due. Below the gate the window rolls as
+/// before, because that audio is not eligible for inference.
 fn drain_backlog(
     first: AudioChunk,
     commands: &Receiver<WorkerCommand>,
@@ -441,7 +441,9 @@ fn drain_backlog(
             None => converter.insert(AudioConverter::new(&chunk)?),
         };
         let samples = converter.push(&chunk)?;
-        if window.would_evict_uninferred(samples.len()) && window.meets_minimum_speech() {
+        if window.would_evict_uninferred(samples.len())
+            && window.meets_minimum_speech_with(&samples)
+        {
             drained.pending_kind.get_or_insert(InferenceKind::Partial);
             drained.deferred = Some(samples);
             break;
@@ -557,11 +559,13 @@ impl InputBacklog {
     }
 }
 
+/// A chunk's duration, rounded up so every non-empty chunk reserves at least
+/// its true duration and the backlog never admits more than its limit.
 fn audio_micros(chunk: &AudioChunk) -> u64 {
     u64::try_from(chunk.frame_count())
         .unwrap_or(u64::MAX)
         .saturating_mul(1_000_000)
-        / u64::from(chunk.sample_rate_hz())
+        .div_ceil(u64::from(chunk.sample_rate_hz()))
 }
 
 /// Builds decoding parameters once per worker. whisper-rs 0.15 never frees
@@ -792,6 +796,33 @@ mod tests {
     }
 
     #[test]
+    fn a_chunk_that_lifts_speech_over_the_gate_is_deferred_before_evicting() {
+        let mut window = StreamingWindow::new(&two_second_window()).unwrap();
+        for _ in 0..8 {
+            window.push(&vec![0.1; 400]);
+            window.push(&vec![0.0; 3_500]);
+        }
+        let commands = queue([]);
+
+        let drained = drain_backlog(
+            audio(1_000, 0.1),
+            &commands,
+            &InputBacklog::new(Duration::from_secs(8)),
+            &mut None,
+            &mut window,
+        )
+        .unwrap();
+
+        // 0.2 s of speech is below the 0.25 s gate, but this 62.5 ms chunk
+        // lifts the utterance over it; the chunk would also overflow the 2 s
+        // window, so it waits for a pass instead of evicting unseen audio.
+        assert_eq!(drained.pending_kind, Some(InferenceKind::Partial));
+        assert!(drained.deferred.is_some());
+        assert!(!window.rolled_since_inference());
+        assert_eq!(window.samples().len(), 31_200);
+    }
+
+    #[test]
     fn below_minimum_speech_is_never_forced_into_a_pass() {
         let mut window = StreamingWindow::new(&two_second_window()).unwrap();
         let mut spikes = Vec::new();
@@ -856,12 +887,22 @@ mod tests {
             .take_while(|_| backlog.try_reserve(quantum_2048))
             .count();
 
-        // Both quanta admit the same 8 s of audio: 375 x 21.3 ms, 187 x 42.7 ms.
-        assert_eq!(accepted_small, 375);
+        // Both quanta admit at most 8 s of audio: 374 x 21.3 ms, 187 x 42.7 ms.
+        assert_eq!(accepted_small, 374);
         assert_eq!(accepted_large, 187);
         backlog.release(quantum_2048);
         assert!(backlog.try_reserve(quantum_2048));
         assert!(!backlog.try_reserve(quantum_2048));
+    }
+
+    #[test]
+    fn every_non_empty_chunk_reserves_at_least_its_duration() {
+        let one_frame_at_2_mhz = AudioChunk::new(vec![0.0], 2_000_000, 1).unwrap();
+        let quantum = AudioChunk::new(vec![0.0; 1_024], 48_000, 1).unwrap();
+
+        assert_eq!(audio_micros(&one_frame_at_2_mhz), 1);
+        // 1,024 frames at 48 kHz last 21,333.3 µs, never rounded down.
+        assert_eq!(audio_micros(&quantum), 21_334);
     }
 
     #[test]

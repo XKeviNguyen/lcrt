@@ -126,16 +126,14 @@ mod tests {
 
     #[test]
     fn input_backlog_may_not_exceed_the_rolling_window() {
-        let model = std::env::temp_dir().join("lcrt-config-test-model.bin");
-        std::fs::write(&model, b"placeholder").unwrap();
-        let mut config = WhisperConfig::new(&model);
+        // Validation only requires an existing file; the test binary is one,
+        // so no file needs to be written.
+        let mut config = WhisperConfig::new(std::env::current_exe().unwrap());
 
         assert!(config.validate().is_ok());
         config.max_input_backlog = config.window_duration + Duration::from_millis(1);
         assert!(config.validate().is_err());
         config.max_input_backlog = Duration::ZERO;
         assert!(config.validate().is_err());
-
-        std::fs::remove_file(model).unwrap();
     }
 }

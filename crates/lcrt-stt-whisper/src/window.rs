@@ -48,9 +48,7 @@ impl StreamingWindow {
             return None;
         }
 
-        let mean_square =
-            samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32;
-        let contains_speech = mean_square >= self.rms_threshold_squared;
+        let contains_speech = self.is_speech(samples);
 
         // Idle audio is irrelevant to both Whisper context and speech-relative
         // inference gates. Keeping it out also prevents old silence from
@@ -126,10 +124,15 @@ impl StreamingWindow {
         self.rolled_since_inference
     }
 
-    /// Whether the open utterance has passed the minimum-speech gate, so its
-    /// audio is eligible for inference.
-    pub(crate) fn meets_minimum_speech(&self) -> bool {
-        self.speech_samples >= self.minimum_samples
+    /// Whether the open utterance passes the minimum-speech gate, and so is
+    /// eligible for inference, once `incoming` is appended.
+    pub(crate) fn meets_minimum_speech_with(&self, incoming: &[f32]) -> bool {
+        let incoming_speech = if self.is_speech(incoming) {
+            incoming.len()
+        } else {
+            0
+        };
+        self.speech_samples.saturating_add(incoming_speech) >= self.minimum_samples
     }
 
     /// Whether appending `incoming` samples would evict audio that no pass
@@ -145,6 +148,15 @@ impl StreamingWindow {
         if kind == InferenceKind::Final {
             self.reset_utterance();
         }
+    }
+
+    fn is_speech(&self, samples: &[f32]) -> bool {
+        if samples.is_empty() {
+            return false;
+        }
+        let mean_square =
+            samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32;
+        mean_square >= self.rms_threshold_squared
     }
 
     fn reset_utterance(&mut self) {
