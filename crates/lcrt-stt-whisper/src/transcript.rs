@@ -3,10 +3,6 @@ use lcrt_core::TranscriptUpdate;
 use crate::{WhisperBackendError, window::InferenceKind};
 
 const TRUNCATION_MARKER: &str = "…";
-/// A rolled window starts mid-utterance, so Whisper may garble its first words.
-const MAX_GARBLED_LEADING_WORDS: usize = 2;
-/// Matching words required before garbled leading words may be dropped.
-const MIN_ANCHORED_OVERLAP_WORDS: usize = 3;
 
 /// Bounded transcript state for one utterance.
 ///
@@ -40,11 +36,9 @@ impl TranscriptAssembler {
             InferenceKind::Partial => {
                 let previous = self.joined();
                 let previous_stable = self.committed.clone();
-                let text = if window_rolled {
-                    self.commit_prefix_not_in(text)
-                } else {
-                    text
-                };
+                if window_rolled {
+                    self.commit_prefix_not_in(text);
+                }
                 self.partial.clear();
                 self.partial.push_str(text);
                 self.enforce_bound();
@@ -57,11 +51,9 @@ impl TranscriptAssembler {
             }
             InferenceKind::Final => {
                 if !text.is_empty() {
-                    let text = if window_rolled {
-                        self.commit_prefix_not_in(text)
-                    } else {
-                        text
-                    };
+                    if window_rolled {
+                        self.commit_prefix_not_in(text);
+                    }
                     self.partial.clear();
                     self.partial.push_str(text);
                 }
@@ -80,12 +72,12 @@ impl TranscriptAssembler {
         }
     }
 
-    /// Commits the part of the previous partial that the rolled window no
-    /// longer covers and returns the part of `next_partial` to keep.
-    fn commit_prefix_not_in<'a>(&mut self, next_partial: &'a str) -> &'a str {
-        let (prefix, partial_start) = non_overlapping_prefix(&self.partial, next_partial);
+    fn commit_prefix_not_in(&mut self, next_partial: &str) {
+        let prefix = non_overlapping_prefix(&self.partial, next_partial);
+        if prefix.is_empty() {
+            return;
+        }
         self.committed.push_str(&prefix);
-        &next_partial[partial_start..]
     }
 
     fn enforce_bound(&mut self) {
@@ -109,59 +101,32 @@ impl TranscriptAssembler {
     }
 }
 
-/// Returns the prefix of `previous` not covered by `current`, and the byte
-/// offset where `current` starts to overlap `previous`.
-///
-/// An exact overlap at the start of `current` always wins. Only when none
-/// exists are up to [`MAX_GARBLED_LEADING_WORDS`] leading words of `current`
-/// treated as a re-recognition of already recognized audio, and only when the
-/// remainder anchors on at least [`MIN_ANCHORED_OVERLAP_WORDS`] matching words.
-/// Skipped words are dropped only when at least as many words of `previous`
-/// precede the anchor, since only those can be the audio they re-recognize;
-/// otherwise they are retained as genuine leading speech.
-fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
+fn non_overlapping_prefix(previous: &str, current: &str) -> String {
     if contains_unsegmented_script(previous) || contains_unsegmented_script(current) {
-        return (non_overlapping_character_prefix(previous, current), 0);
+        return non_overlapping_character_prefix(previous, current);
     }
 
     let previous_words = word_spans(previous);
     let current_words = word_spans(current);
-    let overlap = (0..=MAX_GARBLED_LEADING_WORDS.min(current_words.len())).find_map(|skipped| {
-        let minimum = if skipped == 0 {
-            1
-        } else {
-            MIN_ANCHORED_OVERLAP_WORDS
-        };
-        let maximum = previous_words.len().min(current_words.len() - skipped);
-        (minimum..=maximum)
-            .rev()
-            .find(|&count| {
-                previous_words[previous_words.len() - count..]
-                    .iter()
-                    .zip(&current_words[skipped..skipped + count])
-                    .all(|(left, right)| {
-                        let word = normalized_word(left.2);
-                        // Punctuation or noise markers such as `♪` cannot
-                        // justify dropping recognized leading words.
-                        word == normalized_word(right.2) && (skipped == 0 || !word.is_empty())
-                    })
-            })
-            .map(|count| (count, skipped))
-    });
-    if let Some((count, skipped)) = overlap {
-        let overlap_start = previous_words[previous_words.len() - count].0;
-        let partial_start = if previous_words.len() - count >= skipped {
-            current_words[skipped].0
-        } else {
-            0
-        };
-        return (previous[..overlap_start].to_owned(), partial_start);
+    let maximum = previous_words.len().min(current_words.len());
+    let word_overlap = (1..=maximum)
+        .rev()
+        .find(|&count| {
+            previous_words[previous_words.len() - count..]
+                .iter()
+                .zip(&current_words[..count])
+                .all(|(left, right)| normalized_word(left.2) == normalized_word(right.2))
+        })
+        .unwrap_or(0);
+    if word_overlap > 0 {
+        let overlap_start = previous_words[previous_words.len() - word_overlap].0;
+        return previous[..overlap_start].to_owned();
     }
 
     if previous.is_empty() {
-        (String::new(), 0)
+        String::new()
     } else {
-        (format!("{} ", previous.trim_end()), 0)
+        format!("{} ", previous.trim_end())
     }
 }
 
@@ -299,152 +264,6 @@ mod tests {
             "alpha beta gamma delta epsilon zeta eta theta"
         );
         assert_eq!(third.stable_text(), "alpha beta gamma delta ");
-    }
-
-    #[test]
-    fn rolled_window_with_garbled_leading_words_does_not_duplicate_sentence() {
-        let mut transcript = TranscriptAssembler::new(256);
-        transcript
-            .apply(
-                InferenceKind::Partial,
-                "Great time, Captain. Route time caption, have me follow every conversation."
-                    .to_owned(),
-                false,
-            )
-            .unwrap();
-
-        let update = transcript
-            .apply(
-                InferenceKind::Partial,
-                "Roo-time caption, have me follow every conversation.".to_owned(),
-                true,
-            )
-            .unwrap()
-            .unwrap();
-        let next = transcript
-            .apply(
-                InferenceKind::Partial,
-                "Root time caption, have me follow every conversation.".to_owned(),
-                true,
-            )
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(
-            update.text(),
-            "Great time, Captain. Route time caption, have me follow every conversation."
-        );
-        assert_eq!(update.stable_text(), "Great time, Captain. Route time ");
-        // No earlier word of the previous partial proves that "Root time"
-        // re-recognizes committed audio, so it is kept rather than dropped.
-        // The sentence itself is still not duplicated.
-        assert_eq!(
-            next.text(),
-            "Great time, Captain. Route time Root time caption, have me follow every conversation."
-        );
-    }
-
-    #[test]
-    fn exact_leading_overlap_wins_over_longer_match_after_skipped_words() {
-        let mut transcript = TranscriptAssembler::new(256);
-        transcript
-            .apply(
-                InferenceKind::Partial,
-                "we need to go home".to_owned(),
-                false,
-            )
-            .unwrap();
-
-        let update = transcript
-            .apply(
-                InferenceKind::Partial,
-                "go home we need to go home now".to_owned(),
-                true,
-            )
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(update.text(), "we need to go home we need to go home now");
-        assert_eq!(update.stable_text(), "we need to ");
-    }
-
-    #[test]
-    fn leading_words_without_earlier_recognized_text_are_retained() {
-        let mut transcript = TranscriptAssembler::new(256);
-        transcript
-            .apply(InferenceKind::Partial, "I want to go".to_owned(), false)
-            .unwrap();
-
-        let update = transcript
-            .apply(
-                InferenceKind::Partial,
-                "but I want to go home".to_owned(),
-                true,
-            )
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(update.text(), "but I want to go home");
-    }
-
-    #[test]
-    fn committed_text_does_not_justify_dropping_leading_words() {
-        let mut transcript = TranscriptAssembler::new(256);
-        transcript
-            .apply(
-                InferenceKind::Partial,
-                "alpha I want to go".to_owned(),
-                false,
-            )
-            .unwrap();
-        transcript
-            .apply(InferenceKind::Partial, "I want to go".to_owned(), true)
-            .unwrap();
-
-        let update = transcript
-            .apply(
-                InferenceKind::Partial,
-                "but I want to go home".to_owned(),
-                true,
-            )
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(update.text(), "alpha but I want to go home");
-    }
-
-    #[test]
-    fn punctuation_only_anchor_does_not_drop_leading_words() {
-        let mut transcript = TranscriptAssembler::new(256);
-        transcript
-            .apply(InferenceKind::Partial, "music ♪ ♪ ♪".to_owned(), false)
-            .unwrap();
-
-        let update = transcript
-            .apply(InferenceKind::Partial, "hello ♪ ♪ ♪".to_owned(), true)
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(update.text(), "music ♪ ♪ ♪ hello ♪ ♪ ♪");
-    }
-
-    #[test]
-    fn short_overlap_after_leading_words_is_not_treated_as_repetition() {
-        let mut transcript = TranscriptAssembler::new(256);
-        transcript
-            .apply(InferenceKind::Partial, "alpha beta gamma".to_owned(), false)
-            .unwrap();
-
-        let update = transcript
-            .apply(
-                InferenceKind::Partial,
-                "delta gamma epsilon".to_owned(),
-                true,
-            )
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(update.text(), "alpha beta gamma delta gamma epsilon");
     }
 
     #[test]
