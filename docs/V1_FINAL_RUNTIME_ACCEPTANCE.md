@@ -12,14 +12,24 @@ evidence that was still missing.
 - Two builds were runtime-measured. **Build A** disabled the Whisper fallback
   for every pass and contained the smoke bound change. **Build B** is head
   `4335dad`, which added the first transcript-overlap fix.
-- The final head adds three review corrections. Final passes keep the
-  fallback, an exact leading overlap takes precedence, and punctuation-only
-  tokens cannot anchor a skip. These corrections are unit-tested. The only
-  runtime check on the final source was a deterministic paced replay of the
-  fixture: identical transcript, 7 passes, first partial at 2.78 s.
-- The system-audio, soak, microphone, and lifecycle results below therefore
-  come from Builds A and B, not the exact final source. None of the
-  corrections touch the lifecycle, capture, or shutdown paths.
+- The final head adds four review corrections. All are unit-tested:
+  - Final passes keep the fallback.
+  - An exact leading overlap takes precedence.
+  - Punctuation-only tokens cannot anchor a skip.
+  - Skipped words are retained unless recognized text precedes the anchor.
+- Runtime checks on the final source:
+  - A deterministic paced replay of the fixture (see
+    [fixes](#fixes-made-by-this-pull-request)).
+  - Stop re-measured on the final source, because the final-pass fallback runs
+    on Stop. The final source ran three 15-second noisy-microphone cycles in
+    one offline window. Stop took 1.37–1.51 s each time, the final passes took
+    0.58 s (none fell back), and the window closed with exit 0 and no
+    leftovers.
+- All other system-audio, soak, microphone, and lifecycle results below come
+  from Builds A and B, not the exact final source. The final-pass fallback can
+  still take several decodes on a rejected final. Its worst-case Stop latency
+  on the final source was not observed, and it stays bounded by the 30-second
+  finish timeout.
 - OS: Ubuntu 26.04 LTS, Linux 7.0.0-34-generic, x86_64, GNOME Shell 50.1
   on Wayland, PipeWire 1.6.2.
 - CPU: 12th Gen Intel Core i5-12500H, 16 logical CPUs. Rust 1.98.0.
@@ -242,15 +252,19 @@ frame. The two starting points differ:
      was then committed again.
    - Fix: an exact overlap at the start of the new hypothesis still always
      wins. Only when there is none may up to two garbled leading words be
-     dropped, and only when at least three further non-punctuation words
-     anchor the overlap. This keeps a legitimately repeated phrase such as
-     "go home … go home", and noise markers such as `♪` cannot delete words.
-   - Evidence: four regression tests. On head `4335dad`, a paced replay of
+     dropped, only when at least three further non-punctuation words anchor
+     the overlap, and only when at least as many recognized words precede the
+     anchor. This keeps a legitimately repeated phrase such as "go home … go
+     home". A genuine leading word such as the "but" in "but I want to go
+     home" is retained, and noise markers such as `♪` cannot delete words.
+   - Evidence: five regression tests. On head `4335dad`, a paced replay of
      the owner's recorded segment through the diagnostic removed three
      duplicated renditions, and the fixture output was unchanged. The
      recording was then deleted. The later corrections affect only
      hypotheses that have an exact leading overlap or punctuation-only
-     anchors. The observed duplicates had neither.
+     anchors, or no recognized text before the anchor. The observed
+     duplicates had none of these. On the final source, a paced fixture
+     replay produced the identical transcript in 7 passes.
 3. **Smoke diagnostic too short for a soak.** `--smoke-seconds` now accepts up
    to 3,600 seconds instead of 120, so the diagnostic can run the integrated
    soak. It remains bounded.

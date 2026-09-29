@@ -83,7 +83,13 @@ impl TranscriptAssembler {
     /// Commits the part of the previous partial that the rolled window no
     /// longer covers and returns the part of `next_partial` to keep.
     fn commit_prefix_not_in<'a>(&mut self, next_partial: &'a str) -> &'a str {
-        let (prefix, partial_start) = non_overlapping_prefix(&self.partial, next_partial);
+        let committed_words = self
+            .committed
+            .split_whitespace()
+            .take(MAX_GARBLED_LEADING_WORDS)
+            .count();
+        let (prefix, partial_start) =
+            non_overlapping_prefix(&self.partial, next_partial, committed_words);
         self.committed.push_str(&prefix);
         &next_partial[partial_start..]
     }
@@ -114,9 +120,16 @@ impl TranscriptAssembler {
 ///
 /// An exact overlap at the start of `current` always wins. Only when none
 /// exists are up to [`MAX_GARBLED_LEADING_WORDS`] leading words of `current`
-/// treated as a re-recognition of already committed audio, and only when the
+/// treated as a re-recognition of already recognized audio, and only when the
 /// remainder anchors on at least [`MIN_ANCHORED_OVERLAP_WORDS`] matching words.
-fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
+/// Skipped words are dropped only when at least as many recognized words
+/// (`committed_words` plus the previous words before the anchor) precede the
+/// anchor; otherwise they are retained as genuine leading speech.
+fn non_overlapping_prefix(
+    previous: &str,
+    current: &str,
+    committed_words: usize,
+) -> (String, usize) {
     if contains_unsegmented_script(previous) || contains_unsegmented_script(current) {
         return (non_overlapping_character_prefix(previous, current), 0);
     }
@@ -147,10 +160,13 @@ fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
     });
     if let Some((count, skipped)) = overlap {
         let overlap_start = previous_words[previous_words.len() - count].0;
-        return (
-            previous[..overlap_start].to_owned(),
-            current_words[skipped].0,
-        );
+        let words_before_anchor = previous_words.len() - count + committed_words;
+        let partial_start = if words_before_anchor >= skipped {
+            current_words[skipped].0
+        } else {
+            0
+        };
+        return (previous[..overlap_start].to_owned(), partial_start);
     }
 
     if previous.is_empty() {
@@ -354,6 +370,25 @@ mod tests {
 
         assert_eq!(update.text(), "we need to go home we need to go home now");
         assert_eq!(update.stable_text(), "we need to ");
+    }
+
+    #[test]
+    fn leading_words_without_earlier_recognized_text_are_retained() {
+        let mut transcript = TranscriptAssembler::new(256);
+        transcript
+            .apply(InferenceKind::Partial, "I want to go".to_owned(), false)
+            .unwrap();
+
+        let update = transcript
+            .apply(
+                InferenceKind::Partial,
+                "but I want to go home".to_owned(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(update.text(), "but I want to go home");
     }
 
     #[test]
