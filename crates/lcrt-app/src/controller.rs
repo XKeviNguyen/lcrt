@@ -17,6 +17,7 @@ use lcrt_audio_pipewire::{PipeWireCapture, PipeWireCaptureConfig};
 use lcrt_core::{
     AudioSourceDescriptor, CaptionPipeline, CaptionSinkError, Language, PipelineError, Preferences,
     ProcessingMode, RunSummary, RuntimeConfig, SessionGeneration, SessionOptions, Transcriber,
+    TranscriptionError,
 };
 use lcrt_openai::{
     credentials::{ApiKey, CredentialStatus, Credentials, KeyringStore},
@@ -127,9 +128,40 @@ impl StartupGate {
     }
 }
 
+/// Why a caption session ended early, in words for the user.
+#[derive(Debug)]
+struct SessionFailure {
+    message: String,
+    /// The user must fix a setting (such as the API key) before retrying.
+    needs_settings: bool,
+}
+
+impl SessionFailure {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            needs_settings: false,
+        }
+    }
+
+    fn from_pipeline(error: &(dyn std::error::Error + 'static)) -> Self {
+        // Backend errors already carry user-facing text.
+        let transcription = error.downcast_ref::<TranscriptionError>().or_else(|| {
+            match error.downcast_ref::<PipelineError>() {
+                Some(PipelineError::Transcription(error)) => Some(error),
+                _ => None,
+            }
+        });
+        Self {
+            message: error.to_string(),
+            needs_settings: transcription.is_some_and(TranscriptionError::is_credential_rejected),
+        }
+    }
+}
+
 struct PipelineSession {
     startup: Arc<StartupGate>,
-    result: Receiver<Result<RunSummary, String>>,
+    result: Receiver<Result<RunSummary, SessionFailure>>,
     worker: JoinHandle<()>,
 }
 
@@ -364,7 +396,7 @@ impl Controller {
         }
     }
 
-    fn publish_completion(&self, result: Result<RunSummary, String>) {
+    fn publish_completion(&self, result: Result<RunSummary, SessionFailure>) {
         let replacing = self.pending_start.is_some();
         match result {
             Ok(summary) => {
@@ -378,14 +410,14 @@ impl Controller {
                     notify_ui(self.sink.set_status("Stopped"));
                 }
             }
-            Err(message) => {
-                error!(%message, "caption session failed");
+            Err(failure) => {
+                error!(message = %failure.message, "caption session failed");
                 notify_ui(self.sink.set_running(false));
                 notify_ui(self.sink.set_status("Error"));
-                if message.contains("API key") {
-                    notify_ui(self.sink.show_settings_error(message));
+                if failure.needs_settings {
+                    notify_ui(self.sink.show_settings_error(failure.message));
                 } else {
-                    notify_ui(self.sink.show_error(message));
+                    notify_ui(self.sink.show_error(failure.message));
                 }
             }
         }
@@ -502,8 +534,7 @@ impl Controller {
                     }
                     Err(error) => {
                         let needs_settings = matches!(&error, VocabularyError::Service(service)
-                            if matches!(service, lcrt_openai::transport::TransportError::Unauthorized
-                                | lcrt_openai::transport::TransportError::Forbidden));
+                            if service.is_credential_rejected());
                         Err(problem(&error.to_string(), needs_settings))
                     }
                 };
@@ -587,13 +618,8 @@ fn start_pipeline(
     let worker = thread::Builder::new()
         .name("lcrt-caption-pipeline".to_owned())
         .spawn(move || {
-            let result = run_pipeline(source, backend, sink, &worker_startup).map_err(|error| {
-                match error.downcast_ref::<PipelineError>() {
-                    // Backend errors already carry user-facing text.
-                    Some(PipelineError::Transcription(error)) => error.to_string(),
-                    _ => error.to_string(),
-                }
-            });
+            let result = run_pipeline(source, backend, sink, &worker_startup)
+                .map_err(|error| SessionFailure::from_pipeline(error.as_ref()));
             let _ = result_sender.send(result);
         })
         .map_err(|error| format!("could not start the caption pipeline worker: {error}"))?;
@@ -688,14 +714,16 @@ fn start_audio_after_stt<A, E>(
     Ok(Some(audio))
 }
 
-fn take_completed_session(state: &mut ControllerState) -> Option<Result<RunSummary, String>> {
+fn take_completed_session(
+    state: &mut ControllerState,
+) -> Option<Result<RunSummary, SessionFailure>> {
     let result = match state {
         ControllerState::Active(session) => match session.result.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return None,
-            Err(TryRecvError::Disconnected) => {
-                Err("caption pipeline result channel disconnected".to_owned())
-            }
+            Err(TryRecvError::Disconnected) => Err(SessionFailure::new(
+                "caption pipeline result channel disconnected",
+            )),
         },
         ControllerState::Idle
         | ControllerState::ShutdownRequested
@@ -706,7 +734,7 @@ fn take_completed_session(state: &mut ControllerState) -> Option<Result<RunSumma
         unreachable!("only an active session can produce a completion");
     };
     if completed.worker.join().is_err() {
-        return Some(Err("caption pipeline worker panicked".to_owned()));
+        return Some(Err(SessionFailure::new("caption pipeline worker panicked")));
     }
     Some(result)
 }
@@ -731,11 +759,25 @@ mod tests {
     };
 
     use super::{
-        ControllerState, PipelineSession, StartupGate, StartupPhase, credential_view, key_to_test,
-        request_controller_shutdown, start_audio_after_stt,
+        ControllerState, PipelineSession, SessionFailure, StartupGate, StartupPhase,
+        credential_view, key_to_test, request_controller_shutdown, start_audio_after_stt,
     };
+    use lcrt_core::{PipelineError, TranscriptionError};
     use lcrt_openai::credentials::{ApiKey, CredentialStatus};
     use lcrt_ui_gtk::{CredentialTone, EnteredApiKey};
+
+    #[test]
+    fn only_a_rejected_credential_sends_the_user_to_settings() {
+        let rejected = TranscriptionError::credential_rejected("Your OpenAI API key was rejected.");
+        let direct = SessionFailure::from_pipeline(&rejected);
+        assert!(direct.needs_settings);
+        assert_eq!(direct.message, "Your OpenAI API key was rejected.");
+        let wrapped = PipelineError::Transcription(rejected);
+        assert!(SessionFailure::from_pipeline(&wrapped).needs_settings);
+        // Mentioning the key is not the same as the key being rejected.
+        let other = TranscriptionError::new("API key accepted but the service is down");
+        assert!(!SessionFailure::from_pipeline(&other).needs_settings);
+    }
 
     #[test]
     fn connection_test_prefers_the_entered_key_without_consulting_storage() {

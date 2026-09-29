@@ -45,6 +45,11 @@ impl TransportError {
     pub fn is_transient(&self) -> bool {
         matches!(self, Self::Unreachable(_) | Self::Closed)
     }
+
+    /// Whether the user must change the API key before retrying.
+    pub fn is_credential_rejected(&self) -> bool {
+        matches!(self, Self::Unauthorized | Self::Forbidden)
+    }
 }
 
 impl fmt::Display for TransportError {

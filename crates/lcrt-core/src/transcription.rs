@@ -140,6 +140,7 @@ impl Error for TranscriptUpdateError {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranscriptionError {
     message: String,
+    credential_rejected: bool,
 }
 
 impl TranscriptionError {
@@ -147,7 +148,22 @@ impl TranscriptionError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            credential_rejected: false,
         }
+    }
+
+    /// Creates an error meaning the service rejected the configured
+    /// credential, which only the user can fix in settings.
+    pub fn credential_rejected(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            credential_rejected: true,
+        }
+    }
+
+    /// Whether the user must change the credential before retrying.
+    pub fn is_credential_rejected(&self) -> bool {
+        self.credential_rejected
     }
 }
 

@@ -59,6 +59,14 @@ pub fn user_message(error: &TransportError) -> &'static str {
     }
 }
 
+fn session_error(error: &TransportError) -> TranscriptionError {
+    if error.is_credential_rejected() {
+        TranscriptionError::credential_rejected(user_message(error))
+    } else {
+        TranscriptionError::new(user_message(error))
+    }
+}
+
 /// Timing bounds for one session; tests shorten them.
 #[derive(Clone, Copy, Debug)]
 pub struct SessionLimits {
@@ -165,7 +173,7 @@ impl OnlineSession {
                 Ok(WorkerEvent::Update(update)) => updates.push(update),
                 Ok(WorkerEvent::Failed(error)) => {
                     self.finished = true;
-                    return Err(TranscriptionError::new(user_message(&error)));
+                    return Err(session_error(&error));
                 }
                 Ok(WorkerEvent::Done) => {
                     self.finished = true;
@@ -264,7 +272,7 @@ impl Transcriber for OnlineSession {
                 Ok(WorkerEvent::Update(update)) => updates.push(update),
                 Ok(WorkerEvent::Failed(error)) => {
                     self.finished = true;
-                    return Err(TranscriptionError::new(user_message(&error)));
+                    return Err(session_error(&error));
                 }
                 Ok(WorkerEvent::Done) | Err(RecvTimeoutError::Disconnected) => {
                     self.finished = true;
@@ -799,6 +807,7 @@ pub(crate) mod tests {
         thread::sleep(Duration::from_millis(50));
         let error = session.finish().unwrap_err();
         assert_eq!(error.to_string(), "Your OpenAI API key was rejected.");
+        assert!(error.is_credential_rejected());
         assert_eq!(record.connects.load(Ordering::SeqCst), 1);
     }
 
