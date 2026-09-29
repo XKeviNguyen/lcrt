@@ -213,13 +213,10 @@ fn general_page(
                 row.set_subtitle("Choose a model file stored on this computer.");
                 return;
             };
-            match std::fs::File::open(&path) {
-                Ok(_) if path.is_file() => {
-                    row.set_subtitle(&path.display().to_string());
-                    shared.change(|preferences| preferences.general.model_path = Some(path));
-                }
-                _ => row.set_subtitle("That file can't be opened. Choose a readable model file."),
-            }
+            // No file I/O here on the GTK thread: starting Offline Captions
+            // loads the model and reports a file that can't be read.
+            row.set_subtitle(&path.display().to_string());
+            shared.change(|preferences| preferences.general.model_path = Some(path));
         });
     });
     offline.add(&model_row);
