@@ -14,7 +14,7 @@ use lcrt_stt_whisper::{WhisperConfig, WhisperTranscriber};
 
 const OFFLINE_CHUNK_FRAMES: usize = 4_096;
 const PACED_CHUNK_DURATION: Duration = Duration::from_millis(20);
-const OFFLINE_QUEUE_CAPACITY: usize = 8;
+const OFFLINE_INPUT_BACKLOG: Duration = Duration::from_secs(2);
 const INPUT_BACKPRESSURE_TIMEOUT: Duration = Duration::from_secs(30);
 const USAGE: &str = "usage:\n  lcrt-whisper-transcribe <model.bin> <audio.wav> [language]\n  lcrt-whisper-transcribe benchmark <paced|offline> <model.bin> <audio.wav> [language]";
 
@@ -167,7 +167,7 @@ fn run_transcription(input: Input) -> Result<(), Box<dyn Error>> {
     let mut config = config_for(&input);
     // Keep finite-file input close enough to completed inference that shutdown
     // never inherits a live-capture-sized backlog.
-    config.input_queue_capacity = OFFLINE_QUEUE_CAPACITY;
+    config.max_input_backlog = OFFLINE_INPUT_BACKLOG;
     let mut transcriber = WhisperTranscriber::new(config)?;
     let samples_per_chunk = OFFLINE_CHUNK_FRAMES * usize::from(audio.channels);
     let mut update_count = 0_usize;
@@ -190,7 +190,7 @@ fn run_benchmark(mode: BenchmarkMode, input: Input) -> Result<(), Box<dyn Error>
     let audio = read_wav(&input.wav_path)?;
     let mut config = config_for(&input);
     if matches!(mode, BenchmarkMode::Offline) {
-        config.input_queue_capacity = OFFLINE_QUEUE_CAPACITY;
+        config.max_input_backlog = OFFLINE_INPUT_BACKLOG;
     }
 
     let startup_started = Instant::now();

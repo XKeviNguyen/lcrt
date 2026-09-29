@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 
-use crate::WhisperBackendError;
+use crate::{WhisperBackendError, backend::MIN_CHUNK_RESERVATION};
 
 /// Explicit limits and inference behavior for local streaming STT.
 #[derive(Clone, Debug, PartialEq)]
@@ -11,8 +11,10 @@ pub struct WhisperConfig {
     pub language: Option<String>,
     /// CPU threads used by whisper.cpp inference.
     pub inference_threads: u8,
-    /// Maximum captured audio chunks waiting behind inference.
-    pub input_queue_capacity: usize,
+    /// Maximum captured audio waiting behind inference, independent of chunk
+    /// size. It may not exceed `window_duration`: a larger backlog could not
+    /// be inferred without evicting audio that no pass has seen.
+    pub max_input_backlog: Duration,
     /// Rolling audio context retained for each inference pass.
     pub window_duration: Duration,
     /// New audio required between partial inference passes.
@@ -38,7 +40,7 @@ impl WhisperConfig {
             model_path: model_path.into(),
             language: None,
             inference_threads: 4,
-            input_queue_capacity: 256,
+            max_input_backlog: Duration::from_secs(8),
             window_duration: Duration::from_secs(8),
             partial_step: Duration::from_millis(1_500),
             minimum_speech: Duration::from_millis(750),
@@ -70,10 +72,14 @@ impl WhisperConfig {
                 "inference thread count must be greater than zero".to_owned(),
             ));
         }
-        if self.input_queue_capacity == 0 {
-            return Err(WhisperBackendError::InvalidConfiguration(
-                "input queue capacity must be greater than zero".to_owned(),
-            ));
+        // Every queued chunk reserves at least `MIN_CHUNK_RESERVATION`, so a
+        // smaller limit could never accept audio.
+        if self.max_input_backlog < MIN_CHUNK_RESERVATION
+            || self.max_input_backlog > self.window_duration
+        {
+            return Err(WhisperBackendError::InvalidConfiguration(format!(
+                "maximum input backlog must be at least {MIN_CHUNK_RESERVATION:?} and not exceed the rolling window"
+            )));
         }
         if self.partial_step.is_zero()
             || self.minimum_speech.is_zero()
@@ -112,5 +118,30 @@ impl WhisperConfig {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{MIN_CHUNK_RESERVATION, WhisperConfig};
+
+    #[test]
+    fn input_backlog_may_not_exceed_the_rolling_window() {
+        // Validation only requires an existing file; the test binary is one,
+        // so no file needs to be written.
+        let mut config = WhisperConfig::new(std::env::current_exe().unwrap());
+
+        assert!(config.validate().is_ok());
+        config.max_input_backlog = config.window_duration + Duration::from_millis(1);
+        assert!(config.validate().is_err());
+        config.max_input_backlog = Duration::ZERO;
+        assert!(config.validate().is_err());
+        // A sub-microsecond limit would round to zero and reject every chunk.
+        config.max_input_backlog = Duration::from_nanos(500);
+        assert!(config.validate().is_err());
+        config.max_input_backlog = MIN_CHUNK_RESERVATION;
+        assert!(config.validate().is_ok());
     }
 }

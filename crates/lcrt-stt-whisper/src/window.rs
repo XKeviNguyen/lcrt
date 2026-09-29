@@ -18,6 +18,7 @@ pub(crate) struct StreamingWindow {
     final_silence_samples: usize,
     speech_samples: usize,
     speech_samples_since_inference: usize,
+    samples_since_inference: usize,
     silence_samples: usize,
     heard_speech: bool,
     rolled_since_inference: bool,
@@ -34,6 +35,7 @@ impl StreamingWindow {
             final_silence_samples: duration_samples(config.final_silence)?,
             speech_samples: 0,
             speech_samples_since_inference: 0,
+            samples_since_inference: 0,
             silence_samples: 0,
             heard_speech: false,
             rolled_since_inference: false,
@@ -46,9 +48,7 @@ impl StreamingWindow {
             return None;
         }
 
-        let mean_square =
-            samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32;
-        let contains_speech = mean_square >= self.rms_threshold_squared;
+        let contains_speech = self.is_speech(samples);
 
         // Idle audio is irrelevant to both Whisper context and speech-relative
         // inference gates. Keeping it out also prevents old silence from
@@ -82,6 +82,7 @@ impl StreamingWindow {
             }
             self.samples.extend_from_slice(samples);
         }
+        self.samples_since_inference = self.samples_since_inference.saturating_add(samples.len());
 
         if contains_speech {
             self.speech_samples = self.speech_samples.saturating_add(samples.len());
@@ -123,22 +124,46 @@ impl StreamingWindow {
         self.rolled_since_inference
     }
 
-    pub(crate) fn is_at_capacity(&self) -> bool {
-        self.samples.len() == self.max_samples
+    /// Whether the open utterance passes the minimum-speech gate, and so is
+    /// eligible for inference, once `incoming` is appended.
+    pub(crate) fn meets_minimum_speech_with(&self, incoming: &[f32]) -> bool {
+        let incoming_speech = if self.is_speech(incoming) {
+            incoming.len()
+        } else {
+            0
+        };
+        self.speech_samples.saturating_add(incoming_speech) >= self.minimum_samples
+    }
+
+    /// Whether appending `incoming` samples would evict audio that no pass
+    /// has inferred yet.
+    pub(crate) fn would_evict_uninferred(&self, incoming: usize) -> bool {
+        self.samples_since_inference.saturating_add(incoming) > self.max_samples
     }
 
     pub(crate) fn mark_inferred(&mut self, kind: InferenceKind) {
         self.speech_samples_since_inference = 0;
+        self.samples_since_inference = 0;
         self.rolled_since_inference = false;
         if kind == InferenceKind::Final {
             self.reset_utterance();
         }
     }
 
+    fn is_speech(&self, samples: &[f32]) -> bool {
+        if samples.is_empty() {
+            return false;
+        }
+        let mean_square =
+            samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32;
+        mean_square >= self.rms_threshold_squared
+    }
+
     fn reset_utterance(&mut self) {
         self.samples.clear();
         self.speech_samples = 0;
         self.speech_samples_since_inference = 0;
+        self.samples_since_inference = 0;
         self.silence_samples = 0;
         self.heard_speech = false;
         self.rolled_since_inference = false;
@@ -211,5 +236,17 @@ mod tests {
         assert_eq!(window.push(&vec![0.0; 4_800]), None);
         assert!(window.samples().is_empty());
         assert_eq!(window.finish_kind(), None);
+    }
+
+    #[test]
+    fn final_is_reported_only_while_its_silence_persists() {
+        let mut window = StreamingWindow::new(&test_config()).unwrap();
+        window.push(&vec![0.1; 8_000]);
+        window.mark_inferred(InferenceKind::Partial);
+
+        // The chunk that crosses final silence reports the final once; if
+        // speech resumes before the caller acts, the final is no longer due.
+        assert_eq!(window.push(&vec![0.0; 4_800]), Some(InferenceKind::Final));
+        assert_eq!(window.push(&vec![0.1; 1_600]), None);
     }
 }
