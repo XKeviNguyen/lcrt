@@ -112,9 +112,10 @@ impl TranscriptAssembler {
 /// Returns the prefix of `previous` not covered by `current`, and the byte
 /// offset where `current` starts to overlap `previous`.
 ///
-/// Up to [`MAX_GARBLED_LEADING_WORDS`] leading words of `current` are treated
-/// as a re-recognition of already committed audio when the remainder anchors
-/// on at least [`MIN_ANCHORED_OVERLAP_WORDS`] matching words.
+/// An exact overlap at the start of `current` always wins. Only when none
+/// exists are up to [`MAX_GARBLED_LEADING_WORDS`] leading words of `current`
+/// treated as a re-recognition of already committed audio, and only when the
+/// remainder anchors on at least [`MIN_ANCHORED_OVERLAP_WORDS`] matching words.
 fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
     if contains_unsegmented_script(previous) || contains_unsegmented_script(current) {
         return (non_overlapping_character_prefix(previous, current), 0);
@@ -122,25 +123,23 @@ fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
 
     let previous_words = word_spans(previous);
     let current_words = word_spans(current);
-    let overlap = (0..=MAX_GARBLED_LEADING_WORDS.min(current_words.len()))
-        .filter_map(|skipped| {
-            let minimum = if skipped == 0 {
-                1
-            } else {
-                MIN_ANCHORED_OVERLAP_WORDS
-            };
-            let maximum = previous_words.len().min(current_words.len() - skipped);
-            (minimum..=maximum)
-                .rev()
-                .find(|&count| {
-                    previous_words[previous_words.len() - count..]
-                        .iter()
-                        .zip(&current_words[skipped..skipped + count])
-                        .all(|(left, right)| normalized_word(left.2) == normalized_word(right.2))
-                })
-                .map(|count| (count, skipped))
-        })
-        .max_by_key(|&(count, skipped)| (count, std::cmp::Reverse(skipped)));
+    let overlap = (0..=MAX_GARBLED_LEADING_WORDS.min(current_words.len())).find_map(|skipped| {
+        let minimum = if skipped == 0 {
+            1
+        } else {
+            MIN_ANCHORED_OVERLAP_WORDS
+        };
+        let maximum = previous_words.len().min(current_words.len() - skipped);
+        (minimum..=maximum)
+            .rev()
+            .find(|&count| {
+                previous_words[previous_words.len() - count..]
+                    .iter()
+                    .zip(&current_words[skipped..skipped + count])
+                    .all(|(left, right)| normalized_word(left.2) == normalized_word(right.2))
+            })
+            .map(|count| (count, skipped))
+    });
     if let Some((count, skipped)) = overlap {
         let overlap_start = previous_words[previous_words.len() - count].0;
         return (
@@ -326,6 +325,30 @@ mod tests {
         );
         assert_eq!(update.stable_text(), "Great time, Captain. Route time ");
         assert!(unchanged.is_none());
+    }
+
+    #[test]
+    fn exact_leading_overlap_wins_over_longer_match_after_skipped_words() {
+        let mut transcript = TranscriptAssembler::new(256);
+        transcript
+            .apply(
+                InferenceKind::Partial,
+                "we need to go home".to_owned(),
+                false,
+            )
+            .unwrap();
+
+        let update = transcript
+            .apply(
+                InferenceKind::Partial,
+                "go home we need to go home now".to_owned(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(update.text(), "we need to go home we need to go home now");
+        assert_eq!(update.stable_text(), "we need to ");
     }
 
     #[test]

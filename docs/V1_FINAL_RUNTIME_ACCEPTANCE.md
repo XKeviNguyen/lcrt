@@ -229,11 +229,16 @@ frame. The two starting points differ:
      re-recognizes the first words of a window that starts mid-word, for
      example "Route time" becoming "Roo-time". The whole previous hypothesis
      was then committed again.
-   - Fix: up to two garbled leading words may now be dropped, but only when at
-     least three further words anchor the overlap.
-   - Evidence: two regression tests. A paced replay of the owner's recorded
-     segment through the diagnostic removed three duplicated renditions, and
-     the fixture output was unchanged.
+   - Fix: an exact overlap at the start of the new hypothesis still always
+     wins. Only when there is none may up to two garbled leading words be
+     dropped, and only when at least three further words anchor the overlap.
+     This keeps a legitimately repeated phrase such as "go home … go home".
+   - Evidence: three regression tests. On head `4335dad`, a paced replay of
+     the owner's recorded segment through the diagnostic removed three
+     duplicated renditions, and the fixture output was unchanged. The
+     recording was then deleted. The later precedence correction affects only
+     hypotheses that have an exact leading overlap, which the observed
+     duplicates did not.
 3. **Smoke diagnostic too short for a soak.** `--smoke-seconds` now accepts up
    to 3,600 seconds instead of 120, so the diagnostic can run the integrated
    soak. It remains bounded.
