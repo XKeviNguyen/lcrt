@@ -128,8 +128,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes \
+            appstream \
             curl \
+            desktop-file-utils \
             libadwaita-1-dev \
+            libdbus-1-dev \
             libgtk-4-dev \
             libpipewire-0.3-dev \
             libspa-0.2-dev \
@@ -138,6 +141,11 @@ jobs:
             ninja-build \
             wayland-protocols \
             pkg-config
+
+      - name: Validate desktop entry and AppStream metadata
+        run: |
+          desktop-file-validate packaging/linux/io.github.hoangnguyen7474.Lcrt.desktop
+          appstreamcli validate --no-net packaging/linux/io.github.hoangnguyen7474.Lcrt.metainfo.xml
 
       - name: Install pinned GTK4 layer-shell library
         run: scripts/install-gtk4-layer-shell.sh

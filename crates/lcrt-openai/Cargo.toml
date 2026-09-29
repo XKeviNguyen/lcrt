@@ -1,6 +1,6 @@
 [package]
 name = "lcrt-openai"
-version = "2.0.0"
+version.workspace = true
 description = "OpenAI realtime transcription, translation, and vocabulary adapters for LCRT"
 edition.workspace = true
 license.workspace = true

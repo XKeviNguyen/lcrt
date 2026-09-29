@@ -86,6 +86,8 @@ pub fn run_caption_ui(
     let application = adw::Application::builder()
         .application_id(application_id)
         .build();
+    // Matches the installed icon, for window managers that ask the window.
+    gtk::Window::set_default_icon_name(NORMAL_APPLICATION_ID);
     let events = Rc::new(RefCell::new(Some(events)));
     application.connect_activate(move |application| {
         if let Some(window) = application.active_window() {

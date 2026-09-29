@@ -1360,7 +1360,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lcrt-app"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "gtk4",
  "lcrt-audio-pipewire",
@@ -1375,7 +1375,7 @@ dependencies = [
 
 [[package]]
 name = "lcrt-audio-pipewire"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "lcrt-core",
  "pipewire",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "lcrt-core"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "rubato",
  "serde",
@@ -1409,7 +1409,7 @@ dependencies = [
 
 [[package]]
 name = "lcrt-stt-whisper"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "hound",
  "lcrt-core",
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "lcrt-ui-gtk"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "gtk4",
  "gtk4-layer-shell",
