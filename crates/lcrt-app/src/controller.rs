@@ -152,9 +152,12 @@ impl SessionFailure {
                 _ => None,
             }
         });
-        Self {
-            message: error.to_string(),
-            needs_settings: transcription.is_some_and(TranscriptionError::is_credential_rejected),
+        match transcription {
+            Some(transcription) => Self {
+                message: transcription.to_string(),
+                needs_settings: transcription.is_credential_rejected(),
+            },
+            None => Self::new(error.to_string()),
         }
     }
 }
@@ -772,8 +775,9 @@ mod tests {
         let direct = SessionFailure::from_pipeline(&rejected);
         assert!(direct.needs_settings);
         assert_eq!(direct.message, "Your OpenAI API key was rejected.");
-        let wrapped = PipelineError::Transcription(rejected);
-        assert!(SessionFailure::from_pipeline(&wrapped).needs_settings);
+        let wrapped = SessionFailure::from_pipeline(&PipelineError::Transcription(rejected));
+        assert!(wrapped.needs_settings);
+        assert_eq!(wrapped.message, "Your OpenAI API key was rejected.");
         // Mentioning the key is not the same as the key being rejected.
         let other = TranscriptionError::new("API key accepted but the service is down");
         assert!(!SessionFailure::from_pipeline(&other).needs_settings);
