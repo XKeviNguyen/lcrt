@@ -1,11 +1,39 @@
-use lcrt_core::AudioChunk;
+//! Channel mixdown and sample-rate conversion to a speech engine's input rate.
+
+use std::{error::Error, fmt};
+
 use rubato::{Fft, FixedSync, Indexing, Resampler, audioadapter_buffers::direct::InterleavedSlice};
 
-use crate::{WhisperBackendError, window::WHISPER_SAMPLE_RATE};
+use crate::AudioChunk;
 
 const RESAMPLER_CHUNK_FRAMES: usize = 1_024;
 
-pub(crate) struct AudioConverter {
+/// Failure while converting captured audio for a speech engine.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AudioConversionError {
+    /// The capture sample rate or channel count changed mid-session.
+    FormatChanged,
+    /// Resampler construction or processing failed.
+    Failed(String),
+}
+
+impl fmt::Display for AudioConversionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FormatChanged => formatter.write_str("audio format changed during the session"),
+            Self::Failed(message) => write!(formatter, "audio conversion failed: {message}"),
+        }
+    }
+}
+
+impl Error for AudioConversionError {}
+
+/// Streams interleaved capture chunks into mono `f32` at a fixed output rate.
+///
+/// The converter keeps only one resampler block of pending input, so memory
+/// stays bounded regardless of session length.
+pub struct AudioConverter {
+    output_rate: u32,
     input_rate: u32,
     input_channels: u16,
     resampler: Option<Fft<f32>>,
@@ -16,25 +44,28 @@ pub(crate) struct AudioConverter {
 }
 
 impl AudioConverter {
-    pub(crate) fn new(chunk: &AudioChunk) -> Result<Self, WhisperBackendError> {
-        let resampler = if chunk.sample_rate_hz() == WHISPER_SAMPLE_RATE as u32 {
+    /// Creates a converter for the format of `chunk`, producing mono audio at
+    /// `output_rate` Hz.
+    pub fn new(chunk: &AudioChunk, output_rate: u32) -> Result<Self, AudioConversionError> {
+        let resampler = if chunk.sample_rate_hz() == output_rate {
             None
         } else {
             Some(
                 Fft::new(
                     chunk.sample_rate_hz() as usize,
-                    WHISPER_SAMPLE_RATE,
+                    output_rate as usize,
                     RESAMPLER_CHUNK_FRAMES,
                     1,
                     FixedSync::Input,
                 )
-                .map_err(|error| WhisperBackendError::AudioConversion(error.to_string()))?,
+                .map_err(|error| AudioConversionError::Failed(error.to_string()))?,
             )
         };
         let delay_remaining = resampler
             .as_ref()
             .map_or(0, rubato::Resampler::output_delay);
         Ok(Self {
+            output_rate,
             input_rate: chunk.sample_rate_hz(),
             input_channels: chunk.channels(),
             resampler,
@@ -45,9 +76,10 @@ impl AudioConverter {
         })
     }
 
-    pub(crate) fn push(&mut self, chunk: &AudioChunk) -> Result<Vec<f32>, WhisperBackendError> {
+    /// Converts one chunk, returning the output samples that are ready.
+    pub fn push(&mut self, chunk: &AudioChunk) -> Result<Vec<f32>, AudioConversionError> {
         if chunk.sample_rate_hz() != self.input_rate || chunk.channels() != self.input_channels {
-            return Err(WhisperBackendError::AudioFormatChanged);
+            return Err(AudioConversionError::FormatChanged);
         }
         let channels = usize::from(self.input_channels);
         let mono = chunk
@@ -66,7 +98,7 @@ impl AudioConverter {
         let mut output = Vec::new();
         loop {
             let Some(resampler) = self.resampler.as_ref() else {
-                return Err(WhisperBackendError::AudioConversion(
+                return Err(AudioConversionError::Failed(
                     "resampler disappeared during conversion".to_owned(),
                 ));
             };
@@ -81,18 +113,19 @@ impl AudioConverter {
         Ok(output)
     }
 
-    pub(crate) fn finish(&mut self) -> Result<Vec<f32>, WhisperBackendError> {
+    /// Flushes the resampler's bounded delay at the end of a stream.
+    pub fn finish(&mut self) -> Result<Vec<f32>, AudioConversionError> {
         if self.resampler.is_none() {
             return Ok(Vec::new());
         }
-        let desired_total = ((self.total_input_frames as u128 * WHISPER_SAMPLE_RATE as u128)
+        let desired_total = ((self.total_input_frames as u128 * self.output_rate as u128)
             .div_ceil(self.input_rate as u128)) as usize;
         let mut output = Vec::new();
 
         if !self.pending_mono.is_empty() {
             let valid = self.pending_mono.len();
             let Some(resampler) = self.resampler.as_ref() else {
-                return Err(WhisperBackendError::AudioConversion(
+                return Err(AudioConversionError::Failed(
                     "resampler disappeared during flush".to_owned(),
                 ));
             };
@@ -108,7 +141,7 @@ impl AudioConverter {
                 break;
             }
             let Some(resampler) = self.resampler.as_ref() else {
-                return Err(WhisperBackendError::AudioConversion(
+                return Err(AudioConversionError::Failed(
                     "resampler disappeared during delay flush".to_owned(),
                 ));
             };
@@ -117,7 +150,7 @@ impl AudioConverter {
             self.append_without_delay(block, &mut output);
         }
         if self.total_output_frames < desired_total {
-            return Err(WhisperBackendError::AudioConversion(
+            return Err(AudioConversionError::Failed(
                 "resampler did not flush its bounded delay".to_owned(),
             ));
         }
@@ -133,22 +166,22 @@ impl AudioConverter {
         &mut self,
         input: &[f32],
         partial_len: Option<usize>,
-    ) -> Result<Vec<f32>, WhisperBackendError> {
+    ) -> Result<Vec<f32>, AudioConversionError> {
         let Some(resampler) = self.resampler.as_mut() else {
-            return Err(WhisperBackendError::AudioConversion(
+            return Err(AudioConversionError::Failed(
                 "resampling was requested without a configured resampler".to_owned(),
             ));
         };
         let output_capacity = resampler.output_frames_next();
         let input_adapter = InterleavedSlice::new(input, 1, input.len())
-            .map_err(|error| WhisperBackendError::AudioConversion(error.to_string()))?;
+            .map_err(|error| AudioConversionError::Failed(error.to_string()))?;
         let mut output = vec![0.0; output_capacity];
         let mut output_adapter = InterleavedSlice::new_mut(&mut output, 1, output_capacity)
-            .map_err(|error| WhisperBackendError::AudioConversion(error.to_string()))?;
+            .map_err(|error| AudioConversionError::Failed(error.to_string()))?;
         let indexing = partial_len.map(|length| Indexing::new().partial_len(length));
         let (_, written) = resampler
             .process_into_buffer(&input_adapter, &mut output_adapter, indexing.as_ref())
-            .map_err(|error| WhisperBackendError::AudioConversion(error.to_string()))?;
+            .map_err(|error| AudioConversionError::Failed(error.to_string()))?;
         output.truncate(written);
         Ok(output)
     }
@@ -166,14 +199,13 @@ impl AudioConverter {
 
 #[cfg(test)]
 mod tests {
-    use lcrt_core::AudioChunk;
-
     use super::AudioConverter;
+    use crate::AudioChunk;
 
     #[test]
     fn downmixes_stereo_without_resampling() {
         let chunk = AudioChunk::new(vec![0.5, -0.5, 0.25, 0.75], 16_000, 2).unwrap();
-        let mut converter = AudioConverter::new(&chunk).unwrap();
+        let mut converter = AudioConverter::new(&chunk, 16_000).unwrap();
 
         assert_eq!(converter.push(&chunk).unwrap(), vec![0.0, 0.5]);
         assert!(converter.finish().unwrap().is_empty());
@@ -188,7 +220,7 @@ mod tests {
             })
             .collect();
         let chunk = AudioChunk::new(samples, 48_000, 2).unwrap();
-        let mut converter = AudioConverter::new(&chunk).unwrap();
+        let mut converter = AudioConverter::new(&chunk, 16_000).unwrap();
 
         let mut output = converter.push(&chunk).unwrap();
         output.extend(converter.finish().unwrap());

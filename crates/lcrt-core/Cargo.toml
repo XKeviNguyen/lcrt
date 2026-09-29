@@ -11,4 +11,6 @@ publish = false
 workspace = true
 
 [dependencies]
+rubato = "4.0.0"
+serde = { version = "1.0.228", features = ["derive"] }
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }

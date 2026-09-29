@@ -3,6 +3,7 @@ members = [
     "crates/lcrt-audio-pipewire",
     "crates/lcrt-app",
     "crates/lcrt-core",
+    "crates/lcrt-openai",
     "crates/lcrt-stt-whisper",
     "crates/lcrt-ui-gtk",
 ]

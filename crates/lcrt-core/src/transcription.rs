@@ -10,6 +10,7 @@ pub struct TranscriptUpdate {
     text: String,
     status: CaptionStatus,
     stable_prefix_len: usize,
+    original: Option<String>,
 }
 
 impl TranscriptUpdate {
@@ -57,7 +58,41 @@ impl TranscriptUpdate {
             text,
             status,
             stable_prefix_len,
+            original: None,
         })
+    }
+
+    /// Creates a translation result: `translation` in the target language and
+    /// `original` in the spoken language, from the same translation session.
+    ///
+    /// Either lane may still be empty, because the original usually arrives
+    /// before its translation, but not both.
+    pub fn translated(
+        translation: impl Into<String>,
+        original: impl Into<String>,
+        status: CaptionStatus,
+    ) -> Result<Self, TranscriptUpdateError> {
+        let text = translation.into();
+        let original = original.into();
+        if text.trim().is_empty() && original.trim().is_empty() {
+            return Err(TranscriptUpdateError::EmptyText);
+        }
+        let stable_prefix_len = if status == CaptionStatus::Final {
+            text.len()
+        } else {
+            0
+        };
+        Ok(Self {
+            text,
+            status,
+            stable_prefix_len,
+            original: Some(original),
+        })
+    }
+
+    /// Returns the spoken-language text for translation results.
+    pub fn original(&self) -> Option<&str> {
+        self.original.as_deref()
     }
 
     /// Returns the update text.
@@ -75,9 +110,9 @@ impl TranscriptUpdate {
         self.text[self.stable_prefix_len..].trim_start()
     }
 
-    /// Consumes the update and returns its text.
-    pub(crate) fn into_text(self) -> String {
-        self.text
+    /// Consumes the update and returns its text and original lane.
+    pub(crate) fn into_parts(self) -> (String, Option<String>) {
+        (self.text, self.original)
     }
 
     /// Returns whether this update is partial or final.
@@ -138,6 +173,7 @@ pub trait Transcriber: Send {
 #[cfg(test)]
 mod tests {
     use super::{TranscriptUpdate, TranscriptUpdateError};
+    use crate::CaptionStatus;
 
     #[test]
     fn transcript_update_rejects_whitespace_only_text() {
@@ -154,5 +190,16 @@ mod tests {
         assert_eq!(update.text(), "accepted words new hypothesis");
         assert_eq!(update.stable_text(), "accepted words ");
         assert_eq!(update.partial_text(), "new hypothesis");
+    }
+
+    #[test]
+    fn translated_update_allows_one_empty_lane_but_not_both() {
+        let pending = TranscriptUpdate::translated("", "今日は", CaptionStatus::Partial).unwrap();
+        assert_eq!(pending.text(), "");
+        assert_eq!(pending.original(), Some("今日は"));
+        assert_eq!(
+            TranscriptUpdate::translated(" ", "", CaptionStatus::Partial).unwrap_err(),
+            TranscriptUpdateError::EmptyText
+        );
     }
 }
