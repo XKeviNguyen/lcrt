@@ -23,4 +23,12 @@ serde_json = "1.0"
 lcrt-stt-whisper = { path = "../lcrt-stt-whisper" }
 lcrt-ui-gtk = { path = "../lcrt-ui-gtk" }
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+# No `tracing-log` bridge: dependencies' `log` output can include request
+# headers (tungstenite traces its handshake, Authorization included).
+tracing-subscriber = { version = "0.3.20", default-features = false, features = [
+    "ansi",
+    "env-filter",
+    "fmt",
+    "smallvec",
+    "std",
+] }
