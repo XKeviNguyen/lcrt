@@ -159,7 +159,7 @@ impl WhisperTranscriber {
                 "Whisper transcriber received audio after it was finished",
             ));
         }
-        let duration_us = audio_micros(&chunk);
+        let duration_us = backlog_reservation_us(&chunk);
         let deadline = Instant::now().checked_add(timeout);
         let mut updates = Vec::new();
         while !self.backlog.try_reserve(duration_us) {
@@ -276,7 +276,7 @@ impl Transcriber for WhisperTranscriber {
                 "Whisper transcriber received audio after it was finished",
             ));
         }
-        let duration_us = audio_micros(&chunk);
+        let duration_us = backlog_reservation_us(&chunk);
         if !self.backlog.try_reserve(duration_us) {
             return Err(TranscriptionError::new(
                 WhisperBackendError::InputBacklogFull(self.backlog.limit()).to_string(),
@@ -435,7 +435,7 @@ fn drain_backlog(
     };
     let mut next = Some(first);
     while let Some(chunk) = next.take() {
-        backlog.release(audio_micros(&chunk));
+        backlog.release(backlog_reservation_us(&chunk));
         let converter = match converter.as_mut() {
             Some(converter) => converter,
             None => converter.insert(AudioConverter::new(&chunk)?),
@@ -559,13 +559,22 @@ impl InputBacklog {
     }
 }
 
-/// A chunk's duration, rounded up so every non-empty chunk reserves at least
-/// its true duration and the backlog never admits more than its limit.
-fn audio_micros(chunk: &AudioChunk) -> u64 {
+/// Smallest backlog reservation for one queued chunk.
+///
+/// Real PipeWire quanta are charged exactly: even its 32-frame minimum lasts
+/// 167 µs at 192 kHz. Shorter chunks are charged this much, so the number of
+/// queued commands is bounded as well (at most 80,000 for an 8 s backlog)
+/// without a chunk-count capacity that small quanta could exhaust first.
+pub(crate) const MIN_CHUNK_RESERVATION: Duration = Duration::from_micros(100);
+
+/// A chunk's duration rounded up, and at least [`MIN_CHUNK_RESERVATION`], so
+/// the backlog never admits more audio or more commands than its limit allows.
+fn backlog_reservation_us(chunk: &AudioChunk) -> u64 {
     u64::try_from(chunk.frame_count())
         .unwrap_or(u64::MAX)
         .saturating_mul(1_000_000)
         .div_ceil(u64::from(chunk.sample_rate_hz()))
+        .max(MIN_CHUNK_RESERVATION.as_micros() as u64)
 }
 
 /// Builds decoding parameters once per worker. whisper-rs 0.15 never frees
@@ -641,7 +650,7 @@ mod tests {
     use lcrt_core::AudioChunk;
 
     use super::{
-        InputBacklog, WhisperTranscriber, WorkerCommand, audio_micros, drain_backlog,
+        InputBacklog, WhisperTranscriber, WorkerCommand, backlog_reservation_us, drain_backlog,
         window_token_limit,
     };
     use crate::window::{InferenceKind, StreamingWindow};
@@ -742,7 +751,7 @@ mod tests {
         window.push(&vec![0.1; 32_000]);
         window.mark_inferred(InferenceKind::Partial);
         let commands = queue(quarter_seconds_of_speech(9));
-        let chunk_us = audio_micros(&audio(4_000, 0.1));
+        let chunk_us = backlog_reservation_us(&audio(4_000, 0.1));
         let backlog = InputBacklog::new(Duration::from_millis(2_500));
         for _ in 0..10 {
             assert!(backlog.try_reserve(chunk_us));
@@ -874,8 +883,10 @@ mod tests {
     #[test]
     fn input_backlog_is_bounded_by_audio_duration_not_chunk_count() {
         let backlog = InputBacklog::new(Duration::from_secs(8));
-        let quantum_1024 = audio_micros(&AudioChunk::new(vec![0.0; 1_024 * 2], 48_000, 2).unwrap());
-        let quantum_2048 = audio_micros(&AudioChunk::new(vec![0.0; 2_048 * 2], 48_000, 2).unwrap());
+        let quantum_1024 =
+            backlog_reservation_us(&AudioChunk::new(vec![0.0; 1_024 * 2], 48_000, 2).unwrap());
+        let quantum_2048 =
+            backlog_reservation_us(&AudioChunk::new(vec![0.0; 2_048 * 2], 48_000, 2).unwrap());
 
         let accepted_small = (0..)
             .take_while(|_| backlog.try_reserve(quantum_1024))
@@ -896,13 +907,19 @@ mod tests {
     }
 
     #[test]
-    fn every_non_empty_chunk_reserves_at_least_its_duration() {
-        let one_frame_at_2_mhz = AudioChunk::new(vec![0.0], 2_000_000, 1).unwrap();
-        let quantum = AudioChunk::new(vec![0.0; 1_024], 48_000, 1).unwrap();
+    fn reservations_bound_both_queued_audio_and_queued_commands() {
+        let default_quantum = AudioChunk::new(vec![0.0; 1_024], 48_000, 1).unwrap();
+        let minimum_quantum = AudioChunk::new(vec![0.0; 32], 192_000, 1).unwrap();
+        let one_frame = backlog_reservation_us(&AudioChunk::new(vec![0.0], 48_000, 1).unwrap());
 
-        assert_eq!(audio_micros(&one_frame_at_2_mhz), 1);
-        // 1,024 frames at 48 kHz last 21,333.3 µs, never rounded down.
-        assert_eq!(audio_micros(&quantum), 21_334);
+        // Real quanta are charged their duration, rounded up, never down.
+        assert_eq!(backlog_reservation_us(&default_quantum), 21_334);
+        assert_eq!(backlog_reservation_us(&minimum_quantum), 167);
+        // A 20.8 µs chunk is charged the minimum, which bounds the command count.
+        assert_eq!(one_frame, 100);
+        let backlog = InputBacklog::new(Duration::from_secs(8));
+        let accepted = (0..).take_while(|_| backlog.try_reserve(one_frame)).count();
+        assert_eq!(accepted, 80_000);
     }
 
     #[test]
