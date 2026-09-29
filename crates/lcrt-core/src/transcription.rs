@@ -170,6 +170,20 @@ pub trait Transcriber: Send {
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError>;
 }
 
+/// Lets the application choose a backend at runtime.
+impl<T: Transcriber + ?Sized> Transcriber for Box<T> {
+    fn push_audio(
+        &mut self,
+        chunk: AudioChunk,
+    ) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+        (**self).push_audio(chunk)
+    }
+
+    fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+        (**self).finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{TranscriptUpdate, TranscriptUpdateError};

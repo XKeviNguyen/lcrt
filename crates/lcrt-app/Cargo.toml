@@ -18,6 +18,8 @@ workspace = true
 gtk = { package = "gtk4", version = "0.10.3" }
 lcrt-audio-pipewire = { path = "../lcrt-audio-pipewire" }
 lcrt-core = { path = "../lcrt-core" }
+lcrt-openai = { path = "../lcrt-openai" }
+serde_json = "1.0"
 lcrt-stt-whisper = { path = "../lcrt-stt-whisper" }
 lcrt-ui-gtk = { path = "../lcrt-ui-gtk" }
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }

@@ -1,19 +1,119 @@
-use std::sync::{Arc, Mutex, Weak};
+use std::{
+    fmt,
+    sync::{Arc, Mutex, Weak},
+};
 
-use lcrt_core::{CaptionSink, CaptionSinkError, CaptionSnapshot, CaptionStatus};
+use lcrt_core::{
+    CaptionSink, CaptionSinkError, CaptionSnapshot, CaptionStatus, Language, Preferences,
+    SessionGeneration, SessionOptions,
+};
+
+/// An API key typed into Preferences. `Debug` never reveals it.
+#[derive(Clone, PartialEq)]
+pub struct EnteredApiKey(String);
+
+impl EnteredApiKey {
+    /// Wraps text entered by the user.
+    pub fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    /// The entered text, for validation and secure storage only.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for EnteredApiKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("EnteredApiKey(<redacted>)")
+    }
+}
 
 /// User intent emitted by the native window.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CaptionUiAction {
-    /// Start caption processing.
-    Start {
-        /// Stable platform adapter identifier selected in the window.
-        source_id: String,
-    },
+    /// Start a caption session. While one is active, this replaces it once
+    /// the active session has fully stopped.
+    Start(SessionOptions),
     /// Stop caption processing and release capture resources.
     Stop,
     /// Terminate the controller after cancelling any active caption session.
     Shutdown,
+    /// Persist non-secret preferences.
+    SavePreferences(Box<Preferences>),
+    /// Store an API key in the system keyring.
+    SaveApiKey(EnteredApiKey),
+    /// Remove the stored API key.
+    ClearApiKey,
+    /// Verify the API key in use with the service.
+    TestConnection,
+    /// Explain the selected caption text (`start..end` in characters).
+    ExplainSelection {
+        /// Identifies the request; results for older ids are ignored.
+        request_id: u64,
+        /// Caption text containing the selection.
+        caption: String,
+        /// First selected character.
+        start: usize,
+        /// End of the selection, exclusive.
+        end: usize,
+        /// Language to write the explanation in.
+        language: Language,
+    },
+}
+
+/// How a credential status should be presented.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialTone {
+    /// Informational.
+    Neutral,
+    /// Verified or securely saved.
+    Good,
+    /// Needs the user's attention.
+    Problem,
+}
+
+/// Credential state shown in Preferences; never contains the key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CredentialView {
+    /// Short status, such as "Saved securely".
+    pub status: String,
+    /// Tone for iconography; text always carries the meaning too.
+    pub tone: CredentialTone,
+}
+
+/// A vocabulary explanation ready for the popover.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VocabularyCard {
+    /// The explained term.
+    pub term: String,
+    /// Pronunciation aid, when useful.
+    pub reading: Option<String>,
+    /// Grammatical role, when meaningful.
+    pub part_of_speech: Option<String>,
+    /// Short meaning.
+    pub meaning: String,
+    /// Meaning in this caption.
+    pub context_explanation: String,
+}
+
+/// Why no explanation can be shown.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VocabularyProblem {
+    /// Actionable message.
+    pub message: String,
+    /// Whether an "Open Settings" action would fix it.
+    pub needs_settings: bool,
+}
+
+/// The answer to one [`CaptionUiAction::ExplainSelection`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VocabularyOutcome {
+    /// The request this answers.
+    pub request_id: u64,
+    /// The explanation or the reason there is none.
+    pub result: Result<VocabularyCard, VocabularyProblem>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
@@ -46,6 +146,9 @@ impl UiPresentation {
 pub(crate) struct UiUpdate {
     pub(crate) presentation: Option<UiPresentation>,
     pub(crate) error: Option<Option<String>>,
+    pub(crate) error_needs_settings: bool,
+    pub(crate) credential: Option<CredentialView>,
+    pub(crate) vocabulary: Option<VocabularyOutcome>,
     pub(crate) quit: bool,
 }
 
@@ -56,6 +159,10 @@ struct BridgeState {
     current: UiPresentation,
     latest_caption: Option<(u64, CaptionStatus)>,
     error: Option<Option<String>>,
+    error_needs_settings: bool,
+    credential: Option<CredentialView>,
+    vocabulary: Option<VocabularyOutcome>,
+    current_generation: SessionGeneration,
     quit: bool,
 }
 
@@ -67,6 +174,10 @@ impl Default for BridgeState {
             current: UiPresentation::default(),
             latest_caption: None,
             error: None,
+            error_needs_settings: false,
+            credential: None,
+            vocabulary: None,
+            current_generation: SessionGeneration::default(),
             quit: false,
         }
     }
@@ -80,6 +191,9 @@ impl Default for BridgeState {
 #[derive(Clone, Debug)]
 pub struct GtkCaptionSink {
     state: Arc<Mutex<BridgeState>>,
+    /// `Some` for a handle owned by one caption session; its updates are
+    /// dropped once a newer session has started.
+    generation: Option<SessionGeneration>,
     _producers: Arc<()>,
 }
 
@@ -101,6 +215,7 @@ impl GtkCaptionSink {
         (
             Self {
                 state: Arc::clone(&state),
+                generation: None,
                 _producers: Arc::clone(&producers),
             },
             GtkCaptionReceiver {
@@ -108,6 +223,29 @@ impl GtkCaptionSink {
                 producers: Arc::downgrade(&producers),
             },
         )
+    }
+
+    /// Makes `generation` the current session and returns a handle whose
+    /// updates are ignored once a later session starts.
+    pub fn start_session(
+        &self,
+        generation: SessionGeneration,
+    ) -> Result<GtkCaptionSink, CaptionSinkError> {
+        self.update(|state| state.current_generation = generation)?;
+        let mut handle = self.clone();
+        handle.generation = Some(generation);
+        handle.set_running(true)?;
+        Ok(handle)
+    }
+
+    /// Shows credential status in Preferences.
+    pub fn set_credential(&self, view: CredentialView) -> Result<(), CaptionSinkError> {
+        self.update(move |state| state.credential = Some(view))
+    }
+
+    /// Delivers a vocabulary explanation or problem.
+    pub fn set_vocabulary(&self, outcome: VocabularyOutcome) -> Result<(), CaptionSinkError> {
+        self.update(move |state| state.vocabulary = Some(outcome))
     }
 
     /// Updates whether captioning is running.
@@ -147,7 +285,24 @@ impl GtkCaptionSink {
                 "GTK caption error message must not be empty",
             ));
         }
-        self.update(move |state| state.error = Some(Some(message)))
+        self.update(move |state| {
+            state.error = Some(Some(message));
+            state.error_needs_settings = false;
+        })
+    }
+
+    /// Shows an error that the user fixes in Preferences, with a way there.
+    pub fn show_settings_error(&self, message: impl Into<String>) -> Result<(), CaptionSinkError> {
+        let message = message.into();
+        if message.trim().is_empty() {
+            return Err(CaptionSinkError::new(
+                "GTK caption error message must not be empty",
+            ));
+        }
+        self.update(move |state| {
+            state.error = Some(Some(message));
+            state.error_needs_settings = true;
+        })
     }
 
     /// Clears a previously displayed error.
@@ -169,6 +324,13 @@ impl GtkCaptionSink {
             return Err(CaptionSinkError::new(
                 "GTK caption window is no longer available",
             ));
+        }
+        if self
+            .generation
+            .is_some_and(|generation| generation != state.current_generation)
+        {
+            // A late event from a session that has already been replaced.
+            return Ok(());
         }
         update(&mut state);
         Ok(())
@@ -238,11 +400,16 @@ impl GtkCaptionReceiver {
         let update = UiUpdate {
             presentation,
             error: state.error.take(),
+            error_needs_settings: state.error_needs_settings,
+            credential: state.credential.take(),
+            vocabulary: state.vocabulary.take(),
             quit: state.quit,
         };
         if !producers_alive
             && update.presentation.is_none()
             && update.error.is_none()
+            && update.credential.is_none()
+            && update.vocabulary.is_none()
             && !update.quit
         {
             return Err(CaptionSinkError::new(
@@ -263,9 +430,15 @@ impl Drop for GtkCaptionReceiver {
 
 #[cfg(test)]
 mod tests {
-    use lcrt_core::{CaptionSink, CaptionSnapshot, CaptionState, CaptionStatus, TranscriptUpdate};
+    use lcrt_core::{
+        CaptionSink, CaptionSnapshot, CaptionState, CaptionStatus, SessionGeneration,
+        TranscriptUpdate,
+    };
 
-    use super::GtkCaptionSink;
+    use super::{
+        CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey, GtkCaptionSink,
+        VocabularyOutcome, VocabularyProblem,
+    };
 
     fn snapshot(
         state: &mut CaptionState,
@@ -467,6 +640,73 @@ mod tests {
         drop(receiver);
 
         assert!(sink.quit().is_err());
+    }
+
+    #[test]
+    fn stale_session_events_never_reach_the_current_session() {
+        let (controller, receiver) = GtkCaptionSink::bridge();
+        let mut old = controller
+            .start_session(SessionGeneration::default().next())
+            .unwrap();
+        receiver.take_update().unwrap();
+        let mut current = controller
+            .start_session(SessionGeneration::default().next().next())
+            .unwrap();
+        receiver.take_update().unwrap();
+
+        let mut captions = CaptionState::new();
+        old.publish(snapshot(
+            &mut captions,
+            "late words from the old session",
+            true,
+        ))
+        .unwrap();
+        old.set_status("Reconnecting…").unwrap();
+        old.set_running(false).unwrap();
+        old.show_error("Connection was lost.").unwrap();
+        let update = receiver.take_update().unwrap();
+        assert!(update.presentation.is_none());
+        assert!(update.error.is_none());
+
+        current
+            .publish(snapshot(&mut captions, "current words", false))
+            .unwrap();
+        assert_eq!(
+            presentation(&receiver).caption.unwrap().caption().text(),
+            "current words"
+        );
+    }
+
+    #[test]
+    fn credential_and_vocabulary_results_are_delivered_latest_first() {
+        let (sink, receiver) = GtkCaptionSink::bridge();
+        sink.set_credential(CredentialView {
+            status: "Not configured".to_owned(),
+            tone: CredentialTone::Neutral,
+        })
+        .unwrap();
+        sink.set_credential(CredentialView {
+            status: "Saved securely".to_owned(),
+            tone: CredentialTone::Good,
+        })
+        .unwrap();
+        sink.set_vocabulary(VocabularyOutcome {
+            request_id: 7,
+            result: Err(VocabularyProblem {
+                message: "Vocabulary explanations need an OpenAI API key.".to_owned(),
+                needs_settings: true,
+            }),
+        })
+        .unwrap();
+        let update = receiver.take_update().unwrap();
+        assert_eq!(update.credential.unwrap().status, "Saved securely");
+        assert_eq!(update.vocabulary.unwrap().request_id, 7);
+    }
+
+    #[test]
+    fn entered_api_keys_are_redacted_in_debug_output() {
+        let action = CaptionUiAction::SaveApiKey(EnteredApiKey::new("sk-secret-value".to_owned()));
+        assert!(!format!("{action:?}").contains("secret"));
     }
 
     #[test]

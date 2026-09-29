@@ -1365,8 +1365,10 @@ dependencies = [
  "gtk4",
  "lcrt-audio-pipewire",
  "lcrt-core",
+ "lcrt-openai",
  "lcrt-stt-whisper",
  "lcrt-ui-gtk",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
 ]

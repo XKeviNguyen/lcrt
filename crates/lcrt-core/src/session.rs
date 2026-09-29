@@ -92,6 +92,13 @@ impl Language {
         }
     }
 
+    /// Parses an ISO 639-1 code such as `ja`.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|language| language.code().eq_ignore_ascii_case(code.trim()))
+    }
+
     /// User-facing name, in English.
     pub fn label(self) -> &'static str {
         match self {
@@ -164,6 +171,8 @@ pub struct SessionOptions {
     pub spoken_language: LanguageSelection,
     /// Output language for [`ProcessingMode::Translation`].
     pub translation_target: Language,
+    /// Whether Translation also transcribes and shows the original speech.
+    pub show_original: bool,
 }
 
 #[cfg(test)]
