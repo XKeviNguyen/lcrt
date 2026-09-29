@@ -126,6 +126,12 @@ impl StreamingWindow {
         self.rolled_since_inference
     }
 
+    /// Whether the open utterance has passed the minimum-speech gate, so its
+    /// audio is eligible for inference.
+    pub(crate) fn meets_minimum_speech(&self) -> bool {
+        self.speech_samples >= self.minimum_samples
+    }
+
     /// Whether appending `incoming` samples would evict audio that no pass
     /// has inferred yet.
     pub(crate) fn would_evict_uninferred(&self, incoming: usize) -> bool {

@@ -417,8 +417,10 @@ struct DrainedAudio {
 /// backlog never carries over from one pass to the next.
 ///
 /// Draining stops at a due final, at a finish request, or before a chunk
-/// would evict un-inferred audio. That chunk is deferred until after a pass,
-/// which is forced if none is due, so every captured sample is inferred.
+/// would evict un-inferred audio of an utterance that has passed the
+/// minimum-speech gate. That chunk is deferred until after a pass, which is
+/// forced if none is due. Below the gate the window rolls as before, because
+/// that audio is not eligible for inference.
 fn drain_backlog(
     first: AudioChunk,
     commands: &Receiver<WorkerCommand>,
@@ -439,7 +441,7 @@ fn drain_backlog(
             None => converter.insert(AudioConverter::new(&chunk)?),
         };
         let samples = converter.push(&chunk)?;
-        if window.would_evict_uninferred(samples.len()) {
+        if window.would_evict_uninferred(samples.len()) && window.meets_minimum_speech() {
             drained.pending_kind.get_or_insert(InferenceKind::Partial);
             drained.deferred = Some(samples);
             break;
@@ -787,6 +789,33 @@ mod tests {
         assert_eq!(drained.pending_kind, Some(InferenceKind::Partial));
         assert!(drained.deferred.is_some());
         assert!(!window.rolled_since_inference());
+    }
+
+    #[test]
+    fn below_minimum_speech_is_never_forced_into_a_pass() {
+        let mut window = StreamingWindow::new(&two_second_window()).unwrap();
+        let mut spikes = Vec::new();
+        for _ in 0..8 {
+            spikes.push(WorkerCommand::Audio(audio(4_000, 0.0)));
+            spikes.push(WorkerCommand::Audio(audio(400, 0.1)));
+        }
+        let commands = queue(spikes);
+
+        let drained = drain_backlog(
+            audio(400, 0.1),
+            &commands,
+            &InputBacklog::new(Duration::from_secs(8)),
+            &mut None,
+            &mut window,
+        )
+        .unwrap();
+
+        // Short spikes separated by less than final silence keep the window
+        // open, but their 0.225 s of speech never meets the 0.25 s gate, so
+        // no pass is manufactured; the window rolls as before.
+        assert_eq!(drained.pending_kind, None);
+        assert!(drained.deferred.is_none());
+        assert!(window.rolled_since_inference());
     }
 
     #[test]
