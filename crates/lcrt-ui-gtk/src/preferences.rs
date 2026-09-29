@@ -291,6 +291,21 @@ fn online_page(shared: &Rc<PreferencesShared>, status: &adw::ActionRow) -> adw::
     page
 }
 
+/// A titled row with a numeric field. `adw::SpinRow` is not exposed to
+/// assistive technologies (libadwaita 1.9), so this composes a plain
+/// `gtk::SpinButton`, which is.
+fn number_row(title: &str, range: (f64, f64), step: f64) -> (adw::ActionRow, gtk::SpinButton) {
+    let spin = gtk::SpinButton::with_range(range.0, range.1, step);
+    spin.set_valign(gtk::Align::Center);
+    spin.update_property(&[gtk::accessible::Property::Label(title)]);
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .activatable_widget(&spin)
+        .build();
+    row.add_suffix(&spin);
+    (row, spin)
+}
+
 fn appearance_page(shared: &Rc<PreferencesShared>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::builder()
         .title("Appearance")
@@ -320,27 +335,33 @@ fn appearance_page(shared: &Rc<PreferencesShared>) -> adw::PreferencesPage {
     let font_row = adw::ActionRow::builder().title("Font family").build();
     font_row.add_suffix(&font_button);
 
-    let size = adw::SpinRow::with_range(FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1, 1.0);
-    size.set_title("Font size (pt)");
+    font_button.update_property(&[gtk::accessible::Property::Label("Caption font")]);
+    let (size_row, size) = number_row("Font size (pt)", FONT_SIZE_RANGE, 1.0);
     let text_color = gtk::ColorDialogButton::builder()
         .dialog(&gtk::ColorDialog::builder().with_alpha(false).build())
         .valign(gtk::Align::Center)
         .build();
+    text_color.update_property(&[gtk::accessible::Property::Label("Text color")]);
     let text_row = adw::ActionRow::builder().title("Text color").build();
     text_row.add_suffix(&text_color);
     let background_color = gtk::ColorDialogButton::builder()
         .dialog(&gtk::ColorDialog::builder().with_alpha(false).build())
         .valign(gtk::Align::Center)
         .build();
+    background_color.update_property(&[gtk::accessible::Property::Label("Background color")]);
     let background_row = adw::ActionRow::builder().title("Background color").build();
     background_row.add_suffix(&background_color);
-    let opacity = adw::SpinRow::with_range(0.0, 100.0, 5.0);
-    opacity.set_title("Background opacity (%)");
-    let width = adw::SpinRow::with_range(f64::from(WIDTH_RANGE.0), f64::from(WIDTH_RANGE.1), 20.0);
-    width.set_title("Caption window width");
-    let height =
-        adw::SpinRow::with_range(f64::from(HEIGHT_RANGE.0), f64::from(HEIGHT_RANGE.1), 20.0);
-    height.set_title("Caption window height");
+    let (opacity_row, opacity) = number_row("Background opacity (%)", (0.0, 100.0), 5.0);
+    let (width_row, width) = number_row(
+        "Caption window width",
+        (f64::from(WIDTH_RANGE.0), f64::from(WIDTH_RANGE.1)),
+        20.0,
+    );
+    let (height_row, height) = number_row(
+        "Caption window height",
+        (f64::from(HEIGHT_RANGE.0), f64::from(HEIGHT_RANGE.1)),
+        20.0,
+    );
     let reset = gtk::Button::builder()
         .label("Reset appearance to defaults")
         .halign(gtk::Align::End)
@@ -434,12 +455,12 @@ fn appearance_page(shared: &Rc<PreferencesShared>) -> adw::PreferencesPage {
     for row in [
         system_font.upcast_ref::<gtk::Widget>(),
         font_row.upcast_ref(),
-        size.upcast_ref(),
+        size_row.upcast_ref(),
         text_row.upcast_ref(),
         background_row.upcast_ref(),
-        opacity.upcast_ref(),
-        width.upcast_ref(),
-        height.upcast_ref(),
+        opacity_row.upcast_ref(),
+        width_row.upcast_ref(),
+        height_row.upcast_ref(),
     ] {
         group.add(row);
     }

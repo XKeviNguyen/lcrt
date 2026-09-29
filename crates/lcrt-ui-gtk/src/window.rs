@@ -86,8 +86,10 @@ pub fn run_caption_ui(
     let application = adw::Application::builder()
         .application_id(application_id)
         .build();
-    // Matches the installed icon, for window managers that ask the window.
-    gtk::Window::set_default_icon_name(NORMAL_APPLICATION_ID);
+    application.connect_startup(|_| {
+        // Matches the installed icon, for window managers that ask the window.
+        gtk::Window::set_default_icon_name(NORMAL_APPLICATION_ID);
+    });
     let events = Rc::new(RefCell::new(Some(events)));
     application.connect_activate(move |application| {
         if let Some(window) = application.active_window() {
@@ -100,6 +102,34 @@ pub fn run_caption_ui(
         CaptionWindow::build(application, events, actions.clone(), &options);
     });
     application.run_with_args(&[application_id])
+}
+
+/// Dropdown items as plain labels, optionally ellipsized at the end.
+fn label_factory(ellipsize: bool) -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let label = gtk::Label::builder().xalign(0.0).build();
+        if ellipsize {
+            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            label.set_width_chars(12);
+        }
+        item.set_child(Some(&label));
+    });
+    factory.connect_bind(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        if let (Some(label), Some(text)) = (
+            item.child().and_downcast::<gtk::Label>(),
+            item.item().and_downcast::<gtk::StringObject>(),
+        ) {
+            label.set_text(&text.string());
+        }
+    });
+    factory
 }
 
 fn string_list(labels: &[String]) -> gtk::StringList {
@@ -159,6 +189,10 @@ impl CaptionWindow {
         source.set_tooltip_text(Some("Audio source"));
         source.update_property(&[gtk::accessible::Property::Label("Audio source")]);
         source.set_hexpand(true);
+        // A long device name must not force the caption window wider; the
+        // popup list still shows full names.
+        source.set_factory(Some(&label_factory(true)));
+        source.set_list_factory(Some(&label_factory(false)));
         let language = gtk::DropDown::new(None::<gtk::StringList>, None::<gtk::Expression>);
         language.update_property(&[gtk::accessible::Property::Label("Language")]);
         let show_original = gtk::CheckButton::with_label("Original");
