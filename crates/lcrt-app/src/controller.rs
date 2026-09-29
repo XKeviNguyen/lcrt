@@ -28,7 +28,7 @@ use lcrt_openai::{
 };
 use lcrt_stt_whisper::{WhisperConfig, WhisperTranscriber};
 use lcrt_ui_gtk::{
-    CaptionUiAction, CredentialTone, CredentialView, GtkCaptionSink, VocabularyCard,
+    CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey, GtkCaptionSink, VocabularyCard,
     VocabularyOutcome, VocabularyProblem,
 };
 use tracing::{error, info, warn};
@@ -260,7 +260,9 @@ impl Controller {
                     };
                     notify_ui(self.sink.set_credential(view));
                 }
-                Ok(CaptionUiAction::TestConnection) => self.test_connection(),
+                Ok(CaptionUiAction::TestConnection(entered)) => {
+                    self.test_connection(entered.as_ref());
+                }
                 Ok(CaptionUiAction::ExplainSelection {
                     request_id,
                     caption,
@@ -409,13 +411,13 @@ impl Controller {
         notify_ui(self.sink.set_credential(view));
     }
 
-    fn test_connection(&self) {
-        let Some((key, _)) = self.credentials.resolve() else {
-            notify_ui(
-                self.sink
-                    .set_credential(credential_view(CredentialStatus::NotConfigured)),
-            );
-            return;
+    fn test_connection(&self, entered: Option<&EnteredApiKey>) {
+        let key = match key_to_test(entered, || self.credentials.resolve().map(|(key, _)| key)) {
+            Ok(key) => key,
+            Err(message) => {
+                notify_ui(self.sink.set_credential(problem_view(&message)));
+                return;
+            }
         };
         let sink = self.sink.clone();
         let spawned = thread::Builder::new()
@@ -531,6 +533,18 @@ fn problem(message: &str, needs_settings: bool) -> VocabularyProblem {
     VocabularyProblem {
         message: message.to_owned(),
         needs_settings,
+    }
+}
+
+/// The key a connection test checks: the one just entered, without storing
+/// it, otherwise the key currently in use.
+fn key_to_test(
+    entered: Option<&EnteredApiKey>,
+    in_use: impl FnOnce() -> Option<ApiKey>,
+) -> Result<ApiKey, String> {
+    match entered {
+        Some(entered) => ApiKey::parse(entered.expose()).map_err(|invalid| invalid.to_string()),
+        None => in_use().ok_or_else(|| "Enter an API key to test.".to_owned()),
     }
 }
 
@@ -717,11 +731,30 @@ mod tests {
     };
 
     use super::{
-        ControllerState, PipelineSession, StartupGate, StartupPhase, credential_view,
+        ControllerState, PipelineSession, StartupGate, StartupPhase, credential_view, key_to_test,
         request_controller_shutdown, start_audio_after_stt,
     };
-    use lcrt_openai::credentials::CredentialStatus;
-    use lcrt_ui_gtk::CredentialTone;
+    use lcrt_openai::credentials::{ApiKey, CredentialStatus};
+    use lcrt_ui_gtk::{CredentialTone, EnteredApiKey};
+
+    #[test]
+    fn connection_test_prefers_the_entered_key_without_consulting_storage() {
+        let entered = EnteredApiKey::new(" sk-entered ".to_owned());
+        let key = key_to_test(Some(&entered), || panic!("storage must not be read"));
+        assert_eq!(key, Ok(ApiKey::parse("sk-entered").unwrap()));
+    }
+
+    #[test]
+    fn connection_test_falls_back_to_the_key_in_use_and_explains_problems() {
+        let saved = ApiKey::parse("sk-saved").unwrap();
+        assert_eq!(key_to_test(None, || Some(saved.clone())), Ok(saved));
+        assert_eq!(
+            key_to_test(None, || None),
+            Err("Enter an API key to test.".to_owned())
+        );
+        let malformed = EnteredApiKey::new("sk bad".to_owned());
+        assert!(key_to_test(Some(&malformed), || None).is_err());
+    }
 
     #[test]
     fn shutdown_without_a_session_terminates_the_controller() {

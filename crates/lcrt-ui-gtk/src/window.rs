@@ -166,7 +166,6 @@ impl CaptionWindow {
         start.set_tooltip_text(Some("Start or stop captions"));
         let status = gtk::Label::new(Some("Ready"));
         status.add_css_class("dim-label");
-        status.update_property(&[gtk::accessible::Property::Label("Status")]);
         let settings = gtk::Button::from_icon_name("emblem-system-symbolic");
         settings.set_tooltip_text(Some("Settings"));
         settings.update_property(&[gtk::accessible::Property::Label("Settings")]);
@@ -298,8 +297,12 @@ impl CaptionWindow {
         window.present();
         this.poll_events(events);
 
+        // The window owns the controller state: handlers hold weak references,
+        // and this strong one lives exactly as long as the window.
+        let owner = Rc::clone(&this);
         let close_actions = actions;
         window.connect_close_request(move |_| {
+            let _ = &owner;
             request_controller_shutdown(close_actions.clone());
             glib::Propagation::Proceed
         });

@@ -272,9 +272,12 @@ fn online_page(shared: &Rc<PreferencesShared>, status: &adw::ActionRow) -> adw::
     });
     let actions = shared.actions.clone();
     let row = status.clone();
+    let entry = key_row.clone();
     test.connect_clicked(move |_| {
         row.set_subtitle("Testing…");
-        let _ = actions.try_send(CaptionUiAction::TestConnection);
+        let text = entry.text();
+        let entered = (!text.trim().is_empty()).then(|| EnteredApiKey::new(text.to_string()));
+        let _ = actions.try_send(CaptionUiAction::TestConnection(entered));
     });
     let actions = shared.actions.clone();
     clear.connect_clicked(move |_| {

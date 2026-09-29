@@ -46,8 +46,9 @@ pub enum CaptionUiAction {
     SaveApiKey(EnteredApiKey),
     /// Remove the stored API key.
     ClearApiKey,
-    /// Verify the API key in use with the service.
-    TestConnection,
+    /// Verify an API key with the service: the entered one when present
+    /// (without storing it), otherwise the key currently in use.
+    TestConnection(Option<EnteredApiKey>),
     /// Explain the selected caption text (`start..end` in characters).
     ExplainSelection {
         /// Identifies the request; results for older ids are ignored.
