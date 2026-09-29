@@ -9,10 +9,17 @@ evidence that was still missing.
 
 - Base: `develop` at `1b084aa50bb30f377b0f7cdec095279121bf8a6c` plus the
   changes in this pull request, built with Cargo `release`.
-- Two builds were measured. **Build A** contains the Whisper fallback fix and
-  the smoke bound change. **Build B** is the final source, which adds the
-  transcript-overlap fix. The overlap fix changes only caption text assembly,
-  not the lifecycle, capture, or shutdown paths.
+- Two builds were runtime-measured. **Build A** disabled the Whisper fallback
+  for every pass and contained the smoke bound change. **Build B** is head
+  `4335dad`, which added the first transcript-overlap fix.
+- The final head adds three review corrections. Final passes keep the
+  fallback, an exact leading overlap takes precedence, and punctuation-only
+  tokens cannot anchor a skip. These corrections are unit-tested. The only
+  runtime check on the final source was a deterministic paced replay of the
+  fixture: identical transcript, 7 passes, first partial at 2.78 s.
+- The system-audio, soak, microphone, and lifecycle results below therefore
+  come from Builds A and B, not the exact final source. None of the
+  corrections touch the lifecycle, capture, or shutdown paths.
 - OS: Ubuntu 26.04 LTS, Linux 7.0.0-34-generic, x86_64, GNOME Shell 50.1
   on Wayland, PipeWire 1.6.2.
 - CPU: 12th Gen Intel Core i5-12500H, 16 logical CPUs. Rust 1.98.0.
@@ -80,7 +87,7 @@ was committed.
   exposed the duplicated-caption defect fixed below. Some repetition remains
   (see [known limitations](#known-limitations)).
 
-### System audio (Build B)
+### System audio (Build B, `4335dad`)
 
 The diagnostic ran for 40 seconds on the output monitor while `pw-play` played
 the JFK fixture twice through the default sink.
@@ -218,10 +225,14 @@ frame. The two starting points differ:
    - Cause: normal passes took about 0.8 s, but whisper.cpp's default
      temperature fallback re-decoded repetitive hallucinations at up to five
      higher temperatures, producing 2.0–5.0 s passes.
-   - Fix: live decoding now disables the fallback. The next rolling-window
-     pass re-decodes the same audio 1.5 s later anyway.
-   - Result: the same unattended condition then ran for 60 seconds with 41
-     passes (median 0.95 s, maximum 2.3 s) and stopped cleanly. The fixture
+   - Fix: rolling partial passes now disable the fallback, because the next
+     rolling-window pass re-decodes the same audio 1.5 s later anyway. Final
+     passes, triggered by silence or Stop, keep whisper.cpp's fallback,
+     because nothing re-decodes their audio.
+   - Result (Build A, fallback disabled for all passes): the same unattended
+     condition then ran for 60 seconds with 41 passes (median 0.95 s, maximum
+     2.3 s) and stopped cleanly. On this noisy microphone every pass before
+     Stop was a partial. The fixture
      transcript and pass count were unchanged.
 2. **Rolled windows duplicated captions.**
    - Cause: the rolling-window overlap required the previous hypothesis's last
@@ -231,14 +242,15 @@ frame. The two starting points differ:
      was then committed again.
    - Fix: an exact overlap at the start of the new hypothesis still always
      wins. Only when there is none may up to two garbled leading words be
-     dropped, and only when at least three further words anchor the overlap.
-     This keeps a legitimately repeated phrase such as "go home … go home".
-   - Evidence: three regression tests. On head `4335dad`, a paced replay of
+     dropped, and only when at least three further non-punctuation words
+     anchor the overlap. This keeps a legitimately repeated phrase such as
+     "go home … go home", and noise markers such as `♪` cannot delete words.
+   - Evidence: four regression tests. On head `4335dad`, a paced replay of
      the owner's recorded segment through the diagnostic removed three
      duplicated renditions, and the fixture output was unchanged. The
-     recording was then deleted. The later precedence correction affects only
-     hypotheses that have an exact leading overlap, which the observed
-     duplicates did not.
+     recording was then deleted. The later corrections affect only
+     hypotheses that have an exact leading overlap or punctuation-only
+     anchors. The observed duplicates had neither.
 3. **Smoke diagnostic too short for a soak.** `--smoke-seconds` now accepts up
    to 3,600 seconds instead of 120, so the diagnostic can run the integrated
    soak. It remains bounded.
@@ -252,7 +264,9 @@ frame. The two starting points differ:
 - Rolling-window overlap is still exact after the leading words. A word that
   Whisper changes mid-overlap (for example "help" and "have") can still repeat
   a phrase in continuous noisy input.
-- Disabling fallback bounds a pass to one decode. A single repetitive decode
+- Disabling fallback bounds a partial pass to one decode. A final pass keeps
+  the pre-existing fallback and can still take several decodes. A single
+  repetitive decode
   can still take about 2.3 s, longer than the 1.5 s step. Isolated passes like
   this are absorbed by the queue. Sustained back-to-back passes of that length
   could still fill it; this was not observed.

@@ -136,7 +136,12 @@ fn non_overlapping_prefix(previous: &str, current: &str) -> (String, usize) {
                 previous_words[previous_words.len() - count..]
                     .iter()
                     .zip(&current_words[skipped..skipped + count])
-                    .all(|(left, right)| normalized_word(left.2) == normalized_word(right.2))
+                    .all(|(left, right)| {
+                        let word = normalized_word(left.2);
+                        // Punctuation or noise markers such as `♪` cannot
+                        // justify dropping recognized leading words.
+                        word == normalized_word(right.2) && (skipped == 0 || !word.is_empty())
+                    })
             })
             .map(|count| (count, skipped))
     });
@@ -349,6 +354,21 @@ mod tests {
 
         assert_eq!(update.text(), "we need to go home we need to go home now");
         assert_eq!(update.stable_text(), "we need to ");
+    }
+
+    #[test]
+    fn punctuation_only_anchor_does_not_drop_leading_words() {
+        let mut transcript = TranscriptAssembler::new(256);
+        transcript
+            .apply(InferenceKind::Partial, "music ♪ ♪ ♪".to_owned(), false)
+            .unwrap();
+
+        let update = transcript
+            .apply(InferenceKind::Partial, "hello ♪ ♪ ♪".to_owned(), true)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(update.text(), "music ♪ ♪ ♪ hello ♪ ♪ ♪");
     }
 
     #[test]

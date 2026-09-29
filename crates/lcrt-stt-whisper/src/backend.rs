@@ -475,7 +475,7 @@ fn infer_and_publish(
 ) -> Result<(), WhisperBackendError> {
     let started = Instant::now();
     let audio_duration_ms = window.samples().len() * 1_000 / 16_000;
-    let text = transcribe_window(state, window.samples(), config)?;
+    let text = transcribe_window(state, window.samples(), config, kind)?;
     inference_count.fetch_add(1, Ordering::Relaxed);
     let window_rolled = window.rolled_since_inference();
     debug!(
@@ -539,6 +539,7 @@ fn transcribe_window(
     state: &mut WhisperState,
     samples: &[f32],
     config: &WhisperConfig,
+    kind: InferenceKind,
 ) -> Result<String, WhisperBackendError> {
     let mut parameters = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     parameters.set_n_threads(i32::from(config.inference_threads));
@@ -554,9 +555,12 @@ fn transcribe_window(
     parameters.set_suppress_nst(true);
     // whisper.cpp otherwise re-decodes a rejected (typically repetitive)
     // result at up to five higher temperatures. On noisy live input that
-    // multiplies one pass several-fold and overflows the bounded input queue,
-    // while the next rolling-window pass re-decodes the same audio anyway.
-    parameters.set_temperature_inc(0.0);
+    // multiplies one partial pass several-fold and overflows the bounded input
+    // queue, while the next rolling-window pass re-decodes the same audio
+    // anyway. A final pass has no later re-decode, so it keeps the fallback.
+    if kind == InferenceKind::Partial {
+        parameters.set_temperature_inc(0.0);
+    }
     state
         .full(parameters, samples)
         .map_err(|error| WhisperBackendError::Whisper(error.to_string()))?;
