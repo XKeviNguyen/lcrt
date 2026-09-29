@@ -126,9 +126,10 @@ impl StreamingWindow {
         self.rolled_since_inference
     }
 
-    /// Whether appending more audio would evict audio no pass has inferred.
-    pub(crate) fn uninferred_audio_fills_window(&self) -> bool {
-        self.samples_since_inference >= self.max_samples
+    /// Whether appending `incoming` samples would evict audio that no pass
+    /// has inferred yet.
+    pub(crate) fn would_evict_uninferred(&self, incoming: usize) -> bool {
+        self.samples_since_inference.saturating_add(incoming) > self.max_samples
     }
 
     pub(crate) fn mark_inferred(&mut self, kind: InferenceKind) {

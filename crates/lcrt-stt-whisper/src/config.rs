@@ -11,10 +11,10 @@ pub struct WhisperConfig {
     pub language: Option<String>,
     /// CPU threads used by whisper.cpp inference.
     pub inference_threads: u8,
-    /// Maximum captured audio chunks waiting behind inference. Pending audio
-    /// is also bounded to one `window_duration`, so this count is a
-    /// structural ceiling that must not bind first at small audio quanta.
-    pub input_queue_capacity: usize,
+    /// Maximum captured audio waiting behind inference, independent of chunk
+    /// size. It may not exceed `window_duration`: a larger backlog could not
+    /// be inferred without evicting audio that no pass has seen.
+    pub max_input_backlog: Duration,
     /// Rolling audio context retained for each inference pass.
     pub window_duration: Duration,
     /// New audio required between partial inference passes.
@@ -40,7 +40,7 @@ impl WhisperConfig {
             model_path: model_path.into(),
             language: None,
             inference_threads: 4,
-            input_queue_capacity: 2_048,
+            max_input_backlog: Duration::from_secs(8),
             window_duration: Duration::from_secs(8),
             partial_step: Duration::from_millis(1_500),
             minimum_speech: Duration::from_millis(750),
@@ -72,9 +72,10 @@ impl WhisperConfig {
                 "inference thread count must be greater than zero".to_owned(),
             ));
         }
-        if self.input_queue_capacity == 0 {
+        if self.max_input_backlog.is_zero() || self.max_input_backlog > self.window_duration {
             return Err(WhisperBackendError::InvalidConfiguration(
-                "input queue capacity must be greater than zero".to_owned(),
+                "maximum input backlog must be greater than zero and not exceed the rolling window"
+                    .to_owned(),
             ));
         }
         if self.partial_step.is_zero()
@@ -114,5 +115,27 @@ impl WhisperConfig {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::WhisperConfig;
+
+    #[test]
+    fn input_backlog_may_not_exceed_the_rolling_window() {
+        let model = std::env::temp_dir().join("lcrt-config-test-model.bin");
+        std::fs::write(&model, b"placeholder").unwrap();
+        let mut config = WhisperConfig::new(&model);
+
+        assert!(config.validate().is_ok());
+        config.max_input_backlog = config.window_duration + Duration::from_millis(1);
+        assert!(config.validate().is_err());
+        config.max_input_backlog = Duration::ZERO;
+        assert!(config.validate().is_err());
+
+        std::fs::remove_file(model).unwrap();
     }
 }

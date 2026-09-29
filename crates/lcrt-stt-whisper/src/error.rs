@@ -13,12 +13,10 @@ pub enum WhisperBackendError {
     AudioFormatChanged,
     /// Audio conversion or resampling failed.
     AudioConversion(String),
-    /// The bounded input queue could not accept more captured audio.
-    InputQueueFull(usize),
-    /// Pending captured audio reached one rolling window; inference fell behind.
+    /// Pending captured audio reached its bound; inference fell behind.
     InputBacklogFull(Duration),
-    /// A bounded producer wait expired while the input queue remained full.
-    InputQueueTimeout { capacity: usize, timeout: Duration },
+    /// A bounded producer wait expired while pending audio remained at its bound.
+    InputBacklogTimeout { limit: Duration, timeout: Duration },
     /// The worker did not start within the configured limit.
     StartupTimeout(Duration),
     /// The worker did not flush within the configured limit.
@@ -45,17 +43,13 @@ impl fmt::Display for WhisperBackendError {
             Self::AudioConversion(message) => {
                 write!(formatter, "audio conversion for Whisper failed: {message}")
             }
-            Self::InputQueueFull(capacity) => write!(
+            Self::InputBacklogFull(limit) => write!(
                 formatter,
-                "Whisper input queue reached its {capacity}-chunk bound; transcription cannot keep up with capture"
+                "Whisper input backlog reached {limit:?} of audio; transcription cannot keep up with capture"
             ),
-            Self::InputBacklogFull(window) => write!(
+            Self::InputBacklogTimeout { limit, timeout } => write!(
                 formatter,
-                "Whisper input backlog reached one {window:?} rolling window of audio; transcription cannot keep up with capture"
-            ),
-            Self::InputQueueTimeout { capacity, timeout } => write!(
-                formatter,
-                "Whisper input queue remained at its {capacity}-chunk bound for {timeout:?}; transcription cannot keep up with the producer"
+                "Whisper input backlog remained at {limit:?} of audio for {timeout:?}; transcription cannot keep up with the producer"
             ),
             Self::StartupTimeout(timeout) => {
                 write!(formatter, "Whisper model did not load within {timeout:?}")

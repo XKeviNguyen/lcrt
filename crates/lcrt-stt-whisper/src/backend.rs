@@ -2,7 +2,9 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel},
+        mpsc::{
+            Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, channel, sync_channel,
+        },
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -34,11 +36,10 @@ enum WorkerEvent {
 
 /// A non-blocking [`Transcriber`] adapter backed by a dedicated whisper.cpp worker.
 pub struct WhisperTranscriber {
-    commands: Option<SyncSender<WorkerCommand>>,
+    commands: Option<Sender<WorkerCommand>>,
     events: Receiver<WorkerEvent>,
     worker: Option<JoinHandle<Result<(), WhisperBackendError>>>,
     cancel: Arc<AtomicBool>,
-    input_queue_capacity: usize,
     backlog: Arc<InputBacklog>,
     finish_timeout: Duration,
     finished: bool,
@@ -49,17 +50,18 @@ impl WhisperTranscriber {
     /// Loads a local model on a worker thread and waits for bounded readiness.
     pub fn new(config: WhisperConfig) -> Result<Self, WhisperBackendError> {
         config.validate()?;
-        let input_queue_capacity = config.input_queue_capacity;
         let finish_timeout = config.finish_timeout;
         let startup_timeout = config.startup_timeout;
-        let (commands, command_receiver) = sync_channel(input_queue_capacity);
+        // Pending audio is bounded by `InputBacklog` duration, not by a chunk
+        // count, so the channel itself allocates only for queued commands.
+        let (commands, command_receiver) = channel();
         let (event_sender, events) = sync_channel(8);
         let (startup_sender, startup_receiver) = sync_channel(1);
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancel);
         let inference_count = Arc::new(AtomicU64::new(0));
         let worker_inference_count = Arc::clone(&inference_count);
-        let backlog = Arc::new(InputBacklog::new(config.window_duration));
+        let backlog = Arc::new(InputBacklog::new(config.max_input_backlog));
         let worker_backlog = Arc::clone(&backlog);
         let worker = thread::Builder::new()
             .name("lcrt-whisper-stt".to_owned())
@@ -89,7 +91,6 @@ impl WhisperTranscriber {
                 events,
                 worker: Some(worker),
                 cancel,
-                input_queue_capacity,
                 backlog,
                 finish_timeout,
                 finished: false,
@@ -158,45 +159,36 @@ impl WhisperTranscriber {
                 "Whisper transcriber received audio after it was finished",
             ));
         }
-        let Some(sender) = self.commands.clone() else {
-            return Err(TranscriptionError::new(
-                "Whisper worker command channel is unavailable",
-            ));
-        };
-        let reservation = self.reserve_backlog(&chunk)?;
+        let duration_us = audio_micros(&chunk);
+        let deadline = Instant::now().checked_add(timeout);
         let mut updates = Vec::new();
-        let result = send_with_backpressure(
-            &sender,
-            WorkerCommand::Audio(chunk),
-            timeout,
-            || -> Result<(), WhisperBackendError> {
-                updates.extend(self.collect_available()?);
-                Ok(())
-            },
-        );
-        if result.is_err() {
-            self.backlog.release(reservation);
-        }
-        match result {
-            Ok(()) => {
-                updates.extend(
-                    self.collect_available()
-                        .map_err(|error| TranscriptionError::new(error.to_string()))?,
-                );
-                Ok(updates)
+        while !self.backlog.try_reserve(duration_us) {
+            updates.extend(
+                self.collect_available()
+                    .map_err(|error| TranscriptionError::new(error.to_string()))?,
+            );
+            if self.finished {
+                return Err(TranscriptionError::new(
+                    "Whisper worker stopped while audio was waiting for backlog space",
+                ));
             }
-            Err(BoundedSendError::Timeout(_)) => Err(TranscriptionError::new(
-                WhisperBackendError::InputQueueTimeout {
-                    capacity: self.input_queue_capacity,
-                    timeout,
-                }
-                .to_string(),
-            )),
-            Err(BoundedSendError::Disconnected(_)) => Err(TranscriptionError::new(
-                "Whisper worker command channel disconnected unexpectedly",
-            )),
-            Err(BoundedSendError::Wait(error)) => Err(TranscriptionError::new(error.to_string())),
+            if deadline.is_none_or(|deadline| Instant::now() >= deadline) {
+                return Err(TranscriptionError::new(
+                    WhisperBackendError::InputBacklogTimeout {
+                        limit: self.backlog.limit(),
+                        timeout,
+                    }
+                    .to_string(),
+                ));
+            }
+            thread::sleep(Duration::from_millis(1));
         }
+        self.send_reserved(chunk, duration_us)?;
+        updates.extend(
+            self.collect_available()
+                .map_err(|error| TranscriptionError::new(error.to_string()))?,
+        );
+        Ok(updates)
     }
 
     /// Returns the number of successful local Whisper inference passes.
@@ -204,16 +196,17 @@ impl WhisperTranscriber {
         self.inference_count.load(Ordering::Relaxed)
     }
 
-    /// Reserves backlog room for `chunk`, returning the reserved microseconds.
-    fn reserve_backlog(&self, chunk: &AudioChunk) -> Result<u64, TranscriptionError> {
-        let duration_us = audio_micros(chunk);
-        if self.backlog.try_reserve(duration_us) {
-            Ok(duration_us)
-        } else {
-            Err(TranscriptionError::new(
-                WhisperBackendError::InputBacklogFull(self.backlog.limit()).to_string(),
-            ))
-        }
+    /// Sends a chunk whose `duration_us` is already reserved in the backlog.
+    fn send_reserved(&self, chunk: AudioChunk, duration_us: u64) -> Result<(), TranscriptionError> {
+        let failure = match self.commands.as_ref() {
+            Some(commands) => match commands.send(WorkerCommand::Audio(chunk)) {
+                Ok(()) => return Ok(()),
+                Err(_) => "Whisper worker command channel disconnected unexpectedly",
+            },
+            None => "Whisper worker command channel is unavailable",
+        };
+        self.backlog.release(duration_us);
+        Err(TranscriptionError::new(failure))
     }
 
     fn join_worker(&mut self) -> Result<(), WhisperBackendError> {
@@ -229,30 +222,6 @@ impl WhisperTranscriber {
         }
     }
 
-    fn send_finish_until(&mut self, deadline: Instant) -> Result<(), WhisperBackendError> {
-        let Some(sender) = self.commands.as_ref() else {
-            return Ok(());
-        };
-        let mut command = WorkerCommand::Finish;
-        loop {
-            match sender.try_send(command) {
-                Ok(()) => return Ok(()),
-                Err(TrySendError::Full(returned)) if Instant::now() < deadline => {
-                    command = returned;
-                    thread::sleep(Duration::from_millis(5));
-                }
-                Err(TrySendError::Full(_)) => {
-                    return Err(WhisperBackendError::FinishTimeout(self.finish_timeout));
-                }
-                Err(TrySendError::Disconnected(_)) => {
-                    return Err(WhisperBackendError::Worker(
-                        "command channel disconnected before flush".to_owned(),
-                    ));
-                }
-            }
-        }
-    }
-
     fn finish_worker(&mut self) -> Result<Vec<TranscriptUpdate>, WhisperBackendError> {
         if self.finished {
             let updates = self.collect_available()?;
@@ -260,8 +229,11 @@ impl WhisperTranscriber {
             return Ok(updates);
         }
         let deadline = Instant::now() + self.finish_timeout;
-        self.send_finish_until(deadline)?;
-        self.commands.take();
+        if let Some(commands) = self.commands.take() {
+            commands.send(WorkerCommand::Finish).map_err(|_| {
+                WhisperBackendError::Worker("command channel disconnected before flush".to_owned())
+            })?;
+        }
         let mut updates = Vec::new();
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -304,27 +276,15 @@ impl Transcriber for WhisperTranscriber {
                 "Whisper transcriber received audio after it was finished",
             ));
         }
-        let Some(commands) = self.commands.as_ref() else {
+        let duration_us = audio_micros(&chunk);
+        if !self.backlog.try_reserve(duration_us) {
             return Err(TranscriptionError::new(
-                "Whisper worker command channel is unavailable",
+                WhisperBackendError::InputBacklogFull(self.backlog.limit()).to_string(),
             ));
-        };
-        let reservation = self.reserve_backlog(&chunk)?;
-        let sent = commands.try_send(WorkerCommand::Audio(chunk));
-        if sent.is_err() {
-            self.backlog.release(reservation);
         }
-        match sent {
-            Ok(()) => self
-                .collect_available()
-                .map_err(|error| TranscriptionError::new(error.to_string())),
-            Err(TrySendError::Full(_)) => Err(TranscriptionError::new(
-                WhisperBackendError::InputQueueFull(self.input_queue_capacity).to_string(),
-            )),
-            Err(TrySendError::Disconnected(_)) => Err(TranscriptionError::new(
-                "Whisper worker command channel disconnected unexpectedly",
-            )),
-        }
+        self.send_reserved(chunk, duration_us)?;
+        self.collect_available()
+            .map_err(|error| TranscriptionError::new(error.to_string()))
     }
 
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
@@ -385,32 +345,9 @@ fn run_worker(
         }
         match command {
             WorkerCommand::Audio(chunk) => {
-                backlog.release(audio_micros(&chunk));
-                let mut pending_kind = append_chunk(chunk, &mut converter, &mut window)?;
-                let mut finish_requested = false;
-
-                // Inference can be slower than one partial interval. Drain all
-                // audio captured during the previous pass and infer once over
-                // the newest rolling window, so backlog never carries over from
-                // one pass to the next. Stop only before the window would evict
-                // audio that no pass has inferred yet.
-                while !inference_due_before_drain(pending_kind, &window) {
-                    match commands.try_recv() {
-                        Ok(WorkerCommand::Audio(chunk)) => {
-                            backlog.release(audio_micros(&chunk));
-                            if let Some(kind) = append_chunk(chunk, &mut converter, &mut window)? {
-                                pending_kind = Some(kind);
-                            }
-                        }
-                        Ok(WorkerCommand::Finish) => {
-                            finish_requested = true;
-                            break;
-                        }
-                        Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-                    }
-                }
-
-                if finish_requested {
+                let drained =
+                    drain_backlog(chunk, &commands, backlog, &mut converter, &mut window)?;
+                if drained.finish_requested {
                     finish_stream(
                         &mut converter,
                         &mut window,
@@ -422,7 +359,7 @@ fn run_worker(
                     )?;
                     return Ok(());
                 }
-                if let Some(kind) = pending_kind {
+                if let Some(kind) = drained.pending_kind {
                     infer_and_publish(
                         kind,
                         &mut window,
@@ -432,6 +369,12 @@ fn run_worker(
                         &mut transcript,
                         &inference_count,
                     )?;
+                }
+                // The window gates inference by level, not by edge, so a pass
+                // this chunk would make due is reported again by a later push
+                // or by `finish_kind`.
+                if let Some(samples) = drained.deferred {
+                    window.push(&samples);
                 }
             }
             WorkerCommand::Finish => {
@@ -451,17 +394,59 @@ fn run_worker(
     Ok(())
 }
 
-fn append_chunk(
-    chunk: AudioChunk,
+/// Audio taken from the command queue for the next inference pass.
+struct DrainedAudio {
+    pending_kind: Option<InferenceKind>,
+    /// Converted audio held back because appending it before the pass would
+    /// evict audio that no pass has inferred.
+    deferred: Option<Vec<f32>>,
+    finish_requested: bool,
+}
+
+/// Appends `first` and all audio captured during the previous pass, so
+/// backlog never carries over from one pass to the next.
+///
+/// Draining stops at a due final, at a finish request, or before a chunk
+/// would evict un-inferred audio. That chunk is deferred until after a pass,
+/// which is forced if none is due, so every captured sample is inferred.
+fn drain_backlog(
+    first: AudioChunk,
+    commands: &Receiver<WorkerCommand>,
+    backlog: &InputBacklog,
     converter: &mut Option<AudioConverter>,
     window: &mut StreamingWindow,
-) -> Result<Option<InferenceKind>, WhisperBackendError> {
-    let converter = match converter.as_mut() {
-        Some(converter) => converter,
-        None => converter.insert(AudioConverter::new(&chunk)?),
+) -> Result<DrainedAudio, WhisperBackendError> {
+    let mut drained = DrainedAudio {
+        pending_kind: None,
+        deferred: None,
+        finish_requested: false,
     };
-    let mono = converter.push(&chunk)?;
-    Ok(window.push(&mono))
+    let mut next = Some(first);
+    while let Some(chunk) = next.take() {
+        backlog.release(audio_micros(&chunk));
+        let converter = match converter.as_mut() {
+            Some(converter) => converter,
+            None => converter.insert(AudioConverter::new(&chunk)?),
+        };
+        let samples = converter.push(&chunk)?;
+        if window.would_evict_uninferred(samples.len()) {
+            drained.pending_kind.get_or_insert(InferenceKind::Partial);
+            drained.deferred = Some(samples);
+            break;
+        }
+        if let Some(kind) = window.push(&samples) {
+            drained.pending_kind = Some(kind);
+        }
+        if drained.pending_kind == Some(InferenceKind::Final) {
+            break;
+        }
+        match commands.try_recv() {
+            Ok(WorkerCommand::Audio(chunk)) => next = Some(chunk),
+            Ok(WorkerCommand::Finish) => drained.finish_requested = true,
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => {}
+        }
+    }
+    Ok(drained)
 }
 
 fn finish_stream(
@@ -521,53 +506,13 @@ fn infer_and_publish(
         .map_err(|_| WhisperBackendError::Worker("result receiver disconnected".to_owned()))
 }
 
-fn inference_due_before_drain(
-    pending_kind: Option<InferenceKind>,
-    window: &StreamingWindow,
-) -> bool {
-    pending_kind == Some(InferenceKind::Final)
-        || (pending_kind == Some(InferenceKind::Partial) && window.uninferred_audio_fills_window())
-}
-
-enum BoundedSendError<T, E> {
-    Timeout(T),
-    Disconnected(T),
-    Wait(E),
-}
-
-fn send_with_backpressure<T, E>(
-    sender: &SyncSender<T>,
-    mut value: T,
-    timeout: Duration,
-    mut wait: impl FnMut() -> Result<(), E>,
-) -> Result<(), BoundedSendError<T, E>> {
-    let Some(deadline) = Instant::now().checked_add(timeout) else {
-        return Err(BoundedSendError::Timeout(value));
-    };
-    loop {
-        match sender.try_send(value) {
-            Ok(()) => return Ok(()),
-            Err(TrySendError::Full(returned)) => {
-                value = returned;
-                wait().map_err(BoundedSendError::Wait)?;
-                if Instant::now() >= deadline {
-                    return Err(BoundedSendError::Timeout(value));
-                }
-                thread::sleep(Duration::from_millis(1));
-            }
-            Err(TrySendError::Disconnected(returned)) => {
-                return Err(BoundedSendError::Disconnected(returned));
-            }
-        }
-    }
-}
-
 /// Captured audio accepted for transcription but not yet taken by the worker.
 ///
-/// The limit is one rolling window of audio: the worker coalesces all pending
-/// audio into the window before the next pass, and a larger backlog could not
-/// be inferred without evicting audio no pass has seen. Bounding by duration
-/// rather than chunk count keeps the limit independent of the audio quantum.
+/// The limit is at most one rolling window of audio: the worker coalesces all
+/// pending audio into the window before the next pass, and a larger backlog
+/// could not be inferred without evicting audio that no pass has seen.
+/// Bounding by duration rather than chunk count keeps the limit independent
+/// of the audio quantum.
 struct InputBacklog {
     queued_us: AtomicU64,
     limit_us: u64,
@@ -667,13 +612,17 @@ fn transcribe_window(
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, sync::mpsc::sync_channel, thread, time::Duration};
+    use std::{
+        path::PathBuf,
+        sync::mpsc::{Receiver, channel},
+        time::Duration,
+    };
 
     use lcrt_core::AudioChunk;
 
     use super::{
-        BoundedSendError, InputBacklog, WhisperTranscriber, audio_micros,
-        inference_due_before_drain, send_with_backpressure, window_token_limit,
+        InputBacklog, WhisperTranscriber, WorkerCommand, audio_micros, drain_backlog,
+        window_token_limit,
     };
     use crate::window::{InferenceKind, StreamingWindow};
     use crate::{WhisperBackendError, WhisperConfig};
@@ -694,96 +643,158 @@ mod tests {
         );
     }
 
-    #[test]
-    fn bounded_send_waits_for_queue_capacity() {
-        let (sender, receiver) = sync_channel(1);
-        sender.send(1_u8).unwrap();
-        let worker = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(10));
-            assert_eq!(receiver.recv().unwrap(), 1);
-            assert_eq!(receiver.recv().unwrap(), 2);
-        });
-        let mut waits = 0;
-
-        let result = send_with_backpressure(
-            &sender,
-            2,
-            Duration::from_millis(100),
-            || -> Result<(), ()> {
-                waits += 1;
-                Ok(())
-            },
-        );
-
-        assert!(result.is_ok());
-        assert!(waits > 0);
-        worker.join().unwrap();
-    }
-
-    #[test]
-    fn bounded_send_times_out_when_queue_stays_full() {
-        let (sender, _receiver) = sync_channel(1);
-        sender.send(1_u8).unwrap();
-
-        let result = send_with_backpressure(
-            &sender,
-            2,
-            Duration::from_millis(5),
-            || -> Result<(), ()> { Ok(()) },
-        );
-
-        assert!(matches!(result, Err(BoundedSendError::Timeout(2))));
-    }
-
-    #[test]
-    fn backlog_drain_stops_before_a_pending_partial_loses_audio() {
+    fn two_second_window() -> WhisperConfig {
         let mut config = WhisperConfig::new(std::env::temp_dir().join("unused-test-model.bin"));
         config.window_duration = Duration::from_secs(2);
         config.partial_step = Duration::from_millis(500);
         config.minimum_speech = Duration::from_millis(250);
-        let mut window = StreamingWindow::new(&config).unwrap();
-        let mut pending_kind = None;
-        let mut drained_chunks = 0;
+        config.final_silence = Duration::from_millis(300);
+        config.speech_rms_threshold = 0.01;
+        config
+    }
 
-        while !inference_due_before_drain(pending_kind, &window) {
-            if let Some(kind) = window.push(&vec![0.1; 4_000]) {
-                pending_kind = Some(kind);
-            }
-            drained_chunks += 1;
+    fn audio(samples: usize, level: f32) -> AudioChunk {
+        AudioChunk::new(vec![level; samples], 16_000, 1).unwrap()
+    }
+
+    fn queue(chunks: impl IntoIterator<Item = WorkerCommand>) -> Receiver<WorkerCommand> {
+        let (sender, receiver) = channel();
+        for chunk in chunks {
+            sender.send(chunk).unwrap();
+        }
+        receiver
+    }
+
+    fn quarter_seconds_of_speech(count: usize) -> Vec<WorkerCommand> {
+        (0..count)
+            .map(|_| WorkerCommand::Audio(audio(4_000, 0.1)))
+            .collect()
+    }
+
+    #[test]
+    fn first_utterance_drain_stops_before_unseen_audio_is_evicted() {
+        let mut window = StreamingWindow::new(&two_second_window()).unwrap();
+        let commands = queue(quarter_seconds_of_speech(9));
+        let backlog = InputBacklog::new(Duration::from_secs(8));
+
+        let drained = drain_backlog(
+            audio(4_000, 0.1),
+            &commands,
+            &backlog,
+            &mut None,
+            &mut window,
+        )
+        .unwrap();
+
+        assert_eq!(drained.pending_kind, Some(InferenceKind::Partial));
+        assert_eq!(window.samples().len(), 32_000);
+        assert!(!window.rolled_since_inference());
+        assert_eq!(drained.deferred.map(|samples| samples.len()), Some(4_000));
+        assert_eq!(commands.try_iter().count(), 1);
+    }
+
+    #[test]
+    fn a_chunk_that_would_evict_unseen_audio_is_deferred_before_appending() {
+        let mut window = StreamingWindow::new(&two_second_window()).unwrap();
+        window.push(&vec![0.1; 30_000]);
+        let commands = queue([]);
+
+        let drained = drain_backlog(
+            audio(4_000, 0.1),
+            &commands,
+            &InputBacklog::new(Duration::from_secs(8)),
+            &mut None,
+            &mut window,
+        )
+        .unwrap();
+
+        // 1.875 s unseen plus a 0.25 s chunk exceeds the 2 s window, so the
+        // chunk waits for a pass instead of evicting the oldest unseen audio.
+        assert!(drained.deferred.is_some());
+        assert!(drained.pending_kind.is_some());
+        assert!(!window.rolled_since_inference());
+        assert_eq!(window.samples().len(), 30_000);
+    }
+
+    #[test]
+    fn backlog_after_an_inferred_window_drains_past_a_due_partial() {
+        let mut window = StreamingWindow::new(&two_second_window()).unwrap();
+        window.push(&vec![0.1; 32_000]);
+        window.mark_inferred(InferenceKind::Partial);
+        let commands = queue(quarter_seconds_of_speech(9));
+        let chunk_us = audio_micros(&audio(4_000, 0.1));
+        let backlog = InputBacklog::new(Duration::from_millis(2_500));
+        for _ in 0..10 {
+            assert!(backlog.try_reserve(chunk_us));
         }
 
-        assert_eq!(pending_kind, Some(InferenceKind::Partial));
-        assert_eq!(drained_chunks, 8);
-        assert_eq!(window.samples().len(), 32_000);
+        let drained = drain_backlog(
+            audio(4_000, 0.1),
+            &commands,
+            &backlog,
+            &mut None,
+            &mut window,
+        )
+        .unwrap();
+
+        // A due partial after 0.5 s does not stop the drain; the whole 2 s
+        // backlog is appended before one pass, and taken chunks are released.
+        assert_eq!(drained.pending_kind, Some(InferenceKind::Partial));
+        assert!(window.rolled_since_inference());
+        assert!(drained.deferred.is_some());
+        assert_eq!(commands.try_iter().count(), 1);
+        assert!(backlog.try_reserve(9 * chunk_us));
+        assert!(!backlog.try_reserve(1));
+    }
+
+    #[test]
+    fn sparse_speech_forces_a_pass_before_unseen_audio_is_evicted() {
+        let mut config = two_second_window();
+        config.partial_step = Duration::from_secs(2);
+        let mut window = StreamingWindow::new(&config).unwrap();
+        let mut sparse = Vec::new();
+        for _ in 0..7 {
+            sparse.push(WorkerCommand::Audio(audio(800, 0.1)));
+            sparse.push(WorkerCommand::Audio(audio(4_000, 0.0)));
+        }
+        let commands = queue(sparse);
+
+        let drained = drain_backlog(
+            audio(800, 0.1),
+            &commands,
+            &InputBacklog::new(Duration::from_secs(8)),
+            &mut None,
+            &mut window,
+        )
+        .unwrap();
+
+        // Too little speech for the step gate, yet the window is full of
+        // unseen audio, so a pass is forced rather than rolling it away.
+        assert_eq!(drained.pending_kind, Some(InferenceKind::Partial));
+        assert!(drained.deferred.is_some());
         assert!(!window.rolled_since_inference());
     }
 
     #[test]
-    fn backlog_after_an_inferred_window_drains_until_unseen_audio_would_be_evicted() {
-        let mut config = WhisperConfig::new(std::env::temp_dir().join("unused-test-model.bin"));
-        config.window_duration = Duration::from_secs(2);
-        config.partial_step = Duration::from_millis(500);
-        config.minimum_speech = Duration::from_millis(250);
-        let mut window = StreamingWindow::new(&config).unwrap();
-        for _ in 0..8 {
-            window.push(&vec![0.1; 4_000]);
-        }
-        window.mark_inferred(InferenceKind::Partial);
-        let mut pending_kind = None;
-        let mut drained_chunks = 0;
+    fn finish_request_during_drain_is_reported() {
+        let mut window = StreamingWindow::new(&two_second_window()).unwrap();
+        let commands = queue([
+            WorkerCommand::Audio(audio(4_000, 0.1)),
+            WorkerCommand::Finish,
+        ]);
 
-        while !inference_due_before_drain(pending_kind, &window) {
-            if let Some(kind) = window.push(&vec![0.1; 4_000]) {
-                pending_kind = Some(kind);
-            }
-            drained_chunks += 1;
-        }
+        let drained = drain_backlog(
+            audio(4_000, 0.1),
+            &commands,
+            &InputBacklog::new(Duration::from_secs(8)),
+            &mut None,
+            &mut window,
+        )
+        .unwrap();
 
-        // A due partial after only 0.5 s does not stop the drain; the pass
-        // runs once the whole 2 s window holds audio no pass has seen.
-        assert_eq!(pending_kind, Some(InferenceKind::Partial));
-        assert_eq!(drained_chunks, 8);
-        assert!(window.rolled_since_inference());
+        assert!(drained.finish_requested);
+        assert!(drained.deferred.is_none());
+        assert_eq!(window.samples().len(), 8_000);
     }
 
     #[test]
