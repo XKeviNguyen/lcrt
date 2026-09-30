@@ -2,7 +2,7 @@
 
 This report records what the V2 release candidate (`feature/v2-final`)
 delivers and the evidence behind each claim. It also records what has not
-yet been verified.
+been verified.
 
 V2 adds four things on top of the V1 offline path:
 
@@ -11,11 +11,10 @@ V2 adds four things on top of the V1 offline path:
 - vocabulary explanations;
 - credential, preference and appearance management, plus an Ubuntu package.
 
-**Status:** everything that can be verified without an OpenAI API key has been
-verified. The online and translation modes, vocabulary lookups, and a
-successful Test connection have passed their automated tests against a
-scripted fake service. They have **not** been exercised against OpenAI,
-because no API key was available. See [Credential checkpoint](#credential-checkpoint).
+**Status:** every V2 feature has been verified at runtime on Ubuntu AMD64,
+including the cloud features against OpenAI with the owner's API key. See
+[Live verification with OpenAI](#live-verification-with-openai). What remains
+unverified is listed under [Known limitations](#known-limitations).
 
 ## Identity and environment
 
@@ -36,22 +35,23 @@ because no API key was available. See [Credential checkpoint](#credential-checkp
   - No root access, global network change or GitHub secret was used.
 - Controls were driven through AT-SPI accessibility, which invokes the GTK
   handlers but is not pointer input.
-- The workstation's screen was locked with the display powered off
-  (`PowerSaveMode` 3) for most of the session. The compositor then sends no
-  frame callbacks, which limits some UI checks. The affected rows say so.
+- For the offline and no-key checks, the workstation's screen was locked
+  with the display powered off (`PowerSaveMode` 3). The compositor then
+  sends no frame callbacks, which limits some UI checks. The affected rows
+  say so. The live OpenAI checks ran later with the display on.
 
 ## Evidence by category
 
 | Area | Implemented | Unit / mock tested | Runtime tested here | Not verified |
 | --- | --- | --- | --- | --- |
 | Offline captions (Whisper) | yes (V1, preserved) | yes | system audio, 18.6 min of natural speech; microphone smoke | — |
-| Online captions (`gpt-live-transcribe`) | yes | yes: protocol, out-of-order completions, reconnect, rejected key | missing-key and network-failure paths | live transcription with OpenAI (EN/JA/VI) |
-| Translation (`gpt-realtime-translate`) | yes | yes: both lanes, show-original, `session.close` → `session.closed` | through the shared online session paths | live translation with OpenAI (EN→JA, JA→EN, VI→EN) |
+| Online captions (`gpt-live-transcribe`) | yes | yes: protocol, out-of-order completions, reconnect, rejected key | live with OpenAI: EN, JA, VI and Auto; missing key; network failure and mid-session interruption | — |
+| Translation (`gpt-realtime-translate`) | yes | yes: both lanes, show-original, closing | live with OpenAI: EN→JA, JA→EN, VI→EN, original shown and hidden | — |
 | API key storage | yes | yes | real Secret Service: save, reload after restart, clear | — |
-| Test connection | yes | yes | entered, saved, malformed and missing keys; unreachable service | a successful check against OpenAI |
-| Vocabulary popover | yes | yes: request bounds, parsing, cache | selection → popover → missing-key guidance | a live explanation from OpenAI |
-| Appearance and preferences | yes | yes: normalization, persistence | persisted values, reset, startup size | live resize on a lit display |
-| Packaging (`.deb` 2.0.0) | yes | metadata validated | reproducible build, `apt-get -s`, packaged GUI launch | `dpkg -i` (needs sudo) |
+| Test connection | yes | yes | verified against OpenAI (HTTP 200); entered, saved, malformed and missing keys; unreachable service | — |
+| Vocabulary popover | yes | yes: request bounds, parsing, cache | live explanations for English and Japanese; missing-key guidance | pointer selection (selections were made through accessibility) |
+| Appearance and preferences | yes | yes: normalization, persistence | persisted values, reset, startup size, live resize | — |
+| Packaging (`.deb` 2.0.0) | yes | metadata validated | reproducible build, `apt-get -s`, packaged GUI launch; installed by the owner with `apt` | — |
 | CI | workflow updated | — | pending for the final head | — |
 
 "Hardware tested" applies only to this Ubuntu AMD64 laptop. ARM64 and Windows
@@ -65,7 +65,7 @@ On the final code commit:
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
-| `cargo test --locked --workspace --all-features` | 194 passed, 0 failed |
+| `cargo test --locked --workspace --all-features` | 198 passed, 0 failed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
 | `git diff --check` | clean |
 | `desktop-file-validate`, `appstreamcli validate --no-net` | valid; one pedantic note about the uppercase app ID, which is kept because the keyring entry is named after it |
@@ -175,11 +175,12 @@ Selecting caption text opened the popover. With no key, it showed
 "Vocabulary explanations need an OpenAI API key." with **Open Settings**, and
 made no request.
 
-On Wayland with the screen locked, GTK's claim to the PRIMARY selection was
-refused, because an AT-SPI selection carries no input serial. The selection
-therefore collapsed before the lookup could start. The same check passed on
-the X11 backend (XWayland). Pointer selection on a lit Wayland session
-remains to be confirmed.
+On Wayland, GTK's claim to the PRIMARY selection is sometimes refused,
+because an AT-SPI selection carries no input serial. The selection then
+collapses before the lookup can start. This affects only the accessibility
+harness, so the selection checks ran on the X11 backend (XWayland). Live
+lookups are described under
+[Live verification with OpenAI](#live-verification-with-openai).
 
 ### Appearance and accessibility
 
@@ -188,10 +189,9 @@ remains to be confirmed.
 - **Reset** restored the defaults in the controls and the file.
 - **Startup size:** the saved size applies at startup (800×500 and 1100×450
   were observed).
-- **Live resize:** it could not be observed. With the display off, GTK
-  receives no frame callbacks and did not commit a new size. A minimal GTK
-  program behaved the same way under these conditions and resized normally in
-  the same session when it had frames.
+- **Live resize:** with the display on, setting 980×420 resized the window
+  from 760×320 at once, and Reset restored 760×320. With the display off it
+  could not be observed, because GTK receives no frame callbacks then.
 - **Accessibility fix:** libadwaita 1.9's `AdwSpinRow` is not exposed to
   assistive technologies. A minimal libadwaita program confirmed this. The
   four numeric settings now use rows with labelled `GtkSpinButton`s, which
@@ -217,6 +217,9 @@ remains to be confirmed.
   copyright file lists the license of each of the 158 linked crates.
 - Ubuntu 24.04 does not package `libgtk4-layer-shell0`, so the `.deb`
   targets 24.10 and later.
+- **Installed:** the owner installed the package with `sudo apt install`;
+  `dpkg -s lcrt` reports `install ok installed`, version 2.0.0. The API key
+  used below was entered through the installed application.
 
 ### Review fixes (Codex, PR #27)
 
@@ -302,6 +305,16 @@ tests:
 - **Quota errors:** an HTTP 429 whose body reports exhausted quota is shown
   with billing guidance.
 
+A sixth review, of `d2824b5`, found five P2 issues. All were fixed:
+
+- turns first named by a delta respect the turn cap;
+- skipping a stale audio backlog closes the open transcription turn;
+- a diagnostic passes only if audio was captured;
+- the declared minimum Rust version is now 1.88, the first that compiles the
+  let-chains the code uses, verified with `cargo +1.88.0 check`;
+- the speech gate that the last finding concerned was removed, as described
+  under [Live verification with OpenAI](#live-verification-with-openai).
+
 ### Security review
 
 - TLS certificate validation stays enabled: rustls with webpki roots, and no
@@ -317,24 +330,85 @@ tests:
 - The GTK thread performs no network, keyring or file I/O. The last file
   check, in the model chooser, was removed.
 
-## Credential checkpoint
+## Live verification with OpenAI
 
-No OpenAI API key was available (`OPENAI_API_KEY` absent, keyring empty).
-Acceptance of the cloud features needs one run with a key:
+The owner installed the package, entered an API key in Settings and saved it
+to GNOME Keyring. LCRT read it from the keyring for every run below. The key
+was never placed on a command line, in a file, or in these tests' logs.
 
-1. **Setup:** Settings → Online → paste the key → Test connection
-   (expect "✓ Connection verified") → Save securely.
-2. **Online Captions:** about 5 minutes of natural speech in each of
-   English, Japanese and Vietnamese, played through system audio, with the
-   spoken language set and with Auto.
-3. **Translation:** about 5 minutes each of EN→JA, JA→EN and VI→EN, with
-   Show original on and off.
-4. **Vocabulary:** select words in English and Japanese captions.
-5. **Network failure:** one brief interruption during an online session
-   (for example, disable Wi-Fi for 5 s in the user session). Expect
-   Reconnecting… and recovery, or a clear error.
+**Test audio.** All audio was played with `pw-play` to the default sink and
+captured from the **System audio** source.
 
-Record latency to the first caption, the stability of Stop, and any errors.
+| Audio | Source and license | Length |
+| --- | --- | --- |
+| English, Japanese, Vietnamese read speech | Google FLEURS test split (`google/fleurs` on Hugging Face), CC BY 4.0: the first 24, 18 and 19 utterances, each normalized to −20 LUFS and joined with 0.8 s gaps | 243 s, 242 s, 242 s |
+| English continuous reading | LibriVox, *Short Nonfiction Collection, Vol. 100*, track 03 (public domain), first 240 s | 240 s |
+
+FLEURS provides a reference transcript for every utterance, which the error
+rates below are measured against. Several FLEURS recordings peak near
+−44 dB, which is inaudible, so each utterance was loudness-normalized first.
+
+**Connection.** Test connection returned "✓ Connection verified" (HTTP 200)
+in 1.8 s. Sessions became ready 0.8–1.7 s after Start.
+
+**Sessions.** Each ran about four minutes.
+
+| Session | First caption | Error rate vs reference | Longest caption gap | Stop |
+| --- | --- | --- | --- | --- |
+| Online Captions, English | 2.16 s | 6.1% of words | 5.4 s | 1.39 s |
+| Online Captions, Japanese | 3.09 s | 15.5% of characters | 8.6 s | 1.40 s |
+| Online Captions, Vietnamese | 2.14 s | 7.5% of words | 4.7 s | 1.38 s |
+| Online Captions, Auto (Vietnamese, 60 s) | 2.17 s | not scored | 4.8 s | 1.50 s |
+| Translation EN→JA, original shown | 1.72 s | no reference | 1.7 s | 6.48 s |
+| Translation JA→EN, original hidden | 5.05 s | no reference | 10.7 s | 6.71 s |
+| Translation VI→EN, original shown | 2.03 s | original lane 7.7% of words | 3.6 s | 7.05 s |
+
+- The Japanese error rate includes one utterance that stayed too quiet to
+  capture even after normalization.
+- The longest gaps span the pauses between utterances. The one exception,
+  8.6 s in Japanese, lies inside that quiet utterance.
+- Translations were fluent and followed the speech. With the original shown,
+  the source language appeared above the translation; with it hidden, only
+  the translation appeared.
+- No session ended in an error, and memory stayed at 130–157 MB.
+- The translation Stop times above are from before the fix described below;
+  after it, Stop took 3.2 s.
+
+**Vocabulary.**
+
+- Selecting "communication" in an English caption showed the part of speech,
+  the meaning and a sentence explaining its use in context, 2.5 s after the
+  selection settled.
+- A partial Japanese selection (ターネッ) was explained as part of
+  「インターネット」, with its reading.
+
+**Mid-session interruption.** LCRT ran in a private network namespace where
+`api.openai.com` resolved to a local relay that forwarded the TLS bytes
+unchanged. Blocking the relay for 2 s cut the connection without touching the
+workstation's networking. This was done twice in one session:
+
+- the status went to "Reconnecting…" and back to "Listening…" after 3.8 s;
+- captions resumed, with a 5.1 s caption gap each time;
+- the session continued without an error, and Stop took 2.3 s.
+
+**Defects found by these live runs, and fixed.**
+
+1. **Quiet and short speech was discarded.** The turn gate counted only
+   frames above 0.01 RMS as speech and discarded turns with under 250 ms of
+   it. The service had already transcribed that audio, so a spoken
+   "However," was lost, and the abandoned items made Stop wait its full 8 s
+   timeout (9.4 s measured). The gate is now 0.003, about −50 dBFS, and every
+   turn is committed. Stop then took 1.4 s.
+2. **Translation Stop waited for a slow confirmation.** The service takes
+   5–7 s to confirm `session.close`, during which no caption changes.
+   Translation now closes once captions have been quiet for 1.5 s.
+3. **The vocabulary answer closed its own popover.** GTK closes a popover
+   that resizes unless its parent presents it again, and a text view does
+   not. A minimal GTK program reproduced this on X11 and Wayland. LCRT now
+   presents the popover after updating it.
+
+The six sessions in the table ran on the build with fix 1. Fixes 2 and 3 do
+not change the transcription path, and were each verified live afterwards.
 
 ## Known limitations
 
@@ -342,14 +416,20 @@ Record latency to the first caption, the stability of Stop, and any errors.
   overlap without silently dropping words is follow-up work. It is not part
   of this PR.
 - **Offline speech detection:** it uses the V1 fixed RMS threshold.
+- **Online turn boundaries:** a fixed level (−50 dBFS) decides when a turn
+  ends. Speech over continuous background sound is committed every 15 s
+  instead of at pauses; captions still update continuously.
 - **Online recovery:** a reconnect discards audio captured during the outage.
   Online modes never fall back to another backend by themselves.
 - **Stop wait bound:** Stop waits at most 18 s (10 s handshake + 8 s finish)
-  for an unresponsive online service.
+  for an unresponsive online service. Measured live: 1.4 s for captions and
+  3.2 s for translation.
 - **Window size:** a width below the control row's minimum (510–683 px) has
   no further effect.
 - **Not tested:**
+  - pointer and keyboard input (controls and selections were driven through
+    accessibility);
   - live resize on X11;
   - layer-shell overlay (GNOME lacks it);
-  - pointer input;
+  - microphone input in the online modes;
   - ARM64 and Windows runtime.
