@@ -127,6 +127,8 @@ pub struct OnlineSession {
     backlog_full: Arc<AtomicBool>,
     converter: Option<AudioConverter>,
     finish_timeout: Duration,
+    /// Set by `begin_finish`; `wait_finished` waits no longer than this.
+    finish_deadline: Option<Instant>,
     finished: bool,
     /// A failure that arrived behind caption updates; reported on the next
     /// call, after those updates are delivered.
@@ -179,6 +181,7 @@ impl OnlineSession {
             backlog_full,
             converter: None,
             finish_timeout: limits.finish + limits.handshake,
+            finish_deadline: None,
             finished: false,
             pending_failure: None,
             dropped_blocks: 0,
@@ -262,10 +265,21 @@ impl Transcriber for OnlineSession {
     }
 
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+        let mut updates = self.begin_finish()?;
+        updates.extend(self.wait_finished()?);
+        Ok(updates)
+    }
+}
+
+impl OnlineSession {
+    /// Asks the service to end the stream, without waiting for it. Several
+    /// sessions can be finished together this way, so their waits overlap
+    /// instead of adding up. Follow with [`Self::wait_finished`].
+    pub fn begin_finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
         let mut updates = self.collect()?;
         if let Some(error) = self.pending_failure.take() {
-            // `finish` can report either captions or a failure, and the
-            // failure is what the user must act on.
+            // A finishing session can report either captions or a failure,
+            // and the failure is what the user must act on.
             return Err(session_error(&error));
         }
         if self.finished {
@@ -278,6 +292,7 @@ impl Transcriber for OnlineSession {
             None => Vec::new(),
         };
         let deadline = Instant::now() + self.finish_timeout;
+        self.finish_deadline = Some(deadline);
         if let Some(commands) = self.commands.take() {
             for command in [Command::Audio(tail), Command::Finish] {
                 let mut command = command;
@@ -294,6 +309,16 @@ impl Transcriber for OnlineSession {
                 }
             }
         }
+        Ok(updates)
+    }
+
+    /// Waits, within the deadline set by [`Self::begin_finish`], for the
+    /// final results.
+    pub fn wait_finished(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+        let mut updates = Vec::new();
+        let deadline = self
+            .finish_deadline
+            .unwrap_or_else(|| Instant::now() + self.finish_timeout);
         while !self.finished {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -771,11 +796,11 @@ pub(crate) mod tests {
         }
     }
 
-    fn created() -> String {
+    pub(crate) fn created() -> String {
         json!({"type": "session.created", "session": {"id": "sess_1"}}).to_string()
     }
 
-    fn statuses() -> (super::StatusCallback, Arc<Mutex<Vec<OnlineStatus>>>) {
+    pub(crate) fn statuses() -> (super::StatusCallback, Arc<Mutex<Vec<OnlineStatus>>>) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&seen);
         (
@@ -784,15 +809,15 @@ pub(crate) mod tests {
         )
     }
 
-    fn key() -> ApiKey {
+    pub(crate) fn key() -> ApiKey {
         ApiKey::parse("test-key").unwrap()
     }
 
-    fn speech(seconds: f32) -> AudioChunk {
+    pub(crate) fn speech(seconds: f32) -> AudioChunk {
         AudioChunk::new(vec![0.2; (24_000.0 * seconds) as usize], 24_000, 1).unwrap()
     }
 
-    fn silence(seconds: f32) -> AudioChunk {
+    pub(crate) fn silence(seconds: f32) -> AudioChunk {
         AudioChunk::new(vec![0.0; (24_000.0 * seconds) as usize], 24_000, 1).unwrap()
     }
 
@@ -1028,7 +1053,7 @@ pub(crate) mod tests {
         );
     }
 
-    fn translated_delta(text: &str) -> String {
+    pub(crate) fn translated_delta(text: &str) -> String {
         json!({"type": "session.output_transcript.delta", "delta": text}).to_string()
     }
 
