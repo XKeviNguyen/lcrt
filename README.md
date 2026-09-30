@@ -90,7 +90,8 @@ still works, but LCRT cannot keep it on top.
 
 The checked-in `rust-toolchain.toml` pins the primary development and CI
 toolchain to Rust 1.98.0 with the `rustfmt` and `clippy` components. This is
-separate from the workspace's declared Rust 1.85 MSRV in `Cargo.toml`.
+separate from the workspace's declared minimum, Rust 1.88 (`rust-version` in
+`Cargo.toml`), which is the first release with the let-chains the code uses.
 
 Install the native development prerequisites (Ubuntu 24.04 or newer):
 
