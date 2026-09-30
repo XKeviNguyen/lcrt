@@ -56,6 +56,9 @@ pub fn user_message(error: &TransportError) -> &'static str {
         TransportError::Unreachable(_) => "Can't reach the online service. Check your connection.",
         TransportError::Closed => "Connection was lost.",
         TransportError::Protocol(_) => "The online service sent an unexpected response.",
+        TransportError::Rejected(_) => {
+            "The online service couldn't start this session. Check the selected languages and try again."
+        }
     }
 }
 
@@ -516,6 +519,9 @@ impl<P: Protocol> Worker<P> {
                 ServiceErrorImpact::Recoverable => {
                     warn!(category = %error.category(), "online service reported an error");
                 }
+                ServiceErrorImpact::Rejected => {
+                    return Err(TransportError::Rejected(error.category()));
+                }
             },
             EventOutcome::Ignored => {}
         }
@@ -789,6 +795,35 @@ pub(crate) mod tests {
         assert_eq!(record.max_open.load(Ordering::SeqCst), 1);
         assert!(seen.lock().unwrap().contains(&OnlineStatus::Reconnecting));
         assert!(updates.iter().any(|u| u.text().contains("Hello")));
+    }
+
+    #[test]
+    fn rejected_session_settings_end_the_session_instead_of_streaming_silently() {
+        let rejection = json!({"type": "error", "error": {
+            "type": "invalid_request_error",
+            "code": "invalid_value",
+            "message": "Unsupported language",
+        }})
+        .to_string();
+        let (connector, record) = FakeConnector::new(vec![Script::Serve {
+            on_open: vec![created()],
+            replies: vec![("session.update", vec![rejection])],
+            break_after_messages: None,
+        }]);
+        let (status, _) = statuses();
+        let mut session = OnlineSession::start(
+            TranscriptionProtocol::new(Some(Language::Vietnamese)),
+            key(),
+            connector,
+            status,
+            fast_limits(),
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(100));
+        let error = session.finish().unwrap_err();
+        assert!(error.to_string().contains("couldn't start this session"));
+        assert!(!error.is_credential_rejected());
+        assert_eq!(record.connects.load(Ordering::SeqCst), 1);
     }
 
     #[test]

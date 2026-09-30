@@ -19,8 +19,11 @@ pub enum ServiceErrorImpact {
     Unauthorized,
     /// Quota, billing, or rate limits stop the session.
     RateLimited,
-    /// The service reports most errors as recoverable; keep going.
+    /// A transient server fault or a benign per-turn rejection; keep going.
     Recoverable,
+    /// The service refused the session or its settings (such as the model or
+    /// a language). Nothing will change on this connection, so stop.
+    Rejected,
 }
 
 impl ServiceError {
@@ -52,8 +55,13 @@ impl ServiceError {
             )
         {
             ServiceErrorImpact::RateLimited
-        } else {
+        } else if kind == "server_error" || code == "input_audio_buffer_commit_empty" {
+            // Only errors known to affect a single event are survivable:
+            // continuing past anything else would stream audio that can
+            // never produce captions.
             ServiceErrorImpact::Recoverable
+        } else {
+            ServiceErrorImpact::Rejected
         }
     }
 }
@@ -133,8 +141,21 @@ mod tests {
             ServiceErrorImpact::RateLimited
         );
         assert_eq!(
-            error("invalid_request_error", "invalid_event").impact(),
+            error("server_error", "none").impact(),
             ServiceErrorImpact::Recoverable
+        );
+        assert_eq!(
+            error("invalid_request_error", "input_audio_buffer_commit_empty").impact(),
+            ServiceErrorImpact::Recoverable
+        );
+        // A rejected model, language or session setting cannot recover.
+        assert_eq!(
+            error("invalid_request_error", "invalid_value").impact(),
+            ServiceErrorImpact::Rejected
+        );
+        assert_eq!(
+            ServiceError::default().impact(),
+            ServiceErrorImpact::Rejected
         );
         assert_eq!(error("a", "b").category(), "a/b");
     }

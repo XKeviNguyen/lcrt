@@ -3,9 +3,9 @@
 use std::{
     error::Error,
     fmt, io,
-    net::{TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tungstenite::{
@@ -38,6 +38,9 @@ pub enum TransportError {
     Closed,
     /// The service sent something outside the bounded protocol.
     Protocol(String),
+    /// The service refused the session or its settings; the payload is the
+    /// error's type and code, never its message.
+    Rejected(String),
 }
 
 impl TransportError {
@@ -61,6 +64,9 @@ impl fmt::Display for TransportError {
             Self::Unreachable(detail) => write!(formatter, "the service is unreachable: {detail}"),
             Self::Closed => formatter.write_str("the connection was lost"),
             Self::Protocol(detail) => write!(formatter, "unexpected service message: {detail}"),
+            Self::Rejected(category) => {
+                write!(formatter, "the service refused the session: {category}")
+            }
         }
     }
 }
@@ -136,12 +142,11 @@ impl Connect for WebSocketConnector {
             .ok_or_else(|| TransportError::Protocol("URL has no host".to_owned()))?
             .to_owned();
         let port = request.uri().port_u16().unwrap_or(443);
-        let address = (host.as_str(), port)
+        let addresses: Vec<SocketAddr> = (host.as_str(), port)
             .to_socket_addrs()
             .map_err(|error| TransportError::Unreachable(error.kind().to_string()))?
-            .next()
-            .ok_or_else(|| TransportError::Unreachable("no address for host".to_owned()))?;
-        let stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
+            .collect();
+        let stream = connect_any(&addresses, CONNECT_TIMEOUT, TcpStream::connect_timeout)
             .map_err(|error| TransportError::Unreachable(error.kind().to_string()))?;
         stream
             .set_read_timeout(Some(CONNECT_TIMEOUT))
@@ -169,6 +174,32 @@ impl Connect for WebSocketConnector {
         })?;
         Ok(Box::new(WebSocketTransport { socket }))
     }
+}
+
+/// Tries each resolved address in turn within `budget`, so one unusable
+/// address (such as an IPv6 route that is down) doesn't hide a working one.
+/// Each attempt gets an equal share of the time that remains.
+fn connect_any<T>(
+    addresses: &[SocketAddr],
+    budget: Duration,
+    mut attempt: impl FnMut(&SocketAddr, Duration) -> io::Result<T>,
+) -> io::Result<T> {
+    let deadline = Instant::now() + budget;
+    let mut last_error = io::Error::new(io::ErrorKind::NotFound, "no address for host");
+    for (index, address) in addresses.iter().enumerate() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(io::Error::from(io::ErrorKind::TimedOut));
+        }
+        let untried = u32::try_from(addresses.len() - index).unwrap_or(u32::MAX);
+        // `connect_timeout` rejects a zero timeout.
+        let share = (remaining / untried).max(Duration::from_millis(1));
+        match attempt(address, share) {
+            Ok(connected) => return Ok(connected),
+            Err(error) => last_error = error,
+        }
+    }
+    Err(last_error)
 }
 
 struct WebSocketTransport {
@@ -257,7 +288,44 @@ const _: () = {
 
 #[cfg(test)]
 mod tests {
-    use super::{TransportError, error_for_status};
+    use std::{io, net::SocketAddr, time::Duration};
+
+    use super::{TransportError, connect_any, error_for_status};
+
+    #[test]
+    fn connecting_falls_through_to_a_later_working_address() {
+        let addresses: Vec<SocketAddr> = vec![
+            "[2001:db8::1]:443".parse().unwrap(),
+            "192.0.2.1:443".parse().unwrap(),
+            "192.0.2.2:443".parse().unwrap(),
+        ];
+        let mut shares = Vec::new();
+        let connected = connect_any(&addresses, Duration::from_secs(9), |address, share| {
+            shares.push(share);
+            if address.is_ipv6() {
+                Err(io::Error::from(io::ErrorKind::NetworkUnreachable))
+            } else {
+                Ok(*address)
+            }
+        });
+        assert_eq!(connected.unwrap(), addresses[1]);
+        // The first attempt may use only its share of the budget.
+        assert!(shares[0] <= Duration::from_secs(3));
+    }
+
+    #[test]
+    fn connecting_reports_the_last_failure_or_a_missing_address() {
+        let addresses: Vec<SocketAddr> = vec!["192.0.2.1:443".parse().unwrap()];
+        let refused = connect_any(&addresses, Duration::from_secs(1), |_, _| {
+            Err::<(), _>(io::Error::from(io::ErrorKind::ConnectionRefused))
+        });
+        assert_eq!(
+            refused.unwrap_err().kind(),
+            io::ErrorKind::ConnectionRefused
+        );
+        let none = connect_any(&[], Duration::from_secs(1), |_, _| Ok(()));
+        assert_eq!(none.unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
 
     #[test]
     fn http_statuses_map_to_actionable_categories() {
