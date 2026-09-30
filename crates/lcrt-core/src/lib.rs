@@ -7,7 +7,10 @@
 pub mod audio;
 pub mod caption;
 pub mod config;
+pub mod convert;
 pub mod pipeline;
+pub mod preferences;
+pub mod session;
 pub mod transcription;
 pub mod ui;
 
@@ -17,6 +20,11 @@ pub use audio::{
 };
 pub use caption::{Caption, CaptionSnapshot, CaptionState, CaptionStateError, CaptionStatus};
 pub use config::{RuntimeConfig, RuntimeConfigError};
+pub use convert::{AudioConversionError, AudioConverter};
 pub use pipeline::{CaptionPipeline, PipelineError, RunSummary};
+pub use preferences::{
+    AppearancePreferences, GeneralPreferences, Preferences, Rgb, VocabularyPreferences,
+};
+pub use session::{Language, LanguageSelection, ProcessingMode, SessionGeneration, SessionOptions};
 pub use transcription::{Transcriber, TranscriptUpdate, TranscriptUpdateError, TranscriptionError};
 pub use ui::{CaptionSink, CaptionSinkError};

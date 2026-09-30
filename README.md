@@ -1,24 +1,109 @@
 # LCRT
 
-Native real-time captions, translation, and language-assistance desktop application.
+LCRT is a native desktop app for live captions and real-time translation. It
+captions whatever your computer is playing (system audio) or your microphone,
+in a small window that stays out of the way.
 
-Primary platform:
-- Ubuntu AMD64
+- **Offline Captions:** a local Whisper model; audio never leaves the device.
+- **Online Captions:** OpenAI realtime transcription for English, Japanese,
+  Vietnamese and more.
+- **Translation:** OpenAI realtime translation. You can show the original
+  speech above the translation.
+- **Vocabulary:** select a word or phrase in the captions to see its meaning in
+  context.
+- **Appearance:** font, size, text and background colors, transparency and
+  window size are remembered between runs.
 
-Planned platforms:
-- Ubuntu ARM64
-- Windows 10/11
+Online features use your own OpenAI API key, and API charges may apply to your
+OpenAI account. LCRT has no telemetry. [docs/PRIVACY.md](docs/PRIVACY.md) lists
+exactly what is sent, when, and where your key is stored.
 
-Planned milestones:
-- V1: Real-time live captions
-- V2: Low-latency real-time translation
-- V3: Select text for meaning, grammar, and contextual explanation
+Primary platform: Ubuntu AMD64 (PipeWire, GTK4, libadwaita, Wayland or X11).
+Ubuntu ARM64 and Windows 10/11 are portability targets.
+
+## Install on Ubuntu
+
+The Debian package is built for the Ubuntu release it is built on. It needs
+`libgtk4-layer-shell0`, which Ubuntu packages from 24.10 onward; Ubuntu 26.04
+LTS is the tested release.
+
+```sh
+scripts/build-deb.sh            # prints target/debian/lcrt_2.0.0_amd64.deb
+sudo apt install ./target/debian/lcrt_2.0.0_amd64.deb
+```
+
+Then open **LCRT Live Captions** from the app grid, or run `lcrt`.
+
+## Use
+
+1. Choose a mode and an audio source. Online modes also have a language:
+   - Online Captions: the spoken language, or Auto.
+   - Translation: the target language. The spoken language is detected
+     automatically.
+
+   Offline Captions has no language choice; it follows the chosen Whisper
+   model (the tiny model is English-only).
+2. Press **Start**. Captions update as speech is recognized; **Stop** finishes
+   the last sentence and keeps the text on screen.
+3. Open **Settings** to:
+   - choose the Whisper model for Offline Captions;
+   - enter your OpenAI API key;
+   - adjust appearance and vocabulary.
+
+System audio sources are listed as **System audio**, microphones as
+**Microphone**. LCRT remembers the last mode, source and languages.
+
+### Offline model
+
+LCRT does not download models by itself. Download the checksum-verified tiny
+English model and choose it in **Settings → General**:
+
+```sh
+./scripts/download-whisper-model.sh     # saves models/ggml-tiny.en.bin
+```
+
+### OpenAI API key
+
+Enter the key in **Settings → Online** and choose **Save securely** to store it
+in the desktop keyring (GNOME Keyring or another Secret Service provider).
+**Test connection** checks the key. If no keyring is available, the key is kept
+only until LCRT quits. As a fallback, LCRT reads `OPENAI_API_KEY` from its
+environment and never displays it. The key is never written to a file or log.
+
+### Window behavior
+
+On Wayland compositors that support layer-shell protocol v4 or newer, the
+caption window is pinned near the bottom of the screen above other windows.
+GNOME Wayland, X11 and older compositors use a standard window: transparency
+still works, but LCRT cannot keep it on top.
+
+### Limitations
+
+- Audio sources are discovered at launch.
+- Offline accuracy and speed depend on the model and CPU. The tiny model is
+  English-focused.
+- Online modes need a network connection. LCRT reconnects a few times after a
+  brief drop, then reports the problem. It never switches to another backend
+  or to a paid service on its own.
 
 ## Development
 
 The checked-in `rust-toolchain.toml` pins the primary development and CI
 toolchain to Rust 1.98.0 with the `rustfmt` and `clippy` components. This is
-separate from the workspace's declared Rust 1.85 MSRV in `Cargo.toml`.
+separate from the workspace's declared minimum, Rust 1.88 (`rust-version` in
+`Cargo.toml`), which is the first release with the let-chains the code uses.
+
+Install the native development prerequisites (Ubuntu 24.04 or newer):
+
+```sh
+sudo apt install build-essential clang cmake libadwaita-1-dev libdbus-1-dev \
+  libgtk-4-dev libpipewire-0.3-dev libspa-0.2-dev libwayland-dev meson \
+  ninja-build pkg-config wayland-protocols
+scripts/install-gtk4-layer-shell.sh
+```
+
+The layer-shell installer skips its checksum-verified source build when the
+system already provides GTK4 layer shell 1.0.4 or newer.
 
 Run the same local quality gates as CI with:
 
@@ -29,42 +114,14 @@ cargo test --locked --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps
 ```
 
-## Run live captions on Ubuntu
-
-Use the repository-pinned Rust toolchain on a PipeWire-based desktop and
-install the native development prerequisites on Ubuntu 24.04 or newer:
+Run from source, optionally overriding the model for one run:
 
 ```sh
-sudo apt install build-essential clang cmake libadwaita-1-dev libgtk-4-dev \
-  libpipewire-0.3-dev libspa-0.2-dev libwayland-dev meson ninja-build \
-  pkg-config wayland-protocols
-scripts/install-gtk4-layer-shell.sh
+cargo run -p lcrt-app --bin lcrt -- --model models/ggml-tiny.en.bin
 ```
 
-The installer skips its checksum-verified source build when the system already
-provides GTK4 layer shell 1.0.4 or newer. Ubuntu 24.04 does not package the GTK4
-library; later Ubuntu releases may provide `libgtk4-layer-shell-dev` directly.
-
-Download the checksum-verified tiny English model, build, and launch the native
-application:
-
-```sh
-./scripts/download-whisper-model.sh
-cargo build -p lcrt-app --bin lcrt
-cargo run -p lcrt-app --bin lcrt -- --model models/ggml-tiny.en.bin --language en
-```
-
-`LCRT_MODEL_PATH` may be set instead of passing `--model`. The application does
-not download a model implicitly and never sends captured audio to a remote
-service.
-
-In the window, select a source labeled **Microphone** for spoken input or
-**System audio** for sound playing through the selected output sink, then press
-Start. Partial captions replace themselves as recognition improves; Stop first
-ends PipeWire capture and then flushes the final local transcript. Model,
-device, capture, and transcription failures are shown in the window.
-
-For source IDs and bounded diagnostics:
+For source IDs, and a bounded diagnostic run that starts captions itself and
+closes after the given time:
 
 ```sh
 cargo run -p lcrt-app --bin lcrt -- --list-sources
@@ -72,24 +129,9 @@ cargo run -p lcrt-app --bin lcrt -- \
   --model models/ggml-tiny.en.bin --smoke-source SOURCE_ID --smoke-seconds 10
 ```
 
-The caption surface starts translucent and exposes opacity, width, and height
-controls. On Wayland compositors that advertise layer-shell protocol v4 or
-newer, it is anchored near the bottom in the overlay layer; the window reports
-`Pinned overlay`. The explicit size controls preserve resizing because layer
-surfaces do not have compositor-provided resize handles. GNOME Wayland, X11,
-and older protocol versions use `Standard window`; transparency remains, but
-LCRT cannot enforce always-on-top there.
-
-Current limitations: the tiny model is CPU-only and English-focused; source
-discovery occurs at launch; and responsiveness depends on model, CPU, language,
-and audio conditions. Closing the window requests pipeline cancellation and
-does not wait for a worker join, so a worker permanently blocked in native model
-or inference code cannot be force-terminated safely; it also cannot delay GTK
-or normal process termination. If cancellation wins before LCRT commits audio
-acquisition, PipeWire capture never starts; if acquisition commits first, a
-later cancellation stops that session once startup returns. Cancellation also
-prevents processing a newly polled audio chunk. The bounded smoke option is
-intended for diagnostics, not normal use.
+`--smoke-mode online|translation` runs the same diagnostic against OpenAI and
+uses the saved or `OPENAI_API_KEY` key. Closing the window cancels the session
+without waiting on a blocked worker, so a stuck native call cannot delay exit.
 
 ### Linux audio development
 
@@ -115,11 +157,9 @@ The Ubuntu window uses GTK4 and libadwaita. Install `libgtk-4-dev` and
 cargo run -p lcrt-ui-gtk --bin lcrt-caption-ui
 ```
 
-The window has bounded Start/Stop actions, partial/final status, inline errors,
-resizing, selectable caption text, and a 16–64 point font control. Its
-`--smoke-test` mode injects deterministic partial/final updates and closes
-itself; it does not exercise audio capture. The end-to-end milestone wires this
-presentation layer to the real audio and transcription adapters.
+The demo drives the same window with scripted partial and final captions. Its
+`--smoke-test` mode injects deterministic updates and closes itself; it does
+not exercise audio capture or online services.
 
 ### Local Whisper development
 
@@ -142,6 +182,6 @@ cargo run -p lcrt-stt-whisper --bin lcrt-whisper-transcribe -- \
   models/ggml-tiny.en.bin path/to/audio.wav en
 ```
 
-Set an explicit model path in application configuration. A missing or invalid
-model produces an actionable startup error; the application does not silently
-download models or send audio to a remote service.
+A missing or invalid model produces an actionable error in the window. In
+Offline Captions mode, LCRT does not download models and sends no audio to any
+remote service.

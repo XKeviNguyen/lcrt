@@ -746,12 +746,12 @@ fn normalized_chunk_bytes(
 
 fn decode_silence(byte_len: usize, format: NegotiatedFormat) -> Result<AudioChunk, String> {
     let sample_size = mem::size_of::<f32>();
-    if byte_len % sample_size != 0 {
+    if !byte_len.is_multiple_of(sample_size) {
         return Err("PipeWire returned an EMPTY chunk with a partial F32 sample".to_owned());
     }
     let sample_count = byte_len / sample_size;
     let channels = usize::from(format.channels);
-    if sample_count % channels != 0 {
+    if !sample_count.is_multiple_of(channels) {
         return Err(format!(
             "PipeWire returned an EMPTY chunk whose {sample_count} samples do not form complete {}-channel frames",
             format.channels
@@ -770,12 +770,14 @@ fn remaining_budget(limit: Duration, elapsed: Duration) -> Duration {
 }
 
 fn decode_f32le(bytes: &[u8], format: NegotiatedFormat) -> Result<AudioChunk, String> {
-    if bytes.len() % mem::size_of::<f32>() != 0 {
+    if !bytes.len().is_multiple_of(mem::size_of::<f32>()) {
         return Err("PipeWire returned a partial F32 sample".to_owned());
     }
     let samples = bytes
-        .chunks_exact(mem::size_of::<f32>())
-        .map(|sample| f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]))
+        .as_chunks::<{ mem::size_of::<f32>() }>()
+        .0
+        .iter()
+        .map(|sample| f32::from_le_bytes(*sample))
         .collect();
     AudioChunk::new(samples, format.sample_rate_hz, format.channels)
         .map_err(|error| format!("PipeWire produced invalid PCM: {error}"))

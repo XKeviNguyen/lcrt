@@ -57,13 +57,15 @@ fn spawn_demo_controller(
     thread::spawn(move || {
         while let Ok(action) = actions.recv() {
             match action {
-                CaptionUiAction::Start { .. } => {
+                CaptionUiAction::Start(_) => {
                     publish_demo(&sink, Duration::from_millis(450), Some(&actions))?;
                 }
                 CaptionUiAction::Stop => {
                     sink.set_running(false).map_err(|error| error.to_string())?;
                 }
                 CaptionUiAction::Shutdown => break,
+                // The demo has no preferences, credentials, or vocabulary backend.
+                _ => {}
             }
         }
         Ok(())
@@ -99,9 +101,7 @@ fn publish_demo(
             Ok(CaptionUiAction::Stop)
             | Ok(CaptionUiAction::Shutdown)
             | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
-            Ok(CaptionUiAction::Start { .. }) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                false
-            }
+            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => false,
         });
         if stopped {
             break;

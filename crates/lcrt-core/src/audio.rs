@@ -82,7 +82,7 @@ impl AudioChunk {
         if channels == 0 {
             return Err(AudioChunkError::ZeroChannels);
         }
-        if samples.len() % usize::from(channels) != 0 {
+        if !samples.len().is_multiple_of(usize::from(channels)) {
             return Err(AudioChunkError::IncompleteFrame {
                 sample_count: samples.len(),
                 channels,

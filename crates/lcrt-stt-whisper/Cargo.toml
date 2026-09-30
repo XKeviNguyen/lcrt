@@ -1,6 +1,6 @@
 [package]
 name = "lcrt-stt-whisper"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -13,6 +13,5 @@ workspace = true
 [dependencies]
 hound = "3.5.1"
 lcrt-core = { path = "../lcrt-core" }
-rubato = "4.0.0"
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 whisper-rs = { version = "=0.15.1", features = ["tracing_backend"] }

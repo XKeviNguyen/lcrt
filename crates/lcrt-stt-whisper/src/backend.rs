@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lcrt_core::{AudioChunk, Transcriber, TranscriptUpdate, TranscriptionError};
+use lcrt_core::{AudioChunk, AudioConverter, Transcriber, TranscriptUpdate, TranscriptionError};
 use tracing::{debug, info};
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
@@ -18,9 +18,8 @@ use whisper_rs::{
 
 use crate::{
     WhisperBackendError, WhisperConfig,
-    resample::AudioConverter,
     transcript::TranscriptAssembler,
-    window::{InferenceKind, StreamingWindow},
+    window::{InferenceKind, StreamingWindow, WHISPER_SAMPLE_RATE},
 };
 
 enum WorkerCommand {
@@ -438,7 +437,7 @@ fn drain_backlog(
         backlog.release(backlog_reservation_us(&chunk));
         let converter = match converter.as_mut() {
             Some(converter) => converter,
-            None => converter.insert(AudioConverter::new(&chunk)?),
+            None => converter.insert(AudioConverter::new(&chunk, WHISPER_SAMPLE_RATE as u32)?),
         };
         let samples = converter.push(&chunk)?;
         if window.would_evict_uninferred(samples.len())
