@@ -65,7 +65,7 @@ On the final code commit:
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
-| `cargo test --locked --workspace --all-features` | 188 passed, 0 failed |
+| `cargo test --locked --workspace --all-features` | 191 passed, 0 failed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
 | `git diff --check` | clean |
 | `desktop-file-validate`, `appstreamcli validate --no-net` | valid; one pedantic note about the uppercase app ID, which is kept because the keyring entry is named after it |
@@ -277,6 +277,20 @@ fixed:
 After these fixes, offline JFK through system audio showed its first caption
 at 3.07 s, and the network-failure path still ended with a clear error after
 3.9 s.
+
+A fourth review, of `0a75eb2`, found three P2 issues. All were fixed:
+
+- **Held caption before failure:** a caption held back by a full event queue
+  is sent before a terminal failure. The test fails without the fix, with the
+  caption stuck at "w64".
+- **Vocabulary context:** context is bounded around the trimmed selection,
+  even when the selection is padded with thousands of punctuation marks.
+- **Smoke diagnostics:** a diagnostic now passes only if its backend became
+  ready.
+  - An online smoke run without network now exits 1: "the backend never
+    became ready".
+  - Before the fix, a Stop during reconnect backoff could exit 0.
+  - The offline smoke run still exits 0.
 
 ### Security review
 
