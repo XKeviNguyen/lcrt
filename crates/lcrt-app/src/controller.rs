@@ -271,9 +271,17 @@ impl Controller {
         notify_ui(self.sink.set_credential(credential_view(status)));
         loop {
             if let Some((completed, backend_ready)) = take_completed_session(&mut self.state) {
-                let succeeded = completed.is_ok() && backend_ready;
-                if self.overrides.smoke && completed.is_ok() && !backend_ready {
-                    error!("diagnostic failed: the backend never became ready");
+                // A diagnostic passes only if it exercised the whole path:
+                // a working backend and captured audio.
+                let captured_audio = completed
+                    .as_ref()
+                    .is_ok_and(|summary| summary.audio_chunks > 0);
+                let succeeded = captured_audio && backend_ready;
+                if self.overrides.smoke && completed.is_ok() && !succeeded {
+                    error!(
+                        backend_ready,
+                        captured_audio, "diagnostic failed: the capture path did not run"
+                    );
                 }
                 self.publish_completion(completed);
                 if self.overrides.smoke {
