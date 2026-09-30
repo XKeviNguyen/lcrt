@@ -14,6 +14,7 @@ use std::{
 use lcrt_audio_pipewire::enumerate_audio_sources;
 use lcrt_core::{
     AudioSourceDescriptor, Language, LanguageSelection, ProcessingMode, SessionOptions,
+    TranslationTargets,
 };
 use lcrt_openai::credentials::API_KEY_ENVIRONMENT_VARIABLE;
 use lcrt_ui_gtk::{
@@ -190,7 +191,7 @@ fn spawn_smoke_actions(
             mode: smoke.mode,
             source_id: smoke.source_id,
             spoken_language,
-            translation_target: smoke.target,
+            translation_targets: TranslationTargets::single(smoke.target),
             show_original: true,
         };
         if actions.send(CaptionUiAction::Start(options)).is_err() {

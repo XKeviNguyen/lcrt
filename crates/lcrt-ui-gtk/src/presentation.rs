@@ -1,7 +1,10 @@
 //! Pure presentation rules for the caption window, kept free of GTK types so
 //! they can be tested directly.
 
-use lcrt_core::{AppearancePreferences, AudioSourceDescriptor, AudioSourceKind, ProcessingMode};
+use lcrt_core::{
+    AppearancePreferences, AudioSourceDescriptor, AudioSourceKind, CaptionLane, Language,
+    ProcessingMode, SessionOptions,
+};
 
 /// Where the current caption session is in its lifecycle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,6 +68,46 @@ pub(crate) fn language_control(mode: ProcessingMode) -> LanguageControl {
     }
 }
 
+/// The badges of the three caption rows. A row without a badge is hidden,
+/// except the first: captions that are not translations use it unlabeled.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LaneLayout {
+    /// Badge of the original-speech row, shown above the translations.
+    pub(crate) source: Option<String>,
+    /// Badge of the first row of captions.
+    pub(crate) first: Option<String>,
+    /// Badge of the second translation's row.
+    pub(crate) second: Option<String>,
+}
+
+/// The short uppercase code shown in a language badge.
+pub(crate) fn language_badge(language: Language) -> String {
+    language.code().to_uppercase()
+}
+
+/// Rows for a session: the source when shown, then each target, always in
+/// that order. The source badge names the spoken language when the user
+/// chose one, and is a neutral "SRC" while it is detected automatically.
+pub(crate) fn lane_layout(options: &SessionOptions) -> LaneLayout {
+    let mut layout = LaneLayout::default();
+    for lane in options.translation_lanes() {
+        match lane {
+            CaptionLane::Source(spoken) => {
+                layout.source = Some(
+                    spoken
+                        .language()
+                        .map_or_else(|| "SRC".to_owned(), language_badge),
+                );
+            }
+            CaptionLane::Target(target) if layout.first.is_none() => {
+                layout.first = Some(language_badge(target));
+            }
+            CaptionLane::Target(target) => layout.second = Some(language_badge(target)),
+        }
+    }
+    layout
+}
+
 /// Status shown while a session is actively producing captions.
 pub(crate) fn active_status(mode: ProcessingMode) -> &'static str {
     match mode {
@@ -74,11 +117,16 @@ pub(crate) fn active_status(mode: ProcessingMode) -> &'static str {
 }
 
 /// Short inline notice about where audio is processed.
-pub(crate) fn privacy_notice(mode: ProcessingMode) -> &'static str {
-    if mode.streams_audio_online() {
-        "Audio is streamed to OpenAI for processing. API charges may apply to your OpenAI account."
-    } else {
-        "Audio is processed on this device."
+pub(crate) fn privacy_notice(mode: ProcessingMode, translation_sessions: usize) -> &'static str {
+    match mode {
+        ProcessingMode::OfflineCaptions => "Audio is processed on this device.",
+        ProcessingMode::Translation if translation_sessions > 1 => {
+            "Audio is streamed to OpenAI in two translation sessions, one per target language. \
+             API charges apply for each."
+        }
+        ProcessingMode::OnlineCaptions | ProcessingMode::Translation => {
+            "Audio is streamed to OpenAI for processing. API charges may apply to your OpenAI account."
+        }
     }
 }
 
@@ -118,6 +166,12 @@ pub(crate) fn css_font_family(family: Option<&str>) -> Option<String> {
     safe.then(|| family.to_owned())
 }
 
+/// Pixels needed for two lines of caption text at `points` (a point is 4/3
+/// of a pixel, and a line is about 1.3 times its font size).
+pub(crate) fn two_line_height(points: f64) -> i32 {
+    (points * 4.0 / 3.0 * 1.3 * 2.0).ceil() as i32
+}
+
 /// Stylesheet for the caption surface. Fallback families always follow the
 /// chosen one so Japanese and Vietnamese glyphs keep rendering.
 pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
@@ -125,6 +179,12 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
         .map(|family| format!("font-family: \"{family}\", sans-serif;"))
         .unwrap_or_default();
     let background = appearance.background_color;
+    // The badge sits level with the first line of its row's text: half the
+    // difference between the two line heights (points to pixels is 4/3, and
+    // a line is about 1.3 times its font size).
+    let badge_size = (appearance.font_size_points * 0.42).clamp(10.0, 20.0);
+    let badge_offset =
+        ((appearance.font_size_points - badge_size) * 4.0 / 3.0 * 1.3 / 2.0 - 2.0).max(0.0);
     format!(
         "window.caption-overlay, window.caption-overlay > contents, \
          window.caption-overlay toolbarview {{ background-color: transparent; }}\n\
@@ -135,8 +195,14 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
          textview.caption-text, textview.caption-text text {{ background-color: transparent; \
              color: {text}; {family} font-size: {size:.1}pt; }}\n\
          textview.caption-original, textview.caption-original text {{ \
-             background-color: transparent; color: {text}; opacity: 0.8; {family} \
-             font-size: {original_size:.1}pt; }}\n\
+             background-color: transparent; color: {text}; opacity: 0.82; {family} \
+             font-size: {size:.1}pt; }}\n\
+         .lane-badge {{ color: {text}; background-color: alpha({text}, 0.16); \
+             border-radius: 9px; padding: 2px 9px; font-weight: 700; \
+             font-size: {badge_size:.1}pt; letter-spacing: 1px; min-width: 2.3em; \
+             margin-top: {badge_offset:.0}px; }}\n\
+         scrolledwindow.caption-lane undershoot, scrolledwindow.caption-lane overshoot {{ \
+             background: none; box-shadow: none; }}\n\
          .caption-notice {{ font-size: smaller; }}\n\
          .error {{ color: @error_color; padding: 6px; }}",
         r = background.red,
@@ -145,7 +211,8 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
         opacity = appearance.background_opacity,
         text = appearance.text_color.to_hex(),
         size = appearance.font_size_points,
-        original_size = (appearance.font_size_points * 0.62).max(12.0),
+        badge_size = badge_size,
+        badge_offset = badge_offset,
     )
 }
 
@@ -156,9 +223,76 @@ mod tests {
     };
 
     use super::{
-        LanguageControl, SessionPhase, caption_css, css_font_family, language_control,
-        preferred_source_index, privacy_notice,
+        LaneLayout, LanguageControl, SessionPhase, caption_css, css_font_family, lane_layout,
+        language_control, preferred_source_index, privacy_notice,
     };
+    use lcrt_core::{Language, LanguageSelection, SessionOptions, TranslationTargets};
+
+    fn translation(
+        show_original: bool,
+        spoken: LanguageSelection,
+        first: Language,
+        second: Option<Language>,
+    ) -> SessionOptions {
+        SessionOptions {
+            mode: ProcessingMode::Translation,
+            source_id: "monitor".to_owned(),
+            spoken_language: spoken,
+            translation_targets: TranslationTargets::resolve(
+                Some(first),
+                second,
+                SessionOptions::shown_source(show_original, spoken),
+            ),
+            show_original,
+        }
+    }
+
+    fn badges(layout: &LaneLayout) -> [Option<&str>; 3] {
+        [
+            layout.source.as_deref(),
+            layout.first.as_deref(),
+            layout.second.as_deref(),
+        ]
+    }
+
+    #[test]
+    fn translation_rows_are_source_then_targets_with_uppercase_badges() {
+        use Language::{English, Japanese, Vietnamese};
+        let japanese = LanguageSelection::Language(Japanese);
+        let layout = lane_layout(&translation(true, japanese, English, Some(Vietnamese)));
+        assert_eq!(badges(&layout), [Some("JA"), Some("EN"), Some("VI")]);
+
+        let layout = lane_layout(&translation(
+            false,
+            LanguageSelection::Language(English),
+            Japanese,
+            None,
+        ));
+        assert_eq!(badges(&layout), [None, Some("JA"), None]);
+
+        // A detected source has no language to name.
+        let layout = lane_layout(&translation(true, LanguageSelection::Auto, English, None));
+        assert_eq!(badges(&layout), [Some("SRC"), Some("EN"), None]);
+    }
+
+    #[test]
+    fn labeled_rows_reserve_two_lines_at_any_font_size() {
+        assert_eq!(super::two_line_height(32.0), 111);
+        assert!(super::two_line_height(16.0) < super::two_line_height(64.0));
+    }
+
+    #[test]
+    fn other_modes_have_one_unlabeled_row() {
+        for mode in [
+            ProcessingMode::OfflineCaptions,
+            ProcessingMode::OnlineCaptions,
+        ] {
+            let mut options = translation(true, LanguageSelection::Auto, Language::English, None);
+            options.mode = mode;
+            let layout = lane_layout(&options);
+            assert_eq!(badges(&layout), [None, None, None]);
+        }
+    }
 
     fn sources() -> Vec<AudioSourceDescriptor> {
         vec![
@@ -201,10 +335,15 @@ mod tests {
             LanguageControl::Target
         );
         assert_eq!(
-            privacy_notice(ProcessingMode::OfflineCaptions),
+            privacy_notice(ProcessingMode::OfflineCaptions, 0),
             "Audio is processed on this device."
         );
-        assert!(privacy_notice(ProcessingMode::Translation).contains("streamed to OpenAI"));
+        assert!(privacy_notice(ProcessingMode::Translation, 1).contains("streamed to OpenAI"));
+        // Two targets are two paid sessions, and the notice says so.
+        assert!(
+            privacy_notice(ProcessingMode::Translation, 2).contains("two translation sessions")
+        );
+        assert!(!privacy_notice(ProcessingMode::OnlineCaptions, 2).contains("two"));
     }
 
     #[test]
@@ -231,5 +370,8 @@ mod tests {
         assert!(css.contains("rgba(0, 0, 0, 0.000)"));
         assert!(css.contains("font-size: 40.0pt"));
         assert!(css.contains("font-family: \"Ubuntu\", sans-serif;"));
+        // The badge follows the text color and stays readable at any size.
+        assert!(css.contains(".lane-badge { color: #ffff00;"));
+        assert!(css.contains("font-size: 16.8pt"));
     }
 }

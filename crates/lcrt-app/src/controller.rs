@@ -21,9 +21,9 @@ use lcrt_core::{
 };
 use lcrt_openai::{
     credentials::{ApiKey, CredentialStatus, Credentials, KeyringStore},
+    lanes::{MultiTargetTranslation, TranslationOptions},
     session::{OnlineSession, OnlineStatus, SessionLimits, user_message},
     transcription::TranscriptionProtocol,
-    translation::TranslationProtocol,
     transport::WebSocketConnector,
     vocabulary::{self, VocabularyCache, VocabularyError, VocabularyRequest},
 };
@@ -184,6 +184,9 @@ struct PipelineSession {
     /// Set once the backend is working: the model loaded, or the online
     /// connection became active. A diagnostic run passes only if it was.
     backend_ready: Arc<AtomicBool>,
+    /// Set when this session is being replaced, so it ends without waiting
+    /// for final results nobody will see.
+    abandoned: Arc<AtomicBool>,
 }
 
 /// The controller is the authoritative owner of application termination.
@@ -303,6 +306,9 @@ impl Controller {
                         // Replace the running session once it has fully stopped,
                         // so two sessions never overlap.
                         self.pending_start = Some(options);
+                        if let ControllerState::Active(session) = &self.state {
+                            session.abandoned.store(true, Ordering::Release);
+                        }
                         self.cancel_active();
                     } else if !self.start(options) && self.overrides.smoke {
                         notify_ui(self.sink.quit());
@@ -709,11 +715,17 @@ fn start_pipeline(
     let worker_startup = Arc::clone(&startup);
     let backend_ready = Arc::new(AtomicBool::new(false));
     let worker_ready = Arc::clone(&backend_ready);
+    let abandoned = Arc::new(AtomicBool::new(false));
+    let worker_abandoned = Arc::clone(&abandoned);
     let (result_sender, result) = sync_channel(1);
     let worker = thread::Builder::new()
         .name("lcrt-caption-pipeline".to_owned())
         .spawn(move || {
-            let result = run_pipeline(source, backend, sink, &worker_startup, worker_ready)
+            let flags = BackendFlags {
+                ready: worker_ready,
+                abandoned: worker_abandoned,
+            };
+            let result = run_pipeline(source, backend, sink, &worker_startup, flags)
                 .map_err(|error| SessionFailure::from_pipeline(error.as_ref()));
             let _ = result_sender.send(result);
         })
@@ -723,14 +735,29 @@ fn start_pipeline(
         result,
         worker,
         backend_ready,
+        abandoned,
     })
 }
+
+/// Flags a session's backend shares with the controller.
+struct BackendFlags {
+    /// Set by the backend once it is working.
+    ready: Arc<AtomicBool>,
+    /// Set by the controller when the session is being replaced.
+    abandoned: Arc<AtomicBool>,
+}
+
+/// How long Translation waits after Stop for the service to deliver the rest
+/// of the translation. Measured live, that takes 5 to 8 s, and longer with
+/// two targets than with one.
+const TRANSLATION_FINISH_WAIT: Duration = Duration::from_secs(12);
 
 fn open_backend(
     backend: Backend,
     sink: &GtkCaptionSink,
-    ready: Arc<AtomicBool>,
+    flags: BackendFlags,
 ) -> Result<Box<dyn Transcriber>, Box<dyn std::error::Error + Send + Sync>> {
+    let BackendFlags { ready, abandoned } = flags;
     match backend {
         Backend::Offline {
             model_path,
@@ -759,25 +786,43 @@ fn open_backend(
                 };
                 notify_ui(status_sink.set_status(text));
             });
-            let connector = Box::new(WebSocketConnector::default());
             let limits = SessionLimits::default();
-            let session = match options.mode {
-                ProcessingMode::Translation => OnlineSession::start(
-                    TranslationProtocol::new(options.translation_target, options.show_original),
-                    key,
-                    connector,
-                    status,
-                    limits,
-                )?,
-                _ => OnlineSession::start(
+            match options.mode {
+                ProcessingMode::Translation => {
+                    // One session per target language; a target that fails
+                    // is reported while the other keeps translating.
+                    let failure_sink = sink.clone();
+                    let on_lane_failure =
+                        Arc::new(move |target: Language, error: &TranscriptionError| {
+                            notify_ui(failure_sink.show_error(format!(
+                                "{} translation stopped: {error}",
+                                target.label()
+                            )));
+                        });
+                    Ok(Box::new(MultiTargetTranslation::start(
+                        TranslationOptions {
+                            targets: options.translation_targets,
+                            show_original: options.show_original,
+                            limits: SessionLimits {
+                                finish: TRANSLATION_FINISH_WAIT,
+                                ..limits
+                            },
+                            abandoned,
+                        },
+                        &key,
+                        |_| Box::new(WebSocketConnector::default()),
+                        status,
+                        on_lane_failure,
+                    )?))
+                }
+                _ => Ok(Box::new(OnlineSession::start(
                     TranscriptionProtocol::new(options.spoken_language.language()),
                     key,
-                    connector,
+                    Box::new(WebSocketConnector::default()),
                     status,
                     limits,
-                )?,
-            };
-            Ok(Box::new(session))
+                )?)),
+            }
         }
     }
 }
@@ -787,10 +832,10 @@ fn run_pipeline(
     backend: Backend,
     sink: GtkCaptionSink,
     startup: &StartupGate,
-    backend_ready: Arc<AtomicBool>,
+    flags: BackendFlags,
 ) -> Result<RunSummary, Box<dyn std::error::Error + Send + Sync>> {
     let offline = matches!(backend, Backend::Offline { .. });
-    let transcriber = open_backend(backend, &sink, backend_ready)?;
+    let transcriber = open_backend(backend, &sink, flags)?;
     let Some(audio) = start_audio_after_stt(startup, || {
         PipeWireCapture::start(source, PipeWireCaptureConfig::default())
     })?
@@ -941,6 +986,7 @@ mod tests {
             result,
             worker,
             backend_ready: Arc::new(AtomicBool::new(false)),
+            abandoned: Arc::new(AtomicBool::new(false)),
         });
 
         request_controller_shutdown(&mut state);
@@ -961,6 +1007,7 @@ mod tests {
                 result,
                 worker: thread::spawn(|| {}),
                 backend_ready: Arc::new(AtomicBool::new(ready)),
+                abandoned: Arc::new(AtomicBool::new(false)),
             });
             let (completed, backend_ready) = take_completed_session(&mut state).unwrap();
             assert!(completed.is_ok());

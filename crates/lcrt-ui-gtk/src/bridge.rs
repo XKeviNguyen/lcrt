@@ -444,7 +444,7 @@ impl Drop for GtkCaptionReceiver {
 mod tests {
     use lcrt_core::{
         CaptionSink, CaptionSnapshot, CaptionState, CaptionStatus, SessionGeneration,
-        TranscriptUpdate,
+        TranscriptUpdate, TranslationLanes,
     };
 
     use super::{
@@ -687,6 +687,49 @@ mod tests {
             presentation(&receiver).caption.unwrap().caption().text(),
             "current words"
         );
+    }
+
+    fn lanes(
+        captions: &mut CaptionState,
+        original: &str,
+        first: &str,
+        second: &str,
+    ) -> CaptionSnapshot {
+        let lanes = TranslationLanes {
+            original: Some(original.to_owned()),
+            first: first.to_owned(),
+            second: Some(second.to_owned()),
+        };
+        captions
+            .apply(TranscriptUpdate::lanes(lanes, CaptionStatus::Partial).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn lanes_from_a_replaced_translation_never_reach_the_new_one() {
+        let (controller, receiver) = GtkCaptionSink::bridge();
+        let mut old = controller
+            .start_session(SessionGeneration::default().next())
+            .unwrap();
+        receiver.take_update().unwrap();
+        // The user changed a target: the session is replaced.
+        let mut current = controller
+            .start_session(SessionGeneration::default().next().next())
+            .unwrap();
+        receiver.take_update().unwrap();
+
+        let mut captions = CaptionState::new();
+        old.publish(lanes(&mut captions, "古い", "old English", "cũ"))
+            .unwrap();
+        assert!(receiver.take_update().unwrap().presentation.is_none());
+
+        current
+            .publish(lanes(&mut captions, "こんにちは", "Hello", "Xin chào"))
+            .unwrap();
+        let shown = presentation(&receiver).caption.unwrap();
+        assert_eq!(shown.caption().original(), Some("こんにちは"));
+        assert_eq!(shown.caption().text(), "Hello");
+        assert_eq!(shown.caption().second_translation(), Some("Xin chào"));
     }
 
     #[test]
