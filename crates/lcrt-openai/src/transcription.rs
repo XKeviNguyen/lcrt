@@ -83,11 +83,13 @@ impl TranscriptionProtocol {
         let index = match self.turns.iter().position(|turn| turn.item_id == item_id) {
             Some(index) => index,
             None => {
+                // Deltas can name an item before its commit is acknowledged.
                 self.turns.push(Turn {
                     item_id: item_id.to_owned(),
                     text: String::new(),
                     complete: false,
                 });
+                self.prune();
                 self.turns.len() - 1
             }
         };
@@ -302,6 +304,15 @@ impl Protocol for TranscriptionProtocol {
         }
     }
 
+    fn on_audio_gap(&mut self) -> Vec<String> {
+        // Close the open turn so words after the gap start a new one.
+        let mut messages = Vec::new();
+        for action in self.detector.finish() {
+            self.apply_turn_action(action, &mut messages);
+        }
+        messages
+    }
+
     fn reset_connection(&mut self) {
         self.detector = TurnDetector::new(TurnConfig::default());
         self.outgoing.clear();
@@ -324,10 +335,6 @@ impl TranscriptionProtocol {
                 self.append_messages(messages, true);
                 self.uncommitted_turns += 1;
                 messages.push(json!({"type": "input_audio_buffer.commit"}).to_string());
-            }
-            TurnAction::Clear => {
-                self.outgoing.clear();
-                messages.push(json!({"type": "input_audio_buffer.clear"}).to_string());
             }
         }
     }
@@ -543,6 +550,26 @@ mod tests {
         let huge = "x ".repeat(100_000);
         protocol.on_event(&completed("endless", &huge));
         assert!(protocol.turns[0].text.len() <= super::MAX_TURN_BYTES);
+    }
+
+    #[test]
+    fn an_audio_gap_closes_the_open_turn() {
+        let mut protocol = TranscriptionProtocol::new(None);
+        protocol.on_audio(&vec![0.2; 12_000]);
+        let messages = protocol.on_audio_gap();
+        let last: Value = serde_json::from_str(messages.last().unwrap()).unwrap();
+        assert_eq!(last["type"], "input_audio_buffer.commit");
+        // Without an open turn there is nothing to close.
+        assert!(protocol.on_audio_gap().is_empty());
+    }
+
+    #[test]
+    fn turns_named_only_by_deltas_respect_the_turn_cap() {
+        let mut protocol = TranscriptionProtocol::new(None);
+        for n in 0..40 {
+            protocol.on_event(&delta(&format!("item{n}"), "words"));
+        }
+        assert!(protocol.turns.len() <= super::MAX_TURNS);
     }
 
     #[test]

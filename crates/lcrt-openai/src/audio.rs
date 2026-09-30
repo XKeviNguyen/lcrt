@@ -29,8 +29,6 @@ pub enum TurnAction {
     Append(Vec<f32>),
     /// The turn is complete; ask for its final transcript.
     Commit,
-    /// The turn held too little speech to be worth transcribing; discard it.
-    Clear,
 }
 
 /// Thresholds for splitting continuous audio into turns.
@@ -42,8 +40,6 @@ pub struct TurnConfig {
     pub pre_roll_samples: usize,
     /// Trailing silence that ends a turn.
     pub end_silence_samples: usize,
-    /// Minimum speech for a turn to be committed rather than discarded.
-    pub min_speech_samples: usize,
     /// Longest turn before it is committed even while speech continues.
     pub max_turn_samples: usize,
 }
@@ -52,10 +48,11 @@ impl Default for TurnConfig {
     fn default() -> Self {
         let millis = |value: usize| value * ONLINE_SAMPLE_RATE as usize / 1_000;
         Self {
-            speech_rms: 0.01,
+            // About -50 dBFS: system audio is often mastered quietly, and a
+            // higher gate splits or drops soft speech.
+            speech_rms: 0.003,
             pre_roll_samples: millis(300),
             end_silence_samples: millis(700),
-            min_speech_samples: millis(250),
             max_turn_samples: millis(15_000),
         }
     }
@@ -71,7 +68,6 @@ pub struct TurnDetector {
     pre_roll: VecDeque<f32>,
     in_turn: bool,
     turn_samples: usize,
-    speech_samples: usize,
     silence_samples: usize,
 }
 
@@ -84,7 +80,6 @@ impl TurnDetector {
             pre_roll: VecDeque::with_capacity(config.pre_roll_samples),
             in_turn: false,
             turn_samples: 0,
-            speech_samples: 0,
             silence_samples: 0,
         }
     }
@@ -103,7 +98,7 @@ impl TurnDetector {
         coalesce_appends(actions)
     }
 
-    /// Ends the stream: commits a meaningful open turn, otherwise discards it.
+    /// Ends the stream, committing any open turn.
     pub fn finish(&mut self) -> Vec<TurnAction> {
         let mut actions = Vec::new();
         if self.in_turn {
@@ -140,7 +135,6 @@ impl TurnDetector {
 
         self.turn_samples += frame_len;
         if speech {
-            self.speech_samples += frame_len;
             self.silence_samples = 0;
         } else {
             self.silence_samples += frame_len;
@@ -153,21 +147,17 @@ impl TurnDetector {
             // continue in a new turn without losing the speaking state.
             actions.push(TurnAction::Commit);
             self.turn_samples = 0;
-            self.speech_samples = 0;
         }
     }
 
+    /// Every turn is committed. The service has already transcribed the
+    /// buffered audio by now, so discarding a short turn would only lose its
+    /// words; a commit it considers too short is rejected harmlessly.
     fn close_turn(&mut self) -> TurnAction {
-        let action = if self.speech_samples >= self.config.min_speech_samples {
-            TurnAction::Commit
-        } else {
-            TurnAction::Clear
-        };
         self.in_turn = false;
         self.turn_samples = 0;
-        self.speech_samples = 0;
         self.silence_samples = 0;
-        action
+        TurnAction::Commit
     }
 
     fn remember_pre_roll(&mut self, frame: &[f32]) {
@@ -214,7 +204,9 @@ mod tests {
         let mut bytes = Vec::new();
         encode_pcm16(&[0.0, 1.0, -1.0, 2.5, -7.0, f32::NAN, 0.5], &mut bytes);
         let values: Vec<i16> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
             .collect();
         assert_eq!(values, [0, 32_767, -32_767, 32_767, -32_767, 0, 16_384]);
@@ -256,12 +248,24 @@ mod tests {
     }
 
     #[test]
-    fn short_noise_bursts_are_cleared_not_committed() {
+    fn a_short_word_is_committed_not_discarded() {
         let mut detector = TurnDetector::new(TurnConfig::default());
         let mut actions = detector.push(&vec![0.2; millis(100)]);
         actions.extend(detector.push(&vec![0.0; millis(1_000)]));
-        assert!(actions.contains(&TurnAction::Clear));
-        assert!(!actions.contains(&TurnAction::Commit));
+        assert_eq!(
+            actions.iter().filter(|a| **a == TurnAction::Commit).count(),
+            1
+        );
+    }
+
+    #[test]
+    fn quietly_mastered_speech_opens_a_turn() {
+        // -44 dBFS speech, as in quiet recordings, is not silence.
+        let mut detector = TurnDetector::new(TurnConfig::default());
+        let mut actions = detector.push(&vec![0.006; millis(1_000)]);
+        actions.extend(detector.push(&vec![0.0; millis(1_000)]));
+        assert!(appended(&actions) >= millis(1_000));
+        assert_eq!(actions.last(), Some(&TurnAction::Commit));
     }
 
     #[test]
@@ -305,13 +309,11 @@ mod tests {
     }
 
     #[test]
-    fn finish_commits_meaningful_speech_and_discards_noise() {
+    fn finish_commits_an_open_turn_including_its_final_partial_frame() {
         let mut speaking = TurnDetector::new(TurnConfig::default());
-        speaking.push(&vec![0.2; millis(600)]);
-        assert_eq!(speaking.finish().last(), Some(&TurnAction::Commit));
-
-        let mut noise = TurnDetector::new(TurnConfig::default());
-        noise.push(&vec![0.2; millis(40)]);
-        assert_eq!(noise.finish().last(), Some(&TurnAction::Clear));
+        speaking.push(&vec![0.2; millis(600) + 7]);
+        let actions = speaking.finish();
+        assert_eq!(actions.last(), Some(&TurnAction::Commit));
+        assert_eq!(appended(&actions), 7);
     }
 }

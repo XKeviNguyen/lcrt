@@ -153,6 +153,14 @@ impl Protocol for TranslationProtocol {
         self.closed
     }
 
+    fn close_when_quiet(&mut self) -> EventOutcome {
+        // After `session.close` the service takes seconds to send
+        // `session.closed` (it is finishing speech audio LCRT ignores).
+        // The transcripts are complete once they stop arriving.
+        self.closed = true;
+        self.caption(CaptionStatus::Final)
+    }
+
     fn reset_connection(&mut self) {
         self.outgoing.clear();
         self.closed = false;

@@ -101,6 +101,18 @@ pub trait Protocol: Send {
     fn is_drained(&self) -> bool;
     /// Forgets per-connection state before reconnecting.
     fn reset_connection(&mut self);
+    /// Called while finishing, once no caption has arrived for the quiet
+    /// period. A protocol whose service is slow to confirm the end of a
+    /// session closes it here and returns its final caption; the default
+    /// keeps waiting for `is_drained`.
+    fn close_when_quiet(&mut self) -> EventOutcome {
+        EventOutcome::Ignored
+    }
+    /// Queued audio was skipped to catch up with live input. Returns the
+    /// messages that keep speech from both sides of the gap apart.
+    fn on_audio_gap(&mut self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Returns at most `max_bytes` from the end of `text`, starting at a word
