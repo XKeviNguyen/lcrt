@@ -22,6 +22,9 @@ pub const TRANSCRIPTION_MODEL: &str = "gpt-live-transcribe";
 const TRANSCRIPTION_DELAY: &str = "low";
 /// Recent caption text kept for display; older turns are dropped.
 const MAX_CAPTION_BYTES: usize = 480;
+/// Text kept per turn. Only the caption's tail is ever shown, so a turn that
+/// keeps growing (or never completes) keeps just enough to fill it.
+const MAX_TURN_BYTES: usize = 2 * MAX_CAPTION_BYTES;
 /// Turns kept for ordering; older completed turns are dropped.
 const MAX_TURNS: usize = 16;
 /// Retired item ids remembered to ignore their late events.
@@ -249,6 +252,9 @@ impl Protocol for TranscriptionProtocol {
                     && !turn.complete
                 {
                     turn.text.push_str(&delta);
+                    if turn.text.len() > MAX_TURN_BYTES {
+                        turn.text = bounded_tail(&turn.text, MAX_CAPTION_BYTES).to_owned();
+                    }
                 }
                 self.caption()
                     .map_or(EventOutcome::Ignored, EventOutcome::Update)
@@ -261,7 +267,8 @@ impl Protocol for TranscriptionProtocol {
                     return EventOutcome::Ignored;
                 };
                 // The completed transcript is authoritative over accumulated deltas.
-                turn.text = event.transcript.unwrap_or_default();
+                let transcript = event.transcript.unwrap_or_default();
+                turn.text = bounded_tail(&transcript, MAX_TURN_BYTES).to_owned();
                 turn.complete = true;
                 self.prune();
                 self.caption()
@@ -519,6 +526,23 @@ mod tests {
         assert!(protocol.turns.iter().all(|turn| turn.item_id != "stuck"));
         let (_, status) = text_of(protocol.on_event(&completed("item39", "words.")));
         assert_eq!(status, CaptionStatus::Final);
+    }
+
+    #[test]
+    fn text_of_a_turn_that_never_completes_stays_bounded() {
+        let mut protocol = TranscriptionProtocol::new(None);
+        protocol.on_event(&committed("endless", None));
+        let mut last = String::new();
+        for n in 0..5_000 {
+            let (text, _) = text_of(protocol.on_event(&delta("endless", &format!(" word{n}"))));
+            last = text;
+        }
+        assert!(protocol.turns[0].text.len() <= super::MAX_TURN_BYTES);
+        assert!(last.len() <= super::MAX_CAPTION_BYTES);
+        assert!(last.ends_with("word4999"));
+        let huge = "x ".repeat(100_000);
+        protocol.on_event(&completed("endless", &huge));
+        assert!(protocol.turns[0].text.len() <= super::MAX_TURN_BYTES);
     }
 
     #[test]

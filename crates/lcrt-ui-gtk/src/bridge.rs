@@ -246,7 +246,18 @@ impl GtkCaptionSink {
 
     /// Delivers a vocabulary explanation or problem.
     pub fn set_vocabulary(&self, outcome: VocabularyOutcome) -> Result<(), CaptionSinkError> {
-        self.update(move |state| state.vocabulary = Some(outcome))
+        // Lookups can finish out of order. Only the newest request can still
+        // be on screen, so an older answer must not replace a newer one
+        // before the window takes it.
+        self.update(move |state| {
+            if state
+                .vocabulary
+                .as_ref()
+                .is_none_or(|queued| outcome.request_id >= queued.request_id)
+            {
+                state.vocabulary = Some(outcome);
+            }
+        })
     }
 
     /// Updates whether captioning is running.
@@ -702,6 +713,39 @@ mod tests {
         let update = receiver.take_update().unwrap();
         assert_eq!(update.credential.unwrap().status, "Saved securely");
         assert_eq!(update.vocabulary.unwrap().request_id, 7);
+    }
+
+    #[test]
+    fn an_older_vocabulary_answer_does_not_replace_a_newer_one() {
+        let (sink, receiver) = GtkCaptionSink::bridge();
+        let outcome = |request_id| VocabularyOutcome {
+            request_id,
+            result: Err(VocabularyProblem {
+                message: format!("answer {request_id}"),
+                needs_settings: false,
+            }),
+        };
+        sink.set_vocabulary(outcome(9)).unwrap();
+        sink.set_vocabulary(outcome(8)).unwrap();
+        assert_eq!(
+            receiver
+                .take_update()
+                .unwrap()
+                .vocabulary
+                .unwrap()
+                .request_id,
+            9
+        );
+        sink.set_vocabulary(outcome(10)).unwrap();
+        assert_eq!(
+            receiver
+                .take_update()
+                .unwrap()
+                .vocabulary
+                .unwrap()
+                .request_id,
+            10
+        );
     }
 
     #[test]

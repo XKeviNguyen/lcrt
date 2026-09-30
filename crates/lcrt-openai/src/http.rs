@@ -2,16 +2,19 @@
 
 use std::{sync::OnceLock, time::Duration};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::{
     credentials::ApiKey,
+    protocol::{ServiceError, ServiceErrorImpact},
     transport::{TransportError, error_for_status},
 };
 
 const API_BASE: &str = "https://api.openai.com/v1";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// Largest error body read to classify a failure.
+const MAX_ERROR_BODY_BYTES: u64 = 16 * 1024;
 /// Largest response body read from the service.
 pub(crate) const MAX_RESPONSE_BYTES: u64 = 256 * 1024;
 
@@ -37,6 +40,35 @@ fn map_request_error(error: ureq::Error) -> TransportError {
     }
 }
 
+/// Classifies a failed response. HTTP 429 means either temporary rate
+/// limiting or exhausted quota; only the error body tells them apart.
+fn error_for_response(status: u16, body: Option<&str>) -> TransportError {
+    #[derive(Deserialize)]
+    struct ErrorBody {
+        error: ServiceError,
+    }
+    let quota_exhausted = status == 429
+        && body
+            .and_then(|body| serde_json::from_str::<ErrorBody>(body).ok())
+            .is_some_and(|parsed| parsed.error.impact() == ServiceErrorImpact::QuotaExhausted);
+    if quota_exhausted {
+        TransportError::QuotaExhausted
+    } else {
+        error_for_status(status)
+    }
+}
+
+fn failure(mut response: ureq::http::Response<ureq::Body>) -> TransportError {
+    let status = response.status().as_u16();
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_ERROR_BODY_BYTES)
+        .read_to_string()
+        .ok();
+    error_for_response(status, body.as_deref())
+}
+
 /// Verifies that the service accepts `key`, without billable audio work.
 pub fn test_connection(key: &ApiKey) -> Result<(), TransportError> {
     let response = agent()
@@ -44,12 +76,14 @@ pub fn test_connection(key: &ApiKey) -> Result<(), TransportError> {
         .header("Authorization", format!("Bearer {}", key.expose()))
         .call()
         .map_err(map_request_error)?;
-    let status = response.status().as_u16();
-    info!(status, "connection test completed");
+    info!(
+        status = response.status().as_u16(),
+        "connection test completed"
+    );
     if response.status().is_success() {
         Ok(())
     } else {
-        Err(error_for_status(status))
+        Err(failure(response))
     }
 }
 
@@ -64,9 +98,8 @@ pub(crate) fn post_json(
         .header("Authorization", format!("Bearer {}", key.expose()))
         .send_json(body)
         .map_err(map_request_error)?;
-    let status = response.status().as_u16();
     if !response.status().is_success() {
-        return Err(error_for_status(status));
+        return Err(failure(response));
     }
     response
         .body_mut()
@@ -74,4 +107,33 @@ pub(crate) fn post_json(
         .limit(MAX_RESPONSE_BYTES)
         .read_to_string()
         .map_err(map_request_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::error_for_response;
+    use crate::transport::TransportError;
+
+    #[test]
+    fn a_429_is_exhausted_quota_only_when_the_body_says_so() {
+        let quota = r#"{"error": {"type": "insufficient_quota", "code": "insufficient_quota"}}"#;
+        assert_eq!(
+            error_for_response(429, Some(quota)),
+            TransportError::QuotaExhausted
+        );
+        let rate = r#"{"error": {"type": "rate_limit_error", "code": "rate_limit_exceeded"}}"#;
+        assert_eq!(
+            error_for_response(429, Some(rate)),
+            TransportError::RateLimited
+        );
+        assert_eq!(error_for_response(429, None), TransportError::RateLimited);
+        assert_eq!(
+            error_for_response(429, Some("not json")),
+            TransportError::RateLimited
+        );
+        assert_eq!(
+            error_for_response(401, Some(quota)),
+            TransportError::Unauthorized
+        );
+    }
 }
