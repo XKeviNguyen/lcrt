@@ -228,6 +228,9 @@ pub(crate) struct Controller {
     /// Why the last write of `preferences` failed. Retried on the next change
     /// and at shutdown, and kept on screen until a write succeeds.
     preferences_save_error: Option<String>,
+    /// Whether the window's error banner currently shows that save warning,
+    /// so a later successful save clears only the warning.
+    save_warning_shown: bool,
     state: ControllerState,
     generation: SessionGeneration,
     pending_start: Option<SessionOptions>,
@@ -253,6 +256,7 @@ impl Controller {
             vocabulary_lookups: Arc::new(AtomicUsize::new(0)),
             credential_actions: CredentialActions::default(),
             preferences_save_error: None,
+            save_warning_shown: false,
             state: ControllerState::Idle,
             generation: SessionGeneration::default(),
             pending_start: None,
@@ -319,7 +323,9 @@ impl Controller {
                     self.credential_actions.begin();
                     let view = match self.credentials.clear() {
                         Ok(status) => credential_view(status),
-                        Err(error) => problem_view(&format!("Couldn't clear the key: {error}")),
+                        Err(error) => problem_view(&format!(
+                            "Couldn't clear the key: {error}. Try again once the keyring is available."
+                        )),
                     };
                     notify_ui(self.sink.set_credential(view));
                 }
@@ -336,6 +342,17 @@ impl Controller {
                 Err(RecvTimeoutError::Timeout) => {}
             }
         }
+    }
+
+    /// Shows an error in the window's banner, replacing whatever it showed.
+    fn show_error(&mut self, message: impl Into<String>, needs_settings: bool) {
+        self.save_warning_shown = false;
+        let message = message.into();
+        notify_ui(if needs_settings {
+            self.sink.show_settings_error(message)
+        } else {
+            self.sink.show_error(message)
+        });
     }
 
     fn cancel_active(&self) -> bool {
@@ -355,16 +372,13 @@ impl Controller {
             .find(|source| source.id() == options.source_id)
             .cloned()
         else {
-            notify_ui(
-                self.sink
-                    .show_error("The selected audio source is no longer available."),
-            );
+            self.show_error("The selected audio source is no longer available.", false);
             return false;
         };
         let backend = match self.resolve_backend(&options) {
             Ok(backend) => backend,
             Err(message) => {
-                notify_ui(self.sink.show_settings_error(message));
+                self.show_error(message, true);
                 notify_ui(self.sink.set_running(false));
                 notify_ui(self.sink.set_status("Ready"));
                 return false;
@@ -374,8 +388,14 @@ impl Controller {
         // A new session retires the previous session's error, but an unsaved
         // settings warning stays until a write succeeds.
         match &self.preferences_save_error {
-            Some(message) => notify_ui(self.sink.show_error(message.clone())),
-            None => notify_ui(self.sink.clear_error()),
+            Some(message) => {
+                notify_ui(self.sink.show_error(message.clone()));
+                self.save_warning_shown = true;
+            }
+            None => {
+                notify_ui(self.sink.clear_error());
+                self.save_warning_shown = false;
+            }
         }
         let session_sink = match self.sink.start_session(self.generation) {
             Ok(sink) => sink,
@@ -402,7 +422,7 @@ impl Controller {
             Err(message) => {
                 notify_ui(self.sink.set_running(false));
                 notify_ui(self.sink.set_status("Error"));
-                notify_ui(self.sink.show_error(message));
+                self.show_error(message, false);
                 false
             }
         }
@@ -432,7 +452,7 @@ impl Controller {
         }
     }
 
-    fn publish_completion(&self, result: Result<RunSummary, SessionFailure>) {
+    fn publish_completion(&mut self, result: Result<RunSummary, SessionFailure>) {
         let replacing = self.pending_start.is_some();
         match result {
             Ok(summary) => {
@@ -450,11 +470,7 @@ impl Controller {
                 error!(message = %failure.message, "caption session failed");
                 notify_ui(self.sink.set_running(false));
                 notify_ui(self.sink.set_status("Error"));
-                if failure.needs_settings {
-                    notify_ui(self.sink.show_settings_error(failure.message));
-                } else {
-                    notify_ui(self.sink.show_error(failure.message));
-                }
+                self.show_error(failure.message, failure.needs_settings);
             }
         }
     }
@@ -472,7 +488,10 @@ impl Controller {
         };
         match store.save(&self.preferences) {
             Ok(()) => {
-                if self.preferences_save_error.take().is_some() {
+                // Clear the banner only if it still shows the save warning,
+                // not an error that replaced it since.
+                if self.preferences_save_error.take().is_some() && self.save_warning_shown {
+                    self.save_warning_shown = false;
                     notify_ui(self.sink.clear_error());
                 }
             }
@@ -480,7 +499,8 @@ impl Controller {
                 warn!(%error, "could not save preferences");
                 let message =
                     format!("Couldn't save settings ({error}). Changes apply until LCRT quits.");
-                notify_ui(self.sink.show_error(message.clone()));
+                self.show_error(message.clone(), false);
+                self.save_warning_shown = true;
                 self.preferences_save_error = Some(message);
             }
         }

@@ -228,6 +228,12 @@ impl Vocabulary {
         self.enabled.set(enabled);
         self.language.set(language);
         if !enabled {
+            // With Vocabulary off, nothing may be sent: cancel a selection
+            // still settling and retire any lookup on screen.
+            if let Some(source) = self.pending.borrow_mut().take() {
+                source.remove();
+            }
+            self.active_request.set(0);
             self.popover.popdown();
         }
     }
@@ -277,6 +283,9 @@ impl Vocabulary {
     }
 
     fn explain(&self, view: &gtk::TextView) {
+        if !self.enabled.get() {
+            return;
+        }
         let buffer = view.buffer();
         let Some((start, end)) = buffer.selection_bounds() else {
             return;
