@@ -625,6 +625,18 @@ impl CaptionWindow {
                 }
             };
             if let Some(presentation) = update.presentation {
+                // A new session's reset must come before any caption that was
+                // coalesced into the same update, or it would erase it.
+                if let Some(running) = presentation.running {
+                    if running {
+                        this.captions.reset("");
+                        if this.phase.get() != SessionPhase::Stopping {
+                            this.set_phase(SessionPhase::Running);
+                        }
+                    } else {
+                        this.set_phase(SessionPhase::Idle);
+                    }
+                }
                 if let Some(snapshot) = presentation.caption {
                     debug!(
                         revision = snapshot.revision(),
@@ -637,16 +649,6 @@ impl CaptionWindow {
                         snapshot.caption().original(),
                         show_original,
                     );
-                }
-                if let Some(running) = presentation.running {
-                    if running {
-                        this.captions.reset("");
-                        if this.phase.get() != SessionPhase::Stopping {
-                            this.set_phase(SessionPhase::Running);
-                        }
-                    } else {
-                        this.set_phase(SessionPhase::Idle);
-                    }
                 }
                 if let Some(status) = presentation.status {
                     let status = if status == "Listening…" {

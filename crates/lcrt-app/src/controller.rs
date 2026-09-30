@@ -225,9 +225,9 @@ pub(crate) struct Controller {
     vocabulary_cache: Arc<Mutex<VocabularyCache>>,
     vocabulary_lookups: Arc<AtomicUsize>,
     credential_actions: CredentialActions,
-    /// The last write of `preferences` failed; retried on the next change
-    /// and at shutdown.
-    preferences_unsaved: bool,
+    /// Why the last write of `preferences` failed. Retried on the next change
+    /// and at shutdown, and kept on screen until a write succeeds.
+    preferences_save_error: Option<String>,
     state: ControllerState,
     generation: SessionGeneration,
     pending_start: Option<SessionOptions>,
@@ -252,7 +252,7 @@ impl Controller {
             vocabulary_cache: Arc::new(Mutex::new(VocabularyCache::default())),
             vocabulary_lookups: Arc::new(AtomicUsize::new(0)),
             credential_actions: CredentialActions::default(),
-            preferences_unsaved: false,
+            preferences_save_error: None,
             state: ControllerState::Idle,
             generation: SessionGeneration::default(),
             pending_start: None,
@@ -298,7 +298,7 @@ impl Controller {
                     }
                 }
                 Ok(CaptionUiAction::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
-                    if self.preferences_unsaved {
+                    if self.preferences_save_error.is_some() {
                         self.persist_preferences();
                     }
                     request_controller_shutdown(&mut self.state);
@@ -371,7 +371,12 @@ impl Controller {
             }
         };
         self.generation = self.generation.next();
-        notify_ui(self.sink.clear_error());
+        // A new session retires the previous session's error, but an unsaved
+        // settings warning stays until a write succeeds.
+        match &self.preferences_save_error {
+            Some(message) => notify_ui(self.sink.show_error(message.clone())),
+            None => notify_ui(self.sink.clear_error()),
+        }
         let session_sink = match self.sink.start_session(self.generation) {
             Ok(sink) => sink,
             Err(error) => {
@@ -467,17 +472,16 @@ impl Controller {
         };
         match store.save(&self.preferences) {
             Ok(()) => {
-                if self.preferences_unsaved {
-                    self.preferences_unsaved = false;
+                if self.preferences_save_error.take().is_some() {
                     notify_ui(self.sink.clear_error());
                 }
             }
             Err(error) => {
                 warn!(%error, "could not save preferences");
-                self.preferences_unsaved = true;
-                notify_ui(self.sink.show_error(format!(
-                    "Couldn't save settings ({error}). Changes apply until LCRT quits."
-                )));
+                let message =
+                    format!("Couldn't save settings ({error}). Changes apply until LCRT quits.");
+                notify_ui(self.sink.show_error(message.clone()));
+                self.preferences_save_error = Some(message);
             }
         }
     }

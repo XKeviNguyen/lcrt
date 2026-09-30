@@ -36,10 +36,13 @@ Then open **LCRT Live Captions** from the app grid, or run `lcrt`.
 
 ## Use
 
-1. Choose a mode, an audio source, and for online modes a language:
-   - Offline Captions and Online Captions: the spoken language (or Auto).
+1. Choose a mode and an audio source. Online modes also have a language:
+   - Online Captions: the spoken language, or Auto.
    - Translation: the target language. The spoken language is detected
      automatically.
+
+   Offline Captions has no language choice; it follows the chosen Whisper
+   model (the tiny model is English-only).
 2. Press **Start**. Captions update as speech is recognized; **Stop** finishes
    the last sentence and keeps the text on screen.
 3. Open **Settings** to:

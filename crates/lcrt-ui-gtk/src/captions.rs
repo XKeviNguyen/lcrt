@@ -123,6 +123,8 @@ pub(crate) struct Vocabulary {
     settings: gtk::Button,
     next_request: Cell<u64>,
     active_request: Cell<u64>,
+    /// The text the active request explains, as shown in the popover.
+    requested_text: RefCell<String>,
     pending: RefCell<Option<glib::SourceId>>,
     enabled: Cell<bool>,
     language: Cell<Language>,
@@ -190,6 +192,7 @@ impl Vocabulary {
             settings,
             next_request: Cell::new(0),
             active_request: Cell::new(0),
+            requested_text: RefCell::new(String::new()),
             pending: RefCell::new(None),
             enabled: Cell::new(enabled),
             language: Cell::new(language),
@@ -248,6 +251,17 @@ impl Vocabulary {
         if let Some(source) = self.pending.borrow_mut().take() {
             source.remove();
         }
+        // Selecting different text retires the explanation on screen, so a
+        // late answer can't appear next to text it doesn't explain. A
+        // collapsed selection keeps it: the popover names its own term.
+        let buffer = view.buffer();
+        if self.active_request.get() != 0
+            && let Some((start, end)) = buffer.selection_bounds()
+            && buffer.text(&start, &end, false).trim() != self.requested_text.borrow().as_str()
+        {
+            self.active_request.set(0);
+            self.popover.popdown();
+        }
         if !self.enabled.get() || !view.buffer().has_selection() {
             return;
         }
@@ -279,6 +293,7 @@ impl Vocabulary {
             language: self.language.get(),
         };
         let selection = buffer.text(&start, &end, false);
+        *self.requested_text.borrow_mut() = selection.trim().to_owned();
         self.show_loading(view, &end, &selection);
         if self.actions.try_send(action).is_err() {
             self.show_problem(&VocabularyProblem {
