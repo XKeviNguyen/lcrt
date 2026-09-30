@@ -315,6 +315,14 @@ A sixth review, of `d2824b5`, found five P2 issues. All were fixed:
 - the speech gate that the last finding concerned was removed, as described
   under [Live verification with OpenAI](#live-verification-with-openai).
 
+A seventh review, of `429f078`, found two P2 issues. Both were fixed:
+
+- the translation early close could lose late text; it was removed after the
+  measurement described under
+  [Live verification with OpenAI](#live-verification-with-openai);
+- translated-audio events are recognized by their top-level type, so a
+  transcript that contains that event name is kept.
+
 ### Security review
 
 - TLS certificate validation stays enabled: rustls with webpki roots, and no
@@ -371,8 +379,8 @@ in 1.8 s. Sessions became ready 0.8–1.7 s after Start.
   the source language appeared above the translation; with it hidden, only
   the translation appeared.
 - No session ended in an error, and memory stayed at 130–157 MB.
-- The translation Stop times above are from before the fix described below;
-  after it, Stop took 3.2 s.
+- Translation Stop takes 5–7 s because the service delivers the rest of the
+  translation after `session.close`; see below.
 
 **Vocabulary.**
 
@@ -399,16 +407,23 @@ workstation's networking. This was done twice in one session:
    "However," was lost, and the abandoned items made Stop wait its full 8 s
    timeout (9.4 s measured). The gate is now 0.003, about −50 dBFS, and every
    turn is committed. Stop then took 1.4 s.
-2. **Translation Stop waited for a slow confirmation.** The service takes
-   5–7 s to confirm `session.close`, during which no caption changes.
-   Translation now closes once captions have been quiet for 1.5 s.
-3. **The vocabulary answer closed its own popover.** GTK closes a popover
+2. **The vocabulary answer closed its own popover.** GTK closes a popover
    that resizes unless its parent presents it again, and a text view does
    not. A minimal GTK program reproduced this on X11 and Wayland. LCRT now
    presents the popover after updating it.
 
-The six sessions in the table ran on the build with fix 1. Fixes 2 and 3 do
-not change the transcription path, and were each verified live afterwards.
+The six sessions in the table ran on the build with fix 1. Fix 2 does not
+change the transcription or translation path, and was verified live
+afterwards.
+
+**A change that was tried and withdrawn.** Translation Stop takes 5–7 s. An
+early close after 1.5 s without a caption change cut that to 3.2 s, and
+review questioned whether it could lose text. Measuring with Stop pressed
+mid-speech settled it: the service sends the rest of the translation
+4.6–4.9 s after `session.close`, just before `session.closed` (for example
+"this page helped the national team qualify."). The early close was removed,
+and Stop waits for `session.closed`, bounded at 8 s. On the final build a
+mid-speech Stop took 5.3 s and kept the late text.
 
 ## Known limitations
 
@@ -423,7 +438,7 @@ not change the transcription path, and were each verified live afterwards.
   Online modes never fall back to another backend by themselves.
 - **Stop wait bound:** Stop waits at most 18 s (10 s handshake + 8 s finish)
   for an unresponsive online service. Measured live: 1.4 s for captions and
-  3.2 s for translation.
+  5–7 s for translation, which is the service finishing the translation.
 - **Window size:** a width below the control row's minimum (510–683 px) has
   no further effect.
 - **Not tested:**
