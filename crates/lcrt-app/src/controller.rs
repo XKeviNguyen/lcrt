@@ -181,6 +181,9 @@ struct PipelineSession {
     startup: Arc<StartupGate>,
     result: Receiver<Result<RunSummary, SessionFailure>>,
     worker: JoinHandle<()>,
+    /// Set once the backend is working: the model loaded, or the online
+    /// connection became active. A diagnostic run passes only if it was.
+    backend_ready: Arc<AtomicBool>,
 }
 
 /// The controller is the authoritative owner of application termination.
@@ -267,8 +270,11 @@ impl Controller {
         let status = self.credentials.status();
         notify_ui(self.sink.set_credential(credential_view(status)));
         loop {
-            if let Some(completed) = take_completed_session(&mut self.state) {
-                let succeeded = completed.is_ok();
+            if let Some((completed, backend_ready)) = take_completed_session(&mut self.state) {
+                let succeeded = completed.is_ok() && backend_ready;
+                if self.overrides.smoke && completed.is_ok() && !backend_ready {
+                    error!("diagnostic failed: the backend never became ready");
+                }
                 self.publish_completion(completed);
                 if self.overrides.smoke {
                     notify_ui(self.sink.quit());
@@ -693,11 +699,13 @@ fn start_pipeline(
 ) -> Result<PipelineSession, String> {
     let startup = Arc::new(StartupGate::new());
     let worker_startup = Arc::clone(&startup);
+    let backend_ready = Arc::new(AtomicBool::new(false));
+    let worker_ready = Arc::clone(&backend_ready);
     let (result_sender, result) = sync_channel(1);
     let worker = thread::Builder::new()
         .name("lcrt-caption-pipeline".to_owned())
         .spawn(move || {
-            let result = run_pipeline(source, backend, sink, &worker_startup)
+            let result = run_pipeline(source, backend, sink, &worker_startup, worker_ready)
                 .map_err(|error| SessionFailure::from_pipeline(error.as_ref()));
             let _ = result_sender.send(result);
         })
@@ -706,12 +714,14 @@ fn start_pipeline(
         startup,
         result,
         worker,
+        backend_ready,
     })
 }
 
 fn open_backend(
     backend: Backend,
     sink: &GtkCaptionSink,
+    ready: Arc<AtomicBool>,
 ) -> Result<Box<dyn Transcriber>, Box<dyn std::error::Error + Send + Sync>> {
     match backend {
         Backend::Offline {
@@ -720,7 +730,9 @@ fn open_backend(
         } => {
             let mut config = WhisperConfig::new(model_path);
             config.language = language;
-            Ok(Box::new(WhisperTranscriber::new(config)?))
+            let transcriber = WhisperTranscriber::new(config)?;
+            ready.store(true, Ordering::Release);
+            Ok(Box::new(transcriber))
         }
         Backend::Online { key, options } => {
             let status_sink = sink.clone();
@@ -731,7 +743,10 @@ fn open_backend(
             let status = Arc::new(move |status: OnlineStatus| {
                 let text = match status {
                     OnlineStatus::Connecting => "Connecting…",
-                    OnlineStatus::Active => active,
+                    OnlineStatus::Active => {
+                        ready.store(true, Ordering::Release);
+                        active
+                    }
                     OnlineStatus::Reconnecting => "Reconnecting…",
                 };
                 notify_ui(status_sink.set_status(text));
@@ -764,9 +779,10 @@ fn run_pipeline(
     backend: Backend,
     sink: GtkCaptionSink,
     startup: &StartupGate,
+    backend_ready: Arc<AtomicBool>,
 ) -> Result<RunSummary, Box<dyn std::error::Error + Send + Sync>> {
     let offline = matches!(backend, Backend::Offline { .. });
-    let transcriber = open_backend(backend, &sink)?;
+    let transcriber = open_backend(backend, &sink, backend_ready)?;
     let Some(audio) = start_audio_after_stt(startup, || {
         PipeWireCapture::start(source, PipeWireCaptureConfig::default())
     })?
@@ -793,9 +809,10 @@ fn start_audio_after_stt<A, E>(
     Ok(Some(audio))
 }
 
+/// The finished session's result, and whether its backend ever became ready.
 fn take_completed_session(
     state: &mut ControllerState,
-) -> Option<Result<RunSummary, SessionFailure>> {
+) -> Option<(Result<RunSummary, SessionFailure>, bool)> {
     let result = match state {
         ControllerState::Active(session) => match session.result.try_recv() {
             Ok(result) => result,
@@ -812,10 +829,14 @@ fn take_completed_session(
     let ControllerState::Active(completed) = previous else {
         unreachable!("only an active session can produce a completion");
     };
+    let backend_ready = completed.backend_ready.load(Ordering::Acquire);
     if completed.worker.join().is_err() {
-        return Some(Err(SessionFailure::new("caption pipeline worker panicked")));
+        return Some((
+            Err(SessionFailure::new("caption pipeline worker panicked")),
+            backend_ready,
+        ));
     }
-    Some(result)
+    Some((result, backend_ready))
 }
 
 pub(crate) fn notify_ui(result: Result<(), CaptionSinkError>) {
@@ -840,9 +861,9 @@ mod tests {
     use super::{
         ControllerState, CredentialActions, PipelineSession, SessionFailure, StartupGate,
         StartupPhase, credential_view, key_to_test, request_controller_shutdown,
-        start_audio_after_stt,
+        start_audio_after_stt, take_completed_session,
     };
-    use lcrt_core::{PipelineError, TranscriptionError};
+    use lcrt_core::{PipelineError, RunSummary, TranscriptionError};
     use lcrt_openai::credentials::{ApiKey, CredentialStatus};
     use lcrt_ui_gtk::{CredentialTone, EnteredApiKey};
 
@@ -911,12 +932,32 @@ mod tests {
             startup: Arc::clone(&startup),
             result,
             worker,
+            backend_ready: Arc::new(AtomicBool::new(false)),
         });
 
         request_controller_shutdown(&mut state);
 
         assert!(startup.is_cancelled());
         assert!(matches!(state, ControllerState::Terminated));
+    }
+
+    #[test]
+    fn a_session_that_never_connected_is_reported_as_not_ready() {
+        // An online session stopped before connecting completes normally, but
+        // a diagnostic run must not count it as having exercised the service.
+        for ready in [false, true] {
+            let (result_sender, result) = sync_channel(1);
+            result_sender.send(Ok(RunSummary::default())).unwrap();
+            let mut state = ControllerState::Active(PipelineSession {
+                startup: Arc::new(StartupGate::new()),
+                result,
+                worker: thread::spawn(|| {}),
+                backend_ready: Arc::new(AtomicBool::new(ready)),
+            });
+            let (completed, backend_ready) = take_completed_session(&mut state).unwrap();
+            assert!(completed.is_ok());
+            assert_eq!(backend_ready, ready);
+        }
     }
 
     #[test]
