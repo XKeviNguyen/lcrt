@@ -65,7 +65,7 @@ On the final code commit:
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
-| `cargo test --locked --workspace --all-features` | 175 passed, 0 failed |
+| `cargo test --locked --workspace --all-features` | 181 passed, 0 failed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
 | `git diff --check` | clean |
 | `desktop-file-validate`, `appstreamcli validate --no-net` | valid; one pedantic note about the uppercase app ID, which is kept because the keyring entry is named after it |
@@ -217,6 +217,21 @@ remains to be confirmed.
   copyright file lists the license of each of the 158 linked crates.
 - Ubuntu 24.04 does not package `libgtk4-layer-shell0`, so the `.deb`
   targets 24.10 and later.
+
+### Review fixes (Codex, PR #27)
+
+Six P2 findings on `8f9726f` were fixed and covered by tests:
+
+1. Preference changes reach the controller before Start and before Shutdown.
+   A font size changed and followed immediately by a window close was saved
+   (41 pt), and the app exited in 0.27 s.
+2. Connecting tries every resolved address.
+3. A rejected session or its settings ends the session with a message.
+4. Save, Test and Clear report a busy controller, and Save no longer drops
+   the typed key.
+5. A failed preferences write is shown to the user and retried.
+6. Only the latest credential action updates the status. The Test
+   connection button showed its result and was usable again afterwards.
 
 ### Security review
 
