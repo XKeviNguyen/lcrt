@@ -65,7 +65,7 @@ On the final code commit:
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
-| `cargo test --locked --workspace --all-features` | 181 passed, 0 failed |
+| `cargo test --locked --workspace --all-features` | 183 passed, 0 failed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
 | `git diff --check` | clean |
 | `desktop-file-validate`, `appstreamcli validate --no-net` | valid; one pedantic note about the uppercase app ID, which is kept because the keyring entry is named after it |
@@ -232,6 +232,23 @@ Six P2 findings on `8f9726f` were fixed and covered by tests:
 5. A failed preferences write is shown to the user and retried.
 6. Only the latest credential action updates the status. The Test
    connection button showed its result and was usable again afterwards.
+
+Seven more P2 findings on `6cebfa6` were fixed:
+
+1. A rejected empty commit no longer holds up Stop.
+2. When capture outruns the network, the stale audio backlog is skipped so
+   captions follow live speech. A regression test sends 7.4 s of stale audio
+   without the fix and under 2.5 s with it.
+3. HTTP 4xx rejections are no longer retried as network failures.
+4. A session's first caption is no longer erased by the session reset that
+   was coalesced into the same update. After this change, JFK through system
+   audio showed its first caption at 2.98 s and kept it after Stop.
+5. Selecting different text retires a pending vocabulary explanation.
+6. Start keeps an unsaved-settings warning visible until a save succeeds.
+7. The README no longer describes an offline language control.
+
+Items 4–6 are GTK and controller state paths without a unit harness. Item 4
+was checked at runtime; items 5 and 6 are reviewed code only.
 
 ### Security review
 
