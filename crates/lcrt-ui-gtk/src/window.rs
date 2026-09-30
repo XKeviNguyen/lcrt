@@ -419,14 +419,23 @@ impl CaptionWindow {
         self.refresh_start_button();
     }
 
-    /// Shows the caption rows and the notice for what the controls describe.
+    /// Shows the notice, and while no session runs the caption rows, for
+    /// what the controls describe.
     fn refresh_lanes(&self) {
         let options = self.described_options();
-        self.captions.configure(&lane_layout(&options));
         self.notice.set_text(privacy_notice(
             options.mode,
             options.translation_targets.iter().count(),
         ));
+        // The text of a running session belongs to that session's rows.
+        // Relabeling them now would put the old text under new badges, so a
+        // changed layout is applied when the replacement session starts.
+        // While idle, text left from the last session is cleared for the
+        // same reason.
+        if self.phase.get() == SessionPhase::Idle && self.captions.configure(&lane_layout(&options))
+        {
+            self.captions.reset(PLACEHOLDER);
+        }
     }
 
     /// Makes the translation controls show the stored settings, after they
@@ -704,12 +713,17 @@ impl CaptionWindow {
                 // coalesced into the same update, or it would erase it.
                 if let Some(running) = presentation.running {
                     if running {
+                        // A session starts with empty rows laid out for it.
                         this.captions.reset("");
+                        if let Some(options) = this.started_options.borrow().as_ref() {
+                            this.captions.configure(&lane_layout(options));
+                        }
                         if this.phase.get() != SessionPhase::Stopping {
                             this.set_phase(SessionPhase::Running);
                         }
                     } else {
                         this.set_phase(SessionPhase::Idle);
+                        this.refresh_lanes();
                     }
                 }
                 if let Some(snapshot) = presentation.caption {

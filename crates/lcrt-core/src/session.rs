@@ -184,14 +184,6 @@ impl TranslationTargets {
         Self { first, second }
     }
 
-    /// A single target.
-    pub fn single(target: Language) -> Self {
-        Self {
-            first: target,
-            second: None,
-        }
-    }
-
     /// The first target; it always exists.
     pub fn first(self) -> Language {
         self.first
@@ -205,12 +197,6 @@ impl TranslationTargets {
     /// The targets in lane order.
     pub fn iter(self) -> impl Iterator<Item = Language> {
         std::iter::once(self.first).chain(self.second)
-    }
-}
-
-impl Default for TranslationTargets {
-    fn default() -> Self {
-        Self::single(Language::English)
     }
 }
 

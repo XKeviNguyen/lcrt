@@ -191,7 +191,11 @@ fn spawn_smoke_actions(
             mode: smoke.mode,
             source_id: smoke.source_id,
             spoken_language,
-            translation_targets: TranslationTargets::single(smoke.target),
+            translation_targets: TranslationTargets::resolve(
+                Some(smoke.target),
+                None,
+                SessionOptions::shown_source(true, spoken_language),
+            ),
             show_original: true,
         };
         if actions.send(CaptionUiAction::Start(options)).is_err() {
@@ -268,6 +272,12 @@ fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> Result<Pars
     }
     if smoke_option_set && smoke_source.is_none() {
         return Err("smoke options require --smoke-source".to_owned());
+    }
+    // The diagnostic shows the source lane, and a target can't repeat it.
+    if smoke_mode == ProcessingMode::Translation
+        && language.as_deref().and_then(Language::from_code) == Some(smoke_target)
+    {
+        return Err("--smoke-target must differ from --language".to_owned());
     }
     Ok(ParsedCommand::Run(AppConfig {
         model_path,
@@ -375,6 +385,21 @@ mod tests {
             parse_arguments(arguments(&["--smoke-source", "s", "--smoke-target", "xx"])).is_err()
         );
         assert!(parse_arguments(arguments(&["--unknown"])).is_err());
+        // A translation diagnostic can't translate a language into itself.
+        let translation = |language: &str, target: &str| {
+            parse_arguments(arguments(&[
+                "--smoke-source",
+                "s",
+                "--smoke-mode",
+                "translation",
+                "--language",
+                language,
+                "--smoke-target",
+                target,
+            ]))
+        };
+        assert!(translation("ja", "ja").is_err());
+        assert!(translation("ja", "en").is_ok());
     }
 
     #[test]

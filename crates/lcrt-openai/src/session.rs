@@ -105,11 +105,6 @@ impl Default for SessionLimits {
     }
 }
 
-enum Command {
-    Audio(Vec<f32>),
-    Finish,
-}
-
 enum WorkerEvent {
     Update(TranscriptUpdate),
     Failed(TransportError),
@@ -118,7 +113,8 @@ enum WorkerEvent {
 
 /// A running online session. Dropping it cancels the worker.
 pub struct OnlineSession {
-    commands: Option<SyncSender<Command>>,
+    /// Audio for the worker. Dropping it tells the worker to finish.
+    commands: Option<SyncSender<Vec<f32>>>,
     events: Receiver<WorkerEvent>,
     worker: Option<JoinHandle<()>>,
     cancel: Arc<AtomicBool>,
@@ -245,7 +241,7 @@ impl Transcriber for OnlineSession {
         if !samples.is_empty()
             && let Some(commands) = &self.commands
         {
-            match commands.try_send(Command::Audio(samples)) {
+            match commands.try_send(samples) {
                 Ok(()) | Err(TrySendError::Disconnected(_)) => {}
                 Err(TrySendError::Full(_)) => {
                     // The network is behind. Live captions must follow live
@@ -272,11 +268,11 @@ impl Transcriber for OnlineSession {
 }
 
 impl OnlineSession {
-    /// Asks the service to end the stream, without waiting for it. Several
+    /// Asks the service to end the stream, without waiting for anything. Several
     /// sessions can be finished together this way, so their waits overlap
     /// instead of adding up. Follow with [`Self::wait_finished`].
     pub fn begin_finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
-        let mut updates = self.collect()?;
+        let updates = self.collect()?;
         if let Some(error) = self.pending_failure.take() {
             // A finishing session can report either captions or a failure,
             // and the failure is what the user must act on.
@@ -291,23 +287,15 @@ impl OnlineSession {
                 .map_err(|error| TranscriptionError::new(error.to_string()))?,
             None => Vec::new(),
         };
-        let deadline = Instant::now() + self.finish_timeout;
-        self.finish_deadline = Some(deadline);
-        if let Some(commands) = self.commands.take() {
-            for command in [Command::Audio(tail), Command::Finish] {
-                let mut command = command;
-                loop {
-                    match commands.try_send(command) {
-                        Ok(()) | Err(TrySendError::Disconnected(_)) => break,
-                        Err(TrySendError::Full(returned)) if Instant::now() < deadline => {
-                            command = returned;
-                            updates.extend(self.collect()?);
-                            thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(TrySendError::Full(_)) => break,
-                    }
-                }
-            }
+        self.finish_deadline = Some(Instant::now() + self.finish_timeout);
+        // Dropping the sender is the finish request, so this never waits on
+        // a full queue. If the queue is full the worker is behind: what it
+        // holds is stale, and it skips that instead of sending it first.
+        if let Some(commands) = self.commands.take()
+            && !tail.is_empty()
+            && matches!(commands.try_send(tail), Err(TrySendError::Full(_)))
+        {
+            self.backlog_full.store(true, Ordering::Release);
         }
         Ok(updates)
     }
@@ -366,7 +354,7 @@ struct Worker<P> {
     protocol: P,
     key: ApiKey,
     connector: Box<dyn Connect>,
-    commands: Receiver<Command>,
+    commands: Receiver<Vec<f32>>,
     events: SyncSender<WorkerEvent>,
     cancel: Arc<AtomicBool>,
     backlog_full: Arc<AtomicBool>,
@@ -454,8 +442,8 @@ impl<P: Protocol> Worker<P> {
                 .commands
                 .recv_timeout(remaining.min(self.limits.poll * 5))
             {
-                Ok(Command::Audio(_)) | Err(RecvTimeoutError::Timeout) => {}
-                Ok(Command::Finish) | Err(RecvTimeoutError::Disconnected) => {
+                Ok(_) | Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
                     self.finishing = true;
                     return false;
                 }
@@ -554,13 +542,12 @@ impl<P: Protocol> Worker<P> {
                 skip_stale_audio = true;
             }
             match self.commands.try_recv() {
-                Ok(Command::Audio(_)) if skip_stale_audio => {}
-                Ok(Command::Audio(samples)) => {
+                Ok(_) if skip_stale_audio => {}
+                Ok(samples) => {
                     for message in self.protocol.on_audio(&samples) {
                         transport.send_text(&message)?;
                     }
                 }
-                Ok(Command::Finish) => self.begin_finish(transport, finish_deadline)?,
                 Err(TryRecvError::Empty) => return Ok(()),
                 Err(TryRecvError::Disconnected) => {
                     if !self.finishing {
@@ -1137,6 +1124,36 @@ pub(crate) mod tests {
         };
         assert!(failed.to_string().contains("rejected the request"));
         assert!(last.ends_with("w70"), "last caption was {last:?}");
+    }
+
+    #[test]
+    fn asking_to_finish_never_waits_on_a_full_queue() {
+        // The connection never opens, so nothing drains the audio queue.
+        let (release, held) = std::sync::mpsc::channel();
+        let (connector, _) = FakeConnector::new(vec![Script::Hold(
+            held,
+            Box::new(Script::Refuse(TransportError::Closed)),
+        )]);
+        let (status, _) = statuses();
+        let mut session = OnlineSession::start(
+            TranslationProtocol::new(Language::English, true),
+            key(),
+            connector,
+            status,
+            fast_limits(),
+        )
+        .unwrap();
+        for _ in 0..200 {
+            session.push_audio(speech(0.1)).unwrap();
+        }
+        let began = Instant::now();
+        session.begin_finish().unwrap();
+        assert!(
+            began.elapsed() < Duration::from_millis(100),
+            "{:?}",
+            began.elapsed()
+        );
+        drop(release);
     }
 
     #[test]

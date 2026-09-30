@@ -440,7 +440,7 @@ receive the same captured audio. Each has its own bounded queue and bounded
 reconnects, and Stop asks both to close before waiting for either, so the
 waits overlap.
 
-**Automated tests** (224 workspace tests in total at the time of writing):
+**Automated tests** (226 workspace tests in total at the time of writing):
 
 - target validation: duplicates, a target equal to the shown source, a second
   target without a first, and no target at all are each corrected;
@@ -453,7 +453,9 @@ waits overlap.
 - one lane reconnecting while the other keeps running;
 - Stop closing every session, and being idempotent;
 - a replaced session closing at once;
-- lane updates from a replaced session never reaching the new one.
+- lane updates from a replaced session never reaching the new one;
+- a finish request never waiting on a full audio queue;
+- how a lane fits its height: one line when short, whole lines only.
 
 **Runtime checks with OpenAI**, through system audio, with the owner's key
 read from the keyring. The window ran on a virtual display (`Xvfb`) for the
@@ -469,7 +471,7 @@ checks that needed a screenshot, because the workstation's screen was locked.
 | Reconnect with two sessions | A 2 s network cut dropped both connections. Each reconnected within its own retries, the status returned to Translating after 4.2 s, and all three lanes resumed. |
 | Lane change during a session | Hiding the original lane in Settings changed the layout after 0.16 s and the new session was translating after 1.8 s, with no text from the old one. |
 | Other modes | Offline Captions still shows one unlabeled lane (JFK fixture, first caption at 3.0 s). |
-| Layout | The screenshot in the README is from the first check: three stacked lanes, badges at the left, large text. |
+| Layout at three window heights | At the default 320 px the window kept its height and each lane showed one full line that followed the newest words. At 480 px the same. At 620 px each lane wrapped to two whole lines; the README screenshot is from this run. |
 
 **Two defects found by these runs, and fixed.**
 
@@ -478,6 +480,22 @@ checks that needed a screenshot, because the workstation's screen was locked.
    replaced session now closes at once.
 2. With two sessions, the service sometimes needed more than the 8 s finish
    wait to deliver the last words. Translation now waits up to 12 s.
+
+**Review fixes (Codex, PR #29).** A review of `17ad927` found one P1 and
+three P2 issues. All were fixed:
+
+- **P1:** asking a session to finish could wait on a full audio queue, which
+  delayed the close request to the other lane. The request is now the act of
+  closing the audio channel, so it never waits, and the `Finish` command is
+  gone.
+- A lane change during a session relabeled the rows at once, while the old
+  session's text was still on them. Rows are now relabeled when the
+  replacement session starts, with empty rows. A layout change while idle
+  clears the previous session's text.
+- A translation diagnostic could be given the same language as source and
+  target. `--smoke-target` equal to `--language` is now rejected.
+- A two-line minimum per lane made the window taller than the height the user
+  set. Lanes now share the available height and fit their text to it.
 
 **Not verified at runtime:** one lane failing while the other continues
 (covered by tests only), pointer selection, and the layout on a real display

@@ -133,6 +133,10 @@ Vietnamese below it.
   and the other lane keeps translating.
 - **Words in context work in every lane.** Select text in any lane to have it
   explained from that lane's own text.
+- **Lanes fit the window you chose.** The lanes share the window's height and
+  never enlarge it. A lane with room for two lines wraps its text, as in the
+  picture. With less room it shows one line that follows the newest words.
+  Either way only whole lines are shown.
 
 ## 📊 Measured, not promised
 

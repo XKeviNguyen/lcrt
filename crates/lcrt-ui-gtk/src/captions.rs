@@ -12,7 +12,7 @@ use lcrt_core::Language;
 
 use crate::{
     CaptionUiAction, VocabularyCard, VocabularyOutcome, VocabularyProblem,
-    presentation::{LaneLayout, two_line_height},
+    presentation::{LaneLayout, line_height, row_fit},
 };
 
 /// How long a selection must stay unchanged before it is explained.
@@ -62,6 +62,43 @@ struct Lane {
     badge: gtk::Label,
     view: gtk::TextView,
     scroller: gtk::ScrolledWindow,
+    /// Whether the row has a badge, and therefore fits its text to its
+    /// height.
+    labeled: Rc<Cell<bool>>,
+}
+
+/// Fits a labeled row's text to its height.
+///
+/// With room for two lines the text wraps; with less it is one unwrapped
+/// line that follows the newest words, so the row is always full rather than
+/// showing the last word of a wrapped paragraph. Only whole lines are shown:
+/// the height left over goes above the text, and the badge moves down with it
+/// to stay level with the first line.
+fn fit_lines(
+    view: &gtk::TextView,
+    scroller: &gtk::ScrolledWindow,
+    badge: &gtk::Label,
+    labeled: bool,
+) {
+    let margin = scroller.margin_top();
+    let available = scroller.vadjustment().page_size() as i32 + margin;
+    let line = view.iter_location(&view.buffer().start_iter()).height();
+    let fit = row_fit(labeled, available, line);
+    if fit.single_line != (view.wrap_mode() == gtk::WrapMode::None) {
+        if fit.single_line {
+            // Let the line overflow sideways first, or unwrapping it would
+            // ask for the whole line's width.
+            scroller.set_hscrollbar_policy(gtk::PolicyType::External);
+            view.set_wrap_mode(gtk::WrapMode::None);
+        } else {
+            view.set_wrap_mode(gtk::WrapMode::WordChar);
+            scroller.set_hscrollbar_policy(gtk::PolicyType::Never);
+        }
+    }
+    if fit.top_gap != margin {
+        scroller.set_margin_top(fit.top_gap);
+        badge.set_margin_top(fit.top_gap);
+    }
 }
 
 impl Lane {
@@ -79,6 +116,38 @@ impl Lane {
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
         scroller.add_css_class("caption-lane");
+        // Keep the newest words in view, down and sideways, while the user
+        // is not selecting.
+        for adjustment in [scroller.vadjustment(), scroller.hadjustment()] {
+            let text = view.downgrade();
+            adjustment.connect_changed(move |adjustment| {
+                if text
+                    .upgrade()
+                    .is_some_and(|view| !view.buffer().has_selection())
+                {
+                    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                }
+            });
+        }
+        let labeled = Rc::new(Cell::new(false));
+        {
+            // The row's height changed: fit the text to it once this layout
+            // pass is over.
+            let widgets = (view.downgrade(), scroller.downgrade(), badge.downgrade());
+            let labeled = Rc::clone(&labeled);
+            scroller.vadjustment().connect_page_size_notify(move |_| {
+                let (widgets, labeled) = (widgets.clone(), Rc::clone(&labeled));
+                glib::idle_add_local_once(move || {
+                    if let (Some(view), Some(scroller), Some(badge)) = (
+                        widgets.0.upgrade(),
+                        widgets.1.upgrade(),
+                        widgets.2.upgrade(),
+                    ) {
+                        fit_lines(&view, &scroller, &badge, labeled.get());
+                    }
+                });
+            });
+        }
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         row.append(&badge);
         row.append(&scroller);
@@ -87,41 +156,39 @@ impl Lane {
             badge,
             view,
             scroller,
+            labeled,
         }
     }
 
     /// Shows the row with `badge`, or without one when `badge` is `None`.
-    /// A row with a badge always has room for `labeled_height` pixels of text
-    /// and follows the newest words without showing a scrollbar.
-    fn configure(&self, visible: bool, badge: Option<&str>, labeled_height: i32) {
+    /// A row with a badge is never shorter than one line of text
+    /// (`line_height` pixels) and shows no scrollbar.
+    fn configure(&self, visible: bool, badge: Option<&str>, line_height: i32) {
         self.row.set_visible(visible);
         let labeled = badge.is_some();
+        self.labeled.set(labeled);
         self.scroller
-            .set_min_content_height(if labeled { labeled_height } else { -1 });
+            .set_min_content_height(if labeled { line_height } else { -1 });
         self.scroller.set_vscrollbar_policy(if labeled {
             gtk::PolicyType::External
         } else {
             gtk::PolicyType::Automatic
         });
-        self.badge.set_visible(badge.is_some());
+        self.badge.set_visible(labeled);
         if let Some(badge) = badge {
             self.badge.set_text(badge);
         }
         // Rows with a badge read as a list; a single row stays centered.
-        self.view.set_justification(if badge.is_some() {
+        self.view.set_justification(if labeled {
             gtk::Justification::Left
         } else {
             gtk::Justification::Center
         });
+        fit_lines(&self.view, &self.scroller, &self.badge, labeled);
     }
 
     fn set_text(&self, text: &str) {
         replace_text(&self.view.buffer(), text);
-        if !self.view.buffer().has_selection() {
-            // Keep the newest words in view while the user is not selecting.
-            let adjustment = self.scroller.vadjustment();
-            adjustment.set_value(adjustment.upper());
-        }
     }
 }
 
@@ -133,8 +200,8 @@ pub(crate) struct CaptionViews {
     first: Lane,
     second: Lane,
     layout: RefCell<LaneLayout>,
-    /// Height of two lines of caption text, in pixels.
-    two_lines: Cell<i32>,
+    /// Height of one line of caption text, in pixels.
+    line_height: Cell<i32>,
 }
 
 impl CaptionViews {
@@ -159,27 +226,30 @@ impl CaptionViews {
             first,
             second,
             layout: RefCell::new(LaneLayout::default()),
-            two_lines: Cell::new(0),
+            line_height: Cell::new(0),
         };
         views.configure(&LaneLayout::default());
         views
     }
 
-    /// Shows the rows `layout` describes. Row order never changes.
-    pub(crate) fn configure(&self, layout: &LaneLayout) {
-        let height = self.two_lines.get();
+    /// Shows the rows `layout` describes and returns whether that changed
+    /// which rows or badges are shown. Row order never changes.
+    pub(crate) fn configure(&self, layout: &LaneLayout) -> bool {
+        let changed = *self.layout.borrow() != *layout;
+        let height = self.line_height.get();
         self.source
             .configure(layout.source.is_some(), layout.source.as_deref(), height);
         self.first.configure(true, layout.first.as_deref(), height);
         self.second
             .configure(layout.second.is_some(), layout.second.as_deref(), height);
         *self.layout.borrow_mut() = layout.clone();
+        changed
     }
 
-    /// Keeps room for two lines of text in every labeled row at this font
-    /// size, so a row shows a readable phrase and not only its last word.
+    /// Tells the rows how tall a line of text is at this font size. A
+    /// labeled row is at least that tall, and wraps from twice that.
     pub(crate) fn set_font_size(&self, points: f64) {
-        self.two_lines.set(two_line_height(points));
+        self.line_height.set(line_height(points));
         let layout = self.layout.borrow().clone();
         self.configure(&layout);
     }
