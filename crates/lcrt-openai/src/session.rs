@@ -393,6 +393,11 @@ impl<P: Protocol> Worker<P> {
                 }
                 Err(error) => {
                     warn!(%error, "online session failed");
+                    // The newest caption goes out before the failure ends
+                    // the stream.
+                    if let Some(update) = self.held_update.take() {
+                        let _ = self.events.send(WorkerEvent::Update(update));
+                    }
                     let _ = self.events.send(WorkerEvent::Failed(error));
                     break;
                 }
@@ -1067,6 +1072,38 @@ pub(crate) mod tests {
         thread::sleep(Duration::from_millis(200));
         let updates = session.finish().unwrap();
         let last = updates.last().unwrap().text();
+        assert!(last.ends_with("w70"), "last caption was {last:?}");
+    }
+
+    #[test]
+    fn the_newest_caption_is_delivered_before_a_failure_behind_a_full_queue() {
+        let mut events: Vec<String> = (1..=70)
+            .map(|n| translated_delta(&format!(" w{n}")))
+            .collect();
+        events
+            .push(json!({"type": "error", "error": {"type": "invalid_request_error"}}).to_string());
+        let (connector, _) = FakeConnector::new(vec![Script::Serve {
+            on_open: vec![created()],
+            replies: vec![("session.update", events)],
+            break_after_messages: None,
+        }]);
+        let mut session = start_translation(connector);
+        thread::sleep(Duration::from_millis(200));
+        let mut last = String::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let failed = loop {
+            match session.push_audio(silence(0.1)) {
+                Ok(updates) => {
+                    if let Some(update) = updates.last() {
+                        last = update.text().to_owned();
+                    }
+                }
+                Err(error) => break error,
+            }
+            assert!(Instant::now() < deadline, "the failure never surfaced");
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert!(failed.to_string().contains("rejected the request"));
         assert!(last.ends_with("w70"), "last caption was {last:?}");
     }
 

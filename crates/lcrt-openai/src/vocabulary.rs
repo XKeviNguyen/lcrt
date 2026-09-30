@@ -76,15 +76,21 @@ impl VocabularyRequest {
         language: Language,
     ) -> Result<Self, VocabularyError> {
         let characters: Vec<char> = caption.chars().collect();
-        let end = end.min(characters.len());
-        let start = start.min(end);
+        let mut end = end.min(characters.len());
+        let mut start = start.min(end);
+        // Trim the range itself, so the context is bounded around what is
+        // actually explained, however much padding was selected.
+        let trimmable = |character: char| {
+            character.is_whitespace()
+                || (character.is_ascii_punctuation() && character != '\'' && character != '-')
+        };
+        while start < end && trimmable(characters[start]) {
+            start += 1;
+        }
+        while end > start && trimmable(characters[end - 1]) {
+            end -= 1;
+        }
         let selection: String = characters[start..end].iter().collect();
-        let selection = selection
-            .trim_matches(|character: char| {
-                character.is_whitespace()
-                    || (character.is_ascii_punctuation() && character != '\'' && character != '-')
-            })
-            .to_owned();
         if selection
             .chars()
             .all(|character| !character.is_alphanumeric())
@@ -312,6 +318,21 @@ mod tests {
             VocabularyRequest::from_caption("abc", 1, 1, Language::English).unwrap_err(),
             VocabularyError::EmptySelection
         );
+    }
+
+    #[test]
+    fn context_is_bounded_around_the_trimmed_selection() {
+        let padding = ".".repeat(4_000);
+        let caption = format!("{padding} word {padding}");
+        let request = VocabularyRequest::from_caption(
+            &caption,
+            0,
+            caption.chars().count(),
+            Language::English,
+        )
+        .unwrap();
+        assert_eq!(request.selection(), "word");
+        assert!(request.context.chars().count() <= "word".len() + 2 * CONTEXT_CHARS_EACH_SIDE);
     }
 
     #[test]
