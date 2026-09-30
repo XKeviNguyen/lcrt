@@ -80,6 +80,13 @@ struct Event {
     error: Option<ServiceError>,
 }
 
+/// Only an event's top-level type, read without allocating its payload.
+#[derive(Deserialize)]
+struct EventKind<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: std::borrow::Cow<'a, str>,
+}
+
 impl Protocol for TranslationProtocol {
     fn url(&self) -> String {
         TRANSLATION_URL.to_owned()
@@ -102,8 +109,12 @@ impl Protocol for TranslationProtocol {
     }
 
     fn on_event(&mut self, text: &str) -> EventOutcome {
-        // Translated audio is not presented; skip it without a full parse.
-        if text.contains("\"session.output_audio.delta\"") {
+        // Translated audio is not presented. Decide by the event's own type,
+        // so a transcript that merely contains that name is kept, and skip
+        // the audio without allocating its payload.
+        if serde_json::from_str::<EventKind>(text)
+            .is_ok_and(|event| event.kind == "session.output_audio.delta")
+        {
             return EventOutcome::Ignored;
         }
         let event: Event = match serde_json::from_str(text) {
@@ -149,16 +160,11 @@ impl Protocol for TranslationProtocol {
         messages
     }
 
+    /// Drained only by `session.closed`. After `session.close` the service
+    /// delivers the rest of the translation, typically 4 to 5 s later and
+    /// after a pause, so closing on quiet would cut the last words off.
     fn is_drained(&self) -> bool {
         self.closed
-    }
-
-    fn close_when_quiet(&mut self) -> EventOutcome {
-        // After `session.close` the service takes seconds to send
-        // `session.closed` (it is finishing speech audio LCRT ignores).
-        // The transcripts are complete once they stop arriving.
-        self.closed = true;
-        self.caption(CaptionStatus::Final)
     }
 
     fn reset_connection(&mut self) {
@@ -235,6 +241,22 @@ mod tests {
         assert_eq!(text, "Hôm nay");
         assert_eq!(original.as_deref(), Some("今日は新しい"));
         assert_eq!(status, CaptionStatus::Partial);
+    }
+
+    #[test]
+    fn a_transcript_that_names_the_audio_event_is_not_mistaken_for_audio() {
+        let mut protocol = TranslationProtocol::new(Language::English, true);
+        let delta = json!({
+            "type": "session.output_transcript.delta",
+            "delta": "\"session.output_audio.delta\"",
+        })
+        .to_string();
+        match protocol.on_event(&delta) {
+            EventOutcome::Update(update) => {
+                assert_eq!(update.text(), "\"session.output_audio.delta\"");
+            }
+            other => panic!("the transcript was dropped: {other:?}"),
+        }
     }
 
     #[test]

@@ -81,8 +81,6 @@ pub struct SessionLimits {
     pub handshake: Duration,
     /// Longest wait for final results after Stop.
     pub finish: Duration,
-    /// Caption silence after Stop that lets a protocol close early.
-    pub finish_quiet: Duration,
     /// Receive poll interval between outbound audio batches.
     pub poll: Duration,
     /// Backoff before each consecutive reconnect attempt.
@@ -96,7 +94,6 @@ impl Default for SessionLimits {
         Self {
             handshake: Duration::from_secs(10),
             finish: Duration::from_secs(8),
-            finish_quiet: Duration::from_millis(1_500),
             poll: Duration::from_millis(20),
             reconnect_delays: [
                 Duration::from_millis(500),
@@ -168,7 +165,6 @@ impl OnlineSession {
                     limits,
                     finishing: false,
                     held_update: None,
-                    last_caption: Instant::now(),
                 };
                 worker.run();
             })
@@ -354,8 +350,6 @@ struct Worker<P> {
     finishing: bool,
     /// The newest update, held while the event queue is full.
     held_update: Option<TranscriptUpdate>,
-    /// When the last caption arrived, or finishing began.
-    last_caption: Instant,
 }
 
 impl<P: Protocol> Worker<P> {
@@ -478,13 +472,6 @@ impl<P: Protocol> Worker<P> {
                 self.publish(update);
             }
             self.send_pending_audio(transport, &mut finish_deadline)?;
-            if self.finishing
-                && !self.protocol.is_drained()
-                && self.last_caption.elapsed() >= self.limits.finish_quiet
-                && let EventOutcome::Update(update) = self.protocol.close_when_quiet()
-            {
-                self.publish(update);
-            }
             if self.finishing && self.protocol.is_drained() {
                 return Ok(());
             }
@@ -566,7 +553,6 @@ impl<P: Protocol> Worker<P> {
         finish_deadline: &mut Option<Instant>,
     ) -> Result<(), TransportError> {
         self.finishing = true;
-        self.last_caption = Instant::now();
         *finish_deadline = Some(Instant::now() + self.limits.finish);
         for message in self.protocol.finish() {
             transport.send_text(&message)?;
@@ -587,10 +573,7 @@ impl<P: Protocol> Worker<P> {
 
     fn handle_event(&mut self, text: &str) -> Result<(), TransportError> {
         match self.protocol.on_event(text) {
-            EventOutcome::Update(update) => {
-                self.last_caption = Instant::now();
-                self.publish(update);
-            }
+            EventOutcome::Update(update) => self.publish(update),
             EventOutcome::ServiceError(error) => match error.impact() {
                 ServiceErrorImpact::Unauthorized => return Err(TransportError::Unauthorized),
                 ServiceErrorImpact::RateLimited => return Err(TransportError::RateLimited),
@@ -782,7 +765,6 @@ pub(crate) mod tests {
         SessionLimits {
             handshake: Duration::from_millis(500),
             finish: Duration::from_millis(400),
-            finish_quiet: Duration::from_millis(60),
             poll: Duration::from_millis(2),
             reconnect_delays: [Duration::from_millis(5); 3],
             max_reconnects: 10,
@@ -1051,49 +1033,15 @@ pub(crate) mod tests {
     }
 
     fn start_translation(connector: Box<FakeConnector>) -> OnlineSession {
-        start_translation_with(connector, fast_limits())
-    }
-
-    fn start_translation_with(
-        connector: Box<FakeConnector>,
-        limits: SessionLimits,
-    ) -> OnlineSession {
         let (status, _) = statuses();
         OnlineSession::start(
             TranslationProtocol::new(Language::English, true),
             key(),
             connector,
             status,
-            limits,
+            fast_limits(),
         )
         .unwrap()
-    }
-
-    #[test]
-    fn translation_stops_once_captions_go_quiet_without_waiting_for_the_close() {
-        // The service confirms `session.close` only seconds later.
-        let (connector, _) = FakeConnector::new(vec![Script::Serve {
-            on_open: vec![created()],
-            replies: vec![("session.update", vec![translated_delta("Hello there.")])],
-            break_after_messages: None,
-        }]);
-        let limits = SessionLimits {
-            finish: Duration::from_secs(5),
-            finish_quiet: Duration::from_millis(80),
-            ..fast_limits()
-        };
-        let mut session = start_translation_with(connector, limits);
-        thread::sleep(Duration::from_millis(60));
-        let started = Instant::now();
-        let updates = session.finish().unwrap();
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "{:?}",
-            started.elapsed()
-        );
-        let last = updates.last().unwrap();
-        assert_eq!(last.text(), "Hello there.");
-        assert_eq!(last.status(), CaptionStatus::Final);
     }
 
     #[test]
@@ -1126,13 +1074,7 @@ pub(crate) mod tests {
             replies: vec![("session.update", deltas)],
             break_after_messages: None,
         }]);
-        // A quiet period beyond the finish wait keeps the early close, whose
-        // final caption would mask a lost update, out of this test.
-        let limits = SessionLimits {
-            finish_quiet: Duration::from_secs(10),
-            ..fast_limits()
-        };
-        let mut session = start_translation_with(connector, limits);
+        let mut session = start_translation(connector);
         // Nothing is polled while all 70 updates arrive.
         thread::sleep(Duration::from_millis(200));
         let updates = session.finish().unwrap();
