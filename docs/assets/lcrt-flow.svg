@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc" font-family="Inter, 'Noto Sans', 'Segoe UI', Roboto, sans-serif">
+  <title id="title">How audio becomes captions in LCRT</title>
+  <desc id="desc">System audio or the microphone is captured with PipeWire and sent to exactly one backend: Whisper on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context.</desc>
+  <rect width="1200" height="360" rx="24" fill="#0b1220"/>
+  <text x="175" y="46" font-size="15" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="1.5">CAPTURE · PIPEWIRE</text>
+  <text x="600" y="46" font-size="15" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="1.5">ONE BACKEND PER SESSION</text>
+  <text x="1030" y="46" font-size="15" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="1.5">ON SCREEN</text>
+  <path d="M290 120 C 350 120, 350 180, 400 180" fill="none" stroke="#94a3b8" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M290 120 C 350 120, 350 180, 400 180" fill="none" stroke="#94a3b8" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.6s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M290 240 C 350 240, 350 180, 400 180" fill="none" stroke="#94a3b8" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M290 240 C 350 240, 350 180, 400 180" fill="none" stroke="#94a3b8" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.6s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M400 180 C 430 180, 430 100, 460 100" fill="none" stroke="#34d399" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M400 180 C 430 180, 430 100, 460 100" fill="none" stroke="#34d399" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.6s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M400 180 L 460 180" fill="none" stroke="#62a0ea" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M400 180 L 460 180" fill="none" stroke="#62a0ea" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.6s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M400 180 C 430 180, 430 260, 460 260" fill="none" stroke="#62a0ea" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M400 180 C 430 180, 430 260, 460 260" fill="none" stroke="#62a0ea" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.6s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M740 100 C 830 100, 830 150, 920 150" fill="none" stroke="#34d399" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M740 100 C 830 100, 830 150, 920 150" fill="none" stroke="#34d399" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.4s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M740 180 C 830 180, 830 150, 920 150" fill="none" stroke="#62a0ea" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M740 180 C 830 180, 830 150, 920 150" fill="none" stroke="#62a0ea" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.2s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M740 260 C 830 260, 830 150, 920 150" fill="none" stroke="#62a0ea" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M740 260 C 830 260, 830 150, 920 150" fill="none" stroke="#62a0ea" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 10">
+    <animate attributeName="stroke-dashoffset" dur="1.2s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <path d="M1030 185 L 1030 235" fill="none" stroke="#c084fc" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M1030 185 L 1030 235" fill="none" stroke="#c084fc" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 8">
+    <animate attributeName="stroke-dashoffset" dur="2.2s" repeatCount="indefinite" values="40;0"/>
+  </path>
+  <g>
+    <rect x="60" y="88" width="230" height="64" rx="14" fill="#0f1b33" stroke="#94a3b8" stroke-width="2"/>
+    <text x="175.0" y="114.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">System audio</text>
+    <text x="175.0" y="138.0" font-size="14" fill="#cbd5e1" text-anchor="middle">what your computer plays</text>
+  </g>
+  <g>
+    <rect x="60" y="208" width="230" height="64" rx="14" fill="#0f1b33" stroke="#94a3b8" stroke-width="2"/>
+    <text x="175.0" y="234.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">Microphone</text>
+    <text x="175.0" y="258.0" font-size="14" fill="#cbd5e1" text-anchor="middle">what you say</text>
+  </g>
+  <g>
+    <rect x="460" y="68" width="280" height="64" rx="14" fill="#0f1b33" stroke="#34d399" stroke-width="2"/>
+    <text x="600.0" y="94.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">Offline Captions</text>
+    <text x="600.0" y="118.0" font-size="14" fill="#cbd5e1" text-anchor="middle">Whisper · stays on this device</text>
+  </g>
+  <g>
+    <rect x="460" y="148" width="280" height="64" rx="14" fill="#0f1b33" stroke="#62a0ea" stroke-width="2"/>
+    <text x="600.0" y="174.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">Online Captions</text>
+    <text x="600.0" y="198.0" font-size="14" fill="#cbd5e1" text-anchor="middle">OpenAI realtime transcription</text>
+  </g>
+  <g>
+    <rect x="460" y="228" width="280" height="64" rx="14" fill="#0f1b33" stroke="#62a0ea" stroke-width="2"/>
+    <text x="600.0" y="254.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">Translation</text>
+    <text x="600.0" y="278.0" font-size="14" fill="#cbd5e1" text-anchor="middle">OpenAI realtime translation</text>
+  </g>
+  <g>
+    <rect x="920" y="116" width="220" height="68" rx="14" fill="#0f1b33" stroke="#ffffff" stroke-width="2"/>
+    <text x="1030.0" y="144.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">Caption window</text>
+    <text x="1030.0" y="168.0" font-size="14" fill="#cbd5e1" text-anchor="middle">original · translation</text>
+  </g>
+  <g>
+    <rect x="920" y="236" width="220" height="64" rx="14" fill="#0f1b33" stroke="#c084fc" stroke-width="2"/>
+    <text x="1030.0" y="262.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">Word in context</text>
+    <text x="1030.0" y="286.0" font-size="14" fill="#cbd5e1" text-anchor="middle">select text to ask</text>
+  </g>
+  <g font-size="14" fill="#cbd5e1">
+    <circle cx="68" cy="330" r="6" fill="#34d399"/><text x="82" y="335">audio never leaves the device</text>
+    <circle cx="330" cy="330" r="6" fill="#62a0ea"/><text x="344" y="335">audio streamed to OpenAI with your own API key</text>
+    <circle cx="700" cy="330" r="6" fill="#c084fc"/><text x="714" y="335">only the selected text and a little context are sent</text>
+  </g>
+</svg>
