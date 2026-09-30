@@ -1,30 +1,136 @@
-# LCRT
+<div align="center">
+
+<img src="docs/assets/lcrt-banner.svg" alt="LCRT: live captions, real-time translation and words in context. One sentence shown in English, Japanese and Vietnamese." width="100%">
+
+<br>
+
+[![CI](https://github.com/XKeviNguyen/lcrt/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/XKeviNguyen/lcrt/actions/workflows/ci.yml)
+![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-1a5fb4)
+![License MIT](https://img.shields.io/badge/license-MIT-2ea043)
+![Ubuntu AMD64](https://img.shields.io/badge/platform-Ubuntu%20AMD64-e95420?logo=ubuntu&logoColor=white)
+![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-b7410e?logo=rust&logoColor=white)
+![GTK4 and libadwaita](https://img.shields.io/badge/UI-GTK4%20%2B%20libadwaita-4a86cf?logo=gtk&logoColor=white)
+![No telemetry](https://img.shields.io/badge/telemetry-none-0b1220)
+
+**[Install](#-install-on-ubuntu)** ·
+**[Use](#-use)** ·
+**[Modes](#-three-modes-one-window)** ·
+**[Measured](#-measured-not-promised)** ·
+**[Privacy](#-privacy-at-a-glance)** ·
+**[How it works](#-how-it-works)** ·
+**[Develop](#-development)**
+
+</div>
+
+---
 
 LCRT is a native desktop app for live captions and real-time translation. It
-captions whatever your computer is playing (system audio) or your microphone,
-in a small window that stays out of the way.
+captions whatever your computer is playing, or your microphone, in a small
+window that stays out of the way.
 
-- **Offline Captions:** a local Whisper model; audio never leaves the device.
-- **Online Captions:** OpenAI realtime transcription for English, Japanese,
-  Vietnamese and more.
-- **Translation:** OpenAI realtime translation. You can show the original
-  speech above the translation.
-- **Vocabulary:** select a word or phrase in the captions to see its meaning in
-  context.
-- **Appearance:** font, size, text and background colors, transparency and
-  window size are remembered between runs.
+<table>
+<tr>
+<td width="33%" valign="top">
 
-Online features use your own OpenAI API key, and API charges may apply to your
-OpenAI account. LCRT has no telemetry. [docs/PRIVACY.md](docs/PRIVACY.md) lists
-exactly what is sent, when, and where your key is stored.
+### 🎧 Hear it, read it
 
-Primary platform: Ubuntu AMD64 (PipeWire, GTK4, libadwaita, Wayland or X11).
-Ubuntu ARM64 and Windows 10/11 are portability targets.
+Captions for **system audio** (videos, calls, lectures) or your
+**microphone**, updated as the words are spoken.
 
-## Install on Ubuntu
+</td>
+<td width="33%" valign="top">
+
+### 🌏 Across languages
+
+Real-time **translation**, with the original speech shown above it when you
+want both.
+
+</td>
+<td width="33%" valign="top">
+
+### 📖 Learn as you go
+
+**Select a word** in the captions to see its meaning, reading and how it is
+used in that sentence.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔒 Private by default
+
+**Offline Captions** run a local Whisper model. Audio never leaves the
+device, and LCRT has no telemetry.
+
+</td>
+<td valign="top">
+
+### 🔑 Your own key
+
+Online features use **your** OpenAI API key, stored in the desktop keyring
+and never in a file or log.
+
+</td>
+<td valign="top">
+
+### 🎨 Make it yours
+
+Font, size, colors, transparency and window size are adjustable and
+remembered.
+
+</td>
+</tr>
+</table>
+
+Primary platform: **Ubuntu AMD64** (PipeWire, GTK4, libadwaita, Wayland or
+X11). Ubuntu ARM64 and Windows 10/11 are portability targets.
+
+## 🧭 Three modes, one window
+
+<div align="center">
+<img src="docs/assets/lcrt-flow.svg" alt="Audio from the system or the microphone is captured with PipeWire and goes to exactly one backend: Whisper on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context." width="100%">
+</div>
+
+| | Offline Captions | Online Captions | Translation |
+| --- | --- | --- | --- |
+| **Engine** | Whisper, on this device | OpenAI realtime transcription | OpenAI realtime translation |
+| **Audio goes to** | nowhere | OpenAI, while a session runs | OpenAI, while a session runs |
+| **Languages** | the chosen model's (the tiny model is English) | English, Japanese, Vietnamese, Chinese, Korean, Spanish, French, German, or Auto | the spoken language is detected automatically; translated into one of those eight |
+| **You choose** | a Whisper model file | the spoken language, or Auto | the target language; show or hide the original |
+| **Needs** | a model file | your OpenAI API key and a network | your OpenAI API key and a network |
+| **Cost** | none | charged to your OpenAI account | charged to your OpenAI account |
+
+Each session uses exactly one backend. LCRT never switches to another backend
+or to a paid service on its own.
+
+## 📊 Measured, not promised
+
+These numbers come from real runs through system audio on one Ubuntu 26.04
+laptop, scored against reference transcripts. The method, test audio and
+every result are in [docs/V2_ACCEPTANCE.md](docs/V2_ACCEPTANCE.md).
+
+| Session | First caption | Error against the reference | Stop |
+| --- | --- | --- | --- |
+| Online Captions, English | 2.2 s | 6.1% of words | 1.4 s |
+| Online Captions, Japanese | 3.1 s | 15.5% of characters | 1.4 s |
+| Online Captions, Vietnamese | 2.1 s | 7.5% of words | 1.4 s |
+| Translation, English → Japanese | 1.7 s | not scored | 6.5 s |
+| Translation, Vietnamese → English | 2.0 s | original lane 7.7% of words | 7.1 s |
+| Offline Captions, English (tiny model) | 4.0 s | see the note below | 0.3 s |
+
+- **Network drops:** after a 2 s cut in the middle of a session, captions
+  were back 3.8 s later without an error.
+- **Translation takes a few seconds to stop** because the service delivers
+  the last words of the translation after you press Stop.
+- **Offline Captions repeat phrases** on continuous speech: about 40% of the
+  words are repeats. It is the main known quality issue, and it is listed
+  with the other [limitations](#-limitations).
+
+## 📦 Install on Ubuntu
 
 The Debian package is built for the Ubuntu release it is built on. It needs
-`libgtk4-layer-shell0`, which Ubuntu packages from 24.10 onward; Ubuntu 26.04
+`libgtk4-layer-shell0`, which Ubuntu packages from 24.10 onward. Ubuntu 26.04
 LTS is the tested release.
 
 ```sh
@@ -34,26 +140,30 @@ sudo apt install ./target/debian/lcrt_2.0.0_amd64.deb
 
 Then open **LCRT Live Captions** from the app grid, or run `lcrt`.
 
-## Use
+## 🚀 Use
 
-1. Choose a mode and an audio source. Online modes also have a language:
+1. **Choose a mode and an audio source.** System audio sources are listed as
+   **System audio**, microphones as **Microphone**. Online modes also have a
+   language:
    - Online Captions: the spoken language, or Auto.
    - Translation: the target language. The spoken language is detected
      automatically.
 
-   Offline Captions has no language choice; it follows the chosen Whisper
-   model (the tiny model is English-only).
-2. Press **Start**. Captions update as speech is recognized; **Stop** finishes
+   Offline Captions has no language choice. It follows the chosen Whisper
+   model.
+2. **Press Start.** Captions update as speech is recognized. **Stop** finishes
    the last sentence and keeps the text on screen.
-3. Open **Settings** to:
-   - choose the Whisper model for Offline Captions;
-   - enter your OpenAI API key;
-   - adjust appearance and vocabulary.
+3. **Select a word or phrase** in the captions to see what it means in that
+   sentence.
+4. **Open Settings** to choose the Whisper model, enter your OpenAI API key,
+   and adjust appearance and vocabulary.
 
-System audio sources are listed as **System audio**, microphones as
-**Microphone**. LCRT remembers the last mode, source and languages.
+LCRT remembers the last mode, source and languages.
 
-### Offline model
+<details>
+<summary><b>Offline model</b>: where to get one</summary>
+
+<br>
 
 LCRT does not download models by itself. Download the checksum-verified tiny
 English model and choose it in **Settings → General**:
@@ -62,31 +172,113 @@ English model and choose it in **Settings → General**:
 ./scripts/download-whisper-model.sh     # saves models/ggml-tiny.en.bin
 ```
 
-### OpenAI API key
+</details>
 
-Enter the key in **Settings → Online** and choose **Save securely** to store it
-in the desktop keyring (GNOME Keyring or another Secret Service provider).
-**Test connection** checks the key. If no keyring is available, the key is kept
-only until LCRT quits. As a fallback, LCRT reads `OPENAI_API_KEY` from its
-environment and never displays it. The key is never written to a file or log.
+<details>
+<summary><b>OpenAI API key</b>: how it is stored</summary>
 
-### Window behavior
+<br>
+
+Enter the key in **Settings → Online** and choose **Save securely** to store
+it in the desktop keyring (GNOME Keyring or another Secret Service provider).
+**Test connection** checks the key.
+
+- If no keyring is available, the key is kept only until LCRT quits.
+- As a fallback, LCRT reads `OPENAI_API_KEY` from its environment and never
+  displays it.
+- The key is never written to a file or log.
+
+</details>
+
+<details>
+<summary><b>Window behavior</b>: staying on top</summary>
+
+<br>
 
 On Wayland compositors that support layer-shell protocol v4 or newer, the
 caption window is pinned near the bottom of the screen above other windows.
 GNOME Wayland, X11 and older compositors use a standard window: transparency
 still works, but LCRT cannot keep it on top.
 
-### Limitations
+</details>
 
-- Audio sources are discovered at launch.
+## 🔒 Privacy at a glance
+
+| What you do | What leaves your computer |
+| --- | --- |
+| Offline Captions | Nothing. |
+| Online Captions | Audio from the selected source, only while speech is detected, plus the language hint. |
+| Translation | All audio from the selected source while the session runs, plus the target language. |
+| Select text, with Vocabulary on | The selection (at most 200 characters) and up to 160 characters of caption on each side. |
+| Select text, with Vocabulary off | Nothing. |
+| Test connection | One request that lists models. No audio or text. |
+
+LCRT has no telemetry, analytics or crash reporting, and it saves neither
+audio nor transcripts to disk. Everything it sends goes from your computer
+directly to OpenAI. [docs/PRIVACY.md](docs/PRIVACY.md) has the full details.
+
+## 🧠 How it works
+
+```mermaid
+flowchart LR
+    PW["PipeWire capture<br>lcrt-audio-pipewire"] --> P["Caption pipeline<br>lcrt-core"]
+    P --> W["Whisper backend<br>lcrt-stt-whisper"]
+    P --> O["OpenAI realtime backends<br>lcrt-openai"]
+    W --> C["Caption state<br>lcrt-core"]
+    O --> C
+    C --> UI["Caption window<br>lcrt-ui-gtk"]
+    UI -. "selected text" .-> V["Vocabulary lookup<br>lcrt-openai"]
+    V -.-> UI
+    APP["Controller, settings, credentials<br>lcrt-app"] --- P
+    APP --- UI
+```
+
+| Crate | What it holds |
+| --- | --- |
+| `lcrt-core` | The portable domain: audio chunks, the caption pipeline, caption state, sessions and preferences. No OS-specific code. |
+| `lcrt-audio-pipewire` | PipeWire capture for microphones and system-output monitors. |
+| `lcrt-stt-whisper` | Local speech-to-text through whisper.cpp, with a bounded rolling window. |
+| `lcrt-openai` | Realtime transcription and translation over WebSocket, vocabulary lookups, and keyring-backed credentials. |
+| `lcrt-ui-gtk` | The GTK4 and libadwaita caption window, Settings and the vocabulary popover. |
+| `lcrt-app` | The `lcrt` binary: the controller that owns sessions, settings and credentials. |
+
+A few rules shape the design:
+
+- **One backend per session.** Starting a new session replaces the running
+  one only after it has fully stopped.
+- **Bounded everywhere.** Audio queues, caption history and reconnects all
+  have limits. When the network falls behind, LCRT skips stale audio to stay
+  with live speech.
+- **The window never waits.** Network, keyring and file work happen off the
+  GTK thread.
+- **Late events can't leak.** Every session has a generation, and updates
+  from a replaced session are dropped.
+
+The portable core and its adapter boundaries are described in
+[docs/architecture.md](docs/architecture.md).
+
+## 🚧 Limitations
+
+- **Offline Captions repeat overlapping phrases** on continuous speech. V1
+  chose a visible repeat over silently losing words. A better fix is planned.
 - Offline accuracy and speed depend on the model and CPU. The tiny model is
   English-focused.
+- Audio sources are discovered at launch.
 - Online modes need a network connection. LCRT reconnects a few times after a
-  brief drop, then reports the problem. It never switches to another backend
-  or to a paid service on its own.
+  brief drop, then reports the problem.
+- Always-on-top needs a compositor with layer shell. GNOME does not provide
+  it.
 
-## Development
+## 📍 Roadmap
+
+| | Milestone | Status |
+| --- | --- | --- |
+| **V1** | Live captions from the microphone and system audio, offline | ✅ Done |
+| **V2** | Online captions, real-time translation, vocabulary, secure key storage, appearance, Ubuntu package | ✅ Done |
+| **V3** | Richer language help (grammar, examples), plus vocabulary history | 🔭 Planned |
+| Later | Ubuntu ARM64 and Windows 10/11 | 🔭 Planned |
+
+## 🔧 Development
 
 The checked-in `rust-toolchain.toml` pins the primary development and CI
 toolchain to Rust 1.98.0 with the `rustfmt` and `clippy` components. This is
@@ -120,6 +312,11 @@ Run from source, optionally overriding the model for one run:
 cargo run -p lcrt-app --bin lcrt -- --model models/ggml-tiny.en.bin
 ```
 
+<details>
+<summary><b>Diagnostics</b>: source IDs and bounded runs</summary>
+
+<br>
+
 For source IDs, and a bounded diagnostic run that starts captions itself and
 closes after the given time:
 
@@ -130,10 +327,17 @@ cargo run -p lcrt-app --bin lcrt -- \
 ```
 
 `--smoke-mode online|translation` runs the same diagnostic against OpenAI and
-uses the saved or `OPENAI_API_KEY` key. Closing the window cancels the session
-without waiting on a blocked worker, so a stuck native call cannot delay exit.
+uses the saved or `OPENAI_API_KEY` key. A diagnostic passes only if its
+backend became ready and audio was captured. Closing the window cancels the
+session without waiting on a blocked worker, so a stuck native call cannot
+delay exit.
 
-### Linux audio development
+</details>
+
+<details>
+<summary><b>Linux audio</b>: the PipeWire capture utility</summary>
+
+<br>
 
 PipeWire capture development requires `libpipewire-0.3-dev`,
 `libspa-0.2-dev`, and `pkg-config`. The bounded diagnostic utility enumerates
@@ -144,11 +348,16 @@ cargo run -p lcrt-audio-pipewire --bin lcrt-pw-capture -- list
 cargo run -p lcrt-audio-pipewire --bin lcrt-pw-capture -- capture <source-id> 3
 ```
 
-The capture duration is clamped to 1–30 seconds. The utility reports negotiated
-format and aggregate sample statistics; it neither records audio to disk nor
-silently substitutes synthetic audio when PipeWire fails.
+The capture duration is clamped to 1–30 seconds. The utility reports the
+negotiated format and aggregate sample statistics. It neither records audio
+to disk nor silently substitutes synthetic audio when PipeWire fails.
 
-### Native caption UI development
+</details>
+
+<details>
+<summary><b>Caption window</b>: the scripted demo</summary>
+
+<br>
 
 The Ubuntu window uses GTK4 and libadwaita. Install `libgtk-4-dev` and
 `libadwaita-1-dev`, then launch its incremental-caption demonstration with:
@@ -158,10 +367,15 @@ cargo run -p lcrt-ui-gtk --bin lcrt-caption-ui
 ```
 
 The demo drives the same window with scripted partial and final captions. Its
-`--smoke-test` mode injects deterministic updates and closes itself; it does
+`--smoke-test` mode injects deterministic updates and closes itself. It does
 not exercise audio capture or online services.
 
-### Local Whisper development
+</details>
+
+<details>
+<summary><b>Local Whisper</b>: the file transcription utility</summary>
+
+<br>
 
 The speech-to-text adapter uses whisper.cpp through `whisper-rs`, runs model
 inference on a dedicated worker, downsamples input to 16 kHz mono, and keeps
@@ -185,3 +399,14 @@ cargo run -p lcrt-stt-whisper --bin lcrt-whisper-transcribe -- \
 A missing or invalid model produces an actionable error in the window. In
 Offline Captions mode, LCRT does not download models and sends no audio to any
 remote service.
+
+</details>
+
+## 📄 License
+
+[MIT](LICENSE). The package's copyright file lists the license of every
+third-party crate it links.
+
+<div align="center">
+<sub>Built with Rust, GTK4 and PipeWire.</sub>
+</div>

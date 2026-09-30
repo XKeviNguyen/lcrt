@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc" font-family="Inter, 'Noto Sans', 'Noto Sans CJK JP', 'Segoe UI', Roboto, sans-serif">
+  <title id="title">LCRT — live captions and real-time translation</title>
+  <desc id="desc">A caption window showing one sentence in English, Japanese and Vietnamese.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.55" stop-color="#132a5e"/>
+      <stop offset="1" stop-color="#1a5fb4"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#93c5fd"/>
+      <stop offset="1" stop-color="#3584e4"/>
+    </linearGradient>
+    <linearGradient id="icon" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3584e4"/>
+      <stop offset="1" stop-color="#1a5fb4"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#62a0ea" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#62a0ea" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="url(#sky)"/>
+  <circle cx="1040" cy="90" r="220" fill="url(#glow)">
+    <animate attributeName="opacity" dur="6s" repeatCount="indefinite" values="0.35;0.8;0.35"/>
+  </circle>
+  <circle cx="150" cy="400" r="200" fill="url(#glow)" opacity="0.4">
+    <animate attributeName="opacity" dur="8s" repeatCount="indefinite" values="0.5;0.15;0.5"/>
+  </circle>
+
+  <g transform="translate(80 58) scale(0.95)">
+    <rect x="8" y="12" width="112" height="104" rx="24" fill="url(#icon)" stroke="#ffffff" stroke-opacity="0.25"/>
+    <path d="M28 34h72a8 8 0 0 1 8 8v36a8 8 0 0 1-8 8H58l-16 14v-14H28a8 8 0 0 1-8-8V42a8 8 0 0 1 8-8z" fill="#ffffff"/>
+    <rect x="32" y="48" width="64" height="8" rx="4" fill="#1a5fb4"/>
+    <rect x="32" y="64" width="42" height="8" rx="4" fill="#62a0ea"/>
+  </g>
+  <text x="222" y="120" font-size="76" font-weight="800" fill="#ffffff" letter-spacing="2">LCRT</text>
+  <text x="224" y="160" font-size="25" fill="#dbeafe">Live captions · Real-time translation · Words in context</text>
+
+  <g>
+    <rect x="820" y="108" width="6" height="20" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.55s" repeatCount="indefinite" values="20;49;41;20"/>
+      <animate attributeName="y" dur="1.55s" repeatCount="indefinite" values="108;94;98;108"/>
+    </rect>
+    <rect x="831" y="112" width="6" height="12" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="0.99s" repeatCount="indefinite" values="12;92;50;12"/>
+      <animate attributeName="y" dur="0.99s" repeatCount="indefinite" values="112;72;93;112"/>
+    </rect>
+    <rect x="842" y="104" width="6" height="28" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.11s" repeatCount="indefinite" values="28;43;48;28"/>
+      <animate attributeName="y" dur="1.11s" repeatCount="indefinite" values="104;96;94;104"/>
+    </rect>
+    <rect x="853" y="112" width="6" height="12" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="0.97s" repeatCount="indefinite" values="12;67;42;12"/>
+      <animate attributeName="y" dur="0.97s" repeatCount="indefinite" values="112;84;97;112"/>
+    </rect>
+    <rect x="864" y="112" width="6" height="12" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="0.96s" repeatCount="indefinite" values="12;75;43;12"/>
+      <animate attributeName="y" dur="0.96s" repeatCount="indefinite" values="112;80;96;112"/>
+    </rect>
+    <rect x="875" y="104" width="6" height="28" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.53s" repeatCount="indefinite" values="28;47;30;28"/>
+      <animate attributeName="y" dur="1.53s" repeatCount="indefinite" values="104;94;103;104"/>
+    </rect>
+    <rect x="886" y="104" width="6" height="28" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.49s" repeatCount="indefinite" values="28;43;52;28"/>
+      <animate attributeName="y" dur="1.49s" repeatCount="indefinite" values="104;96;92;104"/>
+    </rect>
+    <rect x="897" y="112" width="6" height="11" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.46s" repeatCount="indefinite" values="11;54;18;11"/>
+      <animate attributeName="y" dur="1.46s" repeatCount="indefinite" values="112;91;109;112"/>
+    </rect>
+    <rect x="908" y="111" width="6" height="14" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.04s" repeatCount="indefinite" values="14;58;42;14"/>
+      <animate attributeName="y" dur="1.04s" repeatCount="indefinite" values="111;89;97;111"/>
+    </rect>
+    <rect x="919" y="112" width="6" height="13" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.46s" repeatCount="indefinite" values="13;76;35;13"/>
+      <animate attributeName="y" dur="1.46s" repeatCount="indefinite" values="112;80;100;112"/>
+    </rect>
+    <rect x="930" y="110" width="6" height="15" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.47s" repeatCount="indefinite" values="15;46;53;15"/>
+      <animate attributeName="y" dur="1.47s" repeatCount="indefinite" values="110;95;92;110"/>
+    </rect>
+    <rect x="941" y="110" width="6" height="16" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.45s" repeatCount="indefinite" values="16;63;22;16"/>
+      <animate attributeName="y" dur="1.45s" repeatCount="indefinite" values="110;86;107;110"/>
+    </rect>
+    <rect x="952" y="112" width="6" height="12" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.52s" repeatCount="indefinite" values="12;76;19;12"/>
+      <animate attributeName="y" dur="1.52s" repeatCount="indefinite" values="112;80;108;112"/>
+    </rect>
+    <rect x="963" y="106" width="6" height="25" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.33s" repeatCount="indefinite" values="25;83;50;25"/>
+      <animate attributeName="y" dur="1.33s" repeatCount="indefinite" values="106;76;93;106"/>
+    </rect>
+    <rect x="974" y="108" width="6" height="20" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.82s" repeatCount="indefinite" values="20;69;53;20"/>
+      <animate attributeName="y" dur="1.82s" repeatCount="indefinite" values="108;84;92;108"/>
+    </rect>
+    <rect x="985" y="108" width="6" height="21" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.69s" repeatCount="indefinite" values="21;59;31;21"/>
+      <animate attributeName="y" dur="1.69s" repeatCount="indefinite" values="108;88;102;108"/>
+    </rect>
+    <rect x="996" y="110" width="6" height="17" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.2s" repeatCount="indefinite" values="17;45;52;17"/>
+      <animate attributeName="y" dur="1.2s" repeatCount="indefinite" values="110;96;92;110"/>
+    </rect>
+    <rect x="1007" y="106" width="6" height="25" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.63s" repeatCount="indefinite" values="25;96;37;25"/>
+      <animate attributeName="y" dur="1.63s" repeatCount="indefinite" values="106;70;100;106"/>
+    </rect>
+    <rect x="1018" y="108" width="6" height="19" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.02s" repeatCount="indefinite" values="19;78;20;19"/>
+      <animate attributeName="y" dur="1.02s" repeatCount="indefinite" values="108;79;108;108"/>
+    </rect>
+    <rect x="1029" y="106" width="6" height="23" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.05s" repeatCount="indefinite" values="23;50;37;23"/>
+      <animate attributeName="y" dur="1.05s" repeatCount="indefinite" values="106;93;100;106"/>
+    </rect>
+    <rect x="1040" y="106" width="6" height="25" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.86s" repeatCount="indefinite" values="25;66;18;25"/>
+      <animate attributeName="y" dur="1.86s" repeatCount="indefinite" values="106;85;109;106"/>
+    </rect>
+    <rect x="1051" y="112" width="6" height="12" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.47s" repeatCount="indefinite" values="12;88;51;12"/>
+      <animate attributeName="y" dur="1.47s" repeatCount="indefinite" values="112;74;92;112"/>
+    </rect>
+    <rect x="1062" y="108" width="6" height="20" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.25s" repeatCount="indefinite" values="20;61;60;20"/>
+      <animate attributeName="y" dur="1.25s" repeatCount="indefinite" values="108;88;88;108"/>
+    </rect>
+    <rect x="1073" y="106" width="6" height="25" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="0.97s" repeatCount="indefinite" values="25;77;45;25"/>
+      <animate attributeName="y" dur="0.97s" repeatCount="indefinite" values="106;80;96;106"/>
+    </rect>
+    <rect x="1084" y="112" width="6" height="12" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.6s" repeatCount="indefinite" values="12;57;46;12"/>
+      <animate attributeName="y" dur="1.6s" repeatCount="indefinite" values="112;90;95;112"/>
+    </rect>
+    <rect x="1095" y="112" width="6" height="12" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.21s" repeatCount="indefinite" values="12;43;60;12"/>
+      <animate attributeName="y" dur="1.21s" repeatCount="indefinite" values="112;96;88;112"/>
+    </rect>
+    <rect x="1106" y="104" width="6" height="28" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.18s" repeatCount="indefinite" values="28;83;44;28"/>
+      <animate attributeName="y" dur="1.18s" repeatCount="indefinite" values="104;76;96;104"/>
+    </rect>
+    <rect x="1117" y="107" width="6" height="22" rx="3" fill="url(#bar)">
+      <animate attributeName="height" dur="1.25s" repeatCount="indefinite" values="22;96;58;22"/>
+      <animate attributeName="y" dur="1.25s" repeatCount="indefinite" values="107;70;89;107"/>
+    </rect>
+  </g>
+
+  <rect x="72" y="214" width="1056" height="168" rx="22" fill="#0b1220" fill-opacity="0.72" stroke="#ffffff" stroke-opacity="0.14"/>
+  <g>
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="1;1;0;0;1" keyTimes="0;0.9;0.95;0.99;1"/>
+  <g>
+    <rect x="96" y="240" width="46" height="28" rx="8" fill="#ffffff" fill-opacity="0.12"/>
+    <text x="119" y="260" font-size="15" font-weight="700" fill="#bfdbfe" text-anchor="middle">EN</text>
+    <clipPath id="type1">
+      <rect x="156" y="228" width="960" height="48">
+        <animate attributeName="width" dur="12s" repeatCount="indefinite" values="0;960;960;0;0" keyTimes="0;0.16;0.95;0.97;1"/>
+      </rect>
+    </clipPath>
+    <text x="160" y="262" font-size="27" fill="#cbd5e1" clip-path="url(#type1)">Live captions for everything you hear.</text>
+  </g>
+  <g>
+    <rect x="96" y="288" width="46" height="28" rx="8" fill="#ffffff" fill-opacity="0.12"/>
+    <text x="119" y="308" font-size="15" font-weight="700" fill="#bfdbfe" text-anchor="middle">JA</text>
+    <clipPath id="type2">
+      <rect x="156" y="276" width="960" height="48">
+        <animate attributeName="width" dur="12s" repeatCount="indefinite" values="0;0;960;960;0;0" keyTimes="0;0.22;0.4;0.95;0.97;1"/>
+      </rect>
+    </clipPath>
+    <text x="160" y="310" font-size="29" fill="#ffffff" clip-path="url(#type2)">聞こえる音声を、すべて字幕に。</text>
+  </g>
+  <g>
+    <rect x="96" y="336" width="46" height="28" rx="8" fill="#ffffff" fill-opacity="0.12"/>
+    <text x="119" y="356" font-size="15" font-weight="700" fill="#bfdbfe" text-anchor="middle">VI</text>
+    <clipPath id="type3">
+      <rect x="156" y="324" width="960" height="48">
+        <animate attributeName="width" dur="12s" repeatCount="indefinite" values="0;0;960;960;0;0" keyTimes="0;0.46;0.66;0.95;0.97;1"/>
+      </rect>
+    </clipPath>
+    <text x="160" y="358" font-size="29" fill="#93c5fd" clip-path="url(#type3)">Phụ đề trực tiếp cho mọi âm thanh bạn nghe.</text>
+  </g>
+  </g>
+</svg>
