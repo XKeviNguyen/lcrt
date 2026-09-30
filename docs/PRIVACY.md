@@ -62,7 +62,8 @@ LCRT uses the first key available from these sources:
 The key is sent only to `api.openai.com`, in the `Authorization` header over
 TLS with certificate validation. LCRT never writes the key to its preferences
 file, logs, command lines or URLs. **Clear** removes the saved key from the
-keyring.
+keyring. If the keyring can't be reached, Clear says so, and the key stays
+saved until you try again.
 
 ## Files LCRT writes
 

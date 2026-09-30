@@ -65,7 +65,7 @@ On the final code commit:
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
-| `cargo test --locked --workspace --all-features` | 183 passed, 0 failed |
+| `cargo test --locked --workspace --all-features` | 188 passed, 0 failed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
 | `git diff --check` | clean |
 | `desktop-file-validate`, `appstreamcli validate --no-net` | valid; one pedantic note about the uppercase app ID, which is kept because the keyring entry is named after it |
@@ -249,6 +249,34 @@ Seven more P2 findings on `6cebfa6` were fixed:
 
 Items 4–6 are GTK and controller state paths without a unit harness. Item 4
 was checked at runtime; items 5 and 6 are reviewed code only.
+
+A third review, of `e0eaefa`, found one P1 and eight P2 issues. All were
+fixed:
+
+- **P1: Vocabulary off.** Turning Vocabulary off now cancels a selection
+  still settling, so nothing is sent after the switch.
+- **Audio backlog:** overflow is checked on every drained block. A new test
+  with a stalled uplink fails without the fix: live audio never reached the
+  service.
+- **Caption delivery:**
+  - The newest caption survives a full event queue. The test fails without
+    the fix, with the caption stuck at "w64" of 70.
+  - Captions received just before a failure are delivered ahead of it. That
+    test also fails without the fix.
+- **Bounded turns:** a turn the service never completes is retired, and late
+  events for retired turns are ignored.
+- **Error classification:**
+  - Exhausted quota now gets billing guidance. The old test that expected
+    "try again shortly" was corrected.
+  - HTTP 408 is retried.
+- **Clear:** an unavailable keyring is reported instead of claiming the key
+  was removed.
+- **Save warning:** a successful save clears the banner only while it still
+  shows the save warning.
+
+After these fixes, offline JFK through system audio showed its first caption
+at 3.07 s, and the network-failure path still ended with a clear error after
+3.9 s.
 
 ### Security review
 
