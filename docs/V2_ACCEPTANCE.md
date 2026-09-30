@@ -65,7 +65,7 @@ On the final code commit:
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | clean |
-| `cargo test --locked --workspace --all-features` | 191 passed, 0 failed |
+| `cargo test --locked --workspace --all-features` | 194 passed, 0 failed |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps` | clean |
 | `git diff --check` | clean |
 | `desktop-file-validate`, `appstreamcli validate --no-net` | valid; one pedantic note about the uppercase app ID, which is kept because the keyring entry is named after it |
@@ -291,6 +291,16 @@ A fourth review, of `0a75eb2`, found three P2 issues. All were fixed:
     became ready".
   - Before the fix, a Stop during reconnect backoff could exit 0.
   - The offline smoke run still exits 0.
+
+A fifth review, of `c2eb4f4`, found three P2 issues. All were fixed with
+tests:
+
+- **Vocabulary answers:** the UI bridge keeps the newest answer, so an older
+  lookup that finishes late can't replace it.
+- **Turn text:** a turn's text is bounded even if the service never
+  completes it.
+- **Quota errors:** an HTTP 429 whose body reports exhausted quota is shown
+  with billing guidance.
 
 ### Security review
 
