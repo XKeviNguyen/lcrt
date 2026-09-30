@@ -42,8 +42,8 @@ Captions for **system audio** (videos, calls, lectures) or your
 
 ### 🌏 Across languages
 
-Real-time **translation**, with the original speech shown above it when you
-want both.
+Real-time **translation** into one or two languages at once, each in its
+own labeled lane, with the original speech above them when you want it.
 
 </td>
 <td width="33%" valign="top">
@@ -96,13 +96,43 @@ X11). Ubuntu ARM64 and Windows 10/11 are portability targets.
 | --- | --- | --- | --- |
 | **Engine** | Whisper, on this device | OpenAI realtime transcription | OpenAI realtime translation |
 | **Audio goes to** | nowhere | OpenAI, while a session runs | OpenAI, while a session runs |
-| **Languages** | the chosen model's (the tiny model is English) | English, Japanese, Vietnamese, Chinese, Korean, Spanish, French, German, or Auto | the spoken language is detected automatically; translated into one of those eight |
-| **You choose** | a Whisper model file | the spoken language, or Auto | the target language; show or hide the original |
+| **Languages** | the chosen model's (the tiny model is English) | English, Japanese, Vietnamese, Chinese, Korean, Spanish, French, German, or Auto | the spoken language is detected automatically; translated into one or two of those eight |
+| **You choose** | a Whisper model file | the spoken language, or Auto | one or two target languages; show or hide the original |
 | **Needs** | a model file | your OpenAI API key and a network | your OpenAI API key and a network |
-| **Cost** | none | charged to your OpenAI account | charged to your OpenAI account |
+| **Cost** | none | charged to your OpenAI account | charged to your OpenAI account, once per target language |
 
 Each session uses exactly one backend. LCRT never switches to another backend
 or to a paid service on its own.
+
+### Multi-language lanes
+
+<div align="center">
+<img src="docs/assets/lcrt-lanes.png" alt="The LCRT window during a translation session: three stacked caption lanes labeled JA, EN and VI, showing Japanese speech with its English and Vietnamese translations." width="640">
+<br>
+<sub>A real session. The speech is a FLEURS test utterance (CC BY 4.0).</sub>
+</div>
+
+In Translation mode the caption area becomes a stack of lanes. Each lane has a
+language badge on the left and its own selectable text:
+
+1. the **original speech**, when you choose to show it;
+2. the **first translation**;
+3. an optional **second translation**.
+
+The order never changes, and there are at most three lanes: the original and
+two translations. For example, Japanese speech can be shown with English and
+Vietnamese below it.
+
+- **One session per target.** The translation service takes one output
+  language per session, so a second target opens a second session and is
+  charged separately. There are never more sessions than targets.
+- **Targets are kept valid.** Two targets can't be the same, and a target
+  can't repeat a spoken language you named. Such a choice is corrected as
+  soon as you make it, and there is always at least one target.
+- **Lanes fail independently.** If one target's session fails, LCRT says so
+  and the other lane keeps translating.
+- **Words in context work in every lane.** Select text in any lane to have it
+  explained from that lane's own text.
 
 ## 📊 Measured, not promised
 
@@ -156,7 +186,12 @@ Then open **LCRT Live Captions** from the app grid, or run `lcrt`.
 3. **Select a word or phrase** in the captions to see what it means in that
    sentence.
 4. **Open Settings** to choose the Whisper model, enter your OpenAI API key,
-   and adjust appearance and vocabulary.
+   set up translation lanes, and adjust appearance and vocabulary.
+
+In Translation mode the window shows the first target and an **Original**
+checkbox. **Settings → General → Translation lanes** has the rest: the spoken
+language (it names the original lane), and translation targets 1 and 2.
+Changing a lane while a session runs restarts the session with the new lanes.
 
 LCRT remembers the last mode, source and languages.
 
@@ -208,7 +243,7 @@ still works, but LCRT cannot keep it on top.
 | --- | --- |
 | Offline Captions | Nothing. |
 | Online Captions | Audio from the selected source, only while speech is detected, plus the language hint. |
-| Translation | All audio from the selected source while the session runs, plus the target language. |
+| Translation | All audio from the selected source while the session runs, plus the target language. With two targets, the same audio goes to two sessions, one per target. |
 | Select text, with Vocabulary on | The selection (at most 200 characters) and up to 160 characters of caption on each side. |
 | Select text, with Vocabulary off | Nothing. |
 | Test connection | One request that lists models. No audio or text. |
@@ -266,6 +301,15 @@ The portable core and its adapter boundaries are described in
 - Audio sources are discovered at launch.
 - Online modes need a network connection. LCRT reconnects a few times after a
   brief drop, then reports the problem.
+- Translation shows at most three lanes: the original and two targets. Each
+  target is a separate paid session.
+- The original lane's badge shows `SRC` until you name the spoken language in
+  Settings, because Translation detects the language without reporting it.
+  For the same reason, a target that equals the spoken language can only be
+  prevented once you have named it.
+- Translation takes 5–8 s to stop, and up to about 14 s when the service is
+  slow, because the service delivers the last words after you press Stop.
+  Changing lanes during a session does not wait for them.
 - Always-on-top needs a compositor with layer shell. GNOME does not provide
   it.
 

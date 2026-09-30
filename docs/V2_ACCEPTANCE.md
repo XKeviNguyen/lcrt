@@ -425,6 +425,64 @@ mid-speech settled it: the service sends the rest of the translation
 and Stop waits for `session.closed`, bounded at 8 s. On the final build a
 mid-speech Stop took 5.3 s and kept the late text.
 
+## Multi-language caption lanes
+
+Added after the V2 merge, on `feature/multi-language-caption-lanes`.
+
+**What it is.** In Translation mode the caption area is a stack of up to
+three lanes, always in this order: the original speech (optional), the first
+translation, and an optional second translation. Each lane has a language
+badge (`JA`, `EN`, `VI`, …) and its own selectable text.
+
+**Architecture.** The translation service takes one output language per
+session, so each target is its own session: one or two, never more. Both
+receive the same captured audio. Each has its own bounded queue and bounded
+reconnects, and Stop asks both to close before waiting for either, so the
+waits overlap.
+
+**Automated tests** (224 workspace tests in total at the time of writing):
+
+- target validation: duplicates, a target equal to the shown source, a second
+  target without a first, and no target at all are each corrected;
+- lane order and badges, and at most three lanes;
+- settings persistence, and correction of an invalid stored combination;
+- two sessions filling their own lanes; one target with the source hidden;
+- the same audio reaching every lane;
+- one lane failing while the other keeps its captions; the session failing
+  only when its last lane does;
+- one lane reconnecting while the other keeps running;
+- Stop closing every session, and being idempotent;
+- a replaced session closing at once;
+- lane updates from a replaced session never reaching the new one.
+
+**Runtime checks with OpenAI**, through system audio, with the owner's key
+read from the keyring. The window ran on a virtual display (`Xvfb`) for the
+checks that needed a screenshot, because the workstation's screen was locked.
+
+| Check | Result |
+| --- | --- |
+| Japanese speech, original shown, targets English and Vietnamese | Three lanes with badges `JA`, `EN`, `VI`. All three filled: first text at 3.4 s, 5.7 s and 6.1 s. Two sessions opened. Stop took 7.5 s. |
+| English speech, original hidden, target Japanese | One lane with badge `JA`, one session, Japanese translation. |
+| Lane settings persist | Turning the original lane on in Settings changed the layout at once (`EN`, `JA`), was saved, and survived a restart. A hand-edited file with two identical targets loaded as one target. |
+| Vocabulary from several lanes | Selections in the English, Vietnamese and Japanese lanes were each explained from that lane's text. |
+| Stop and restart with two targets | A second Start began with every lane empty and showed no text from the previous run. Closing the window took 0.32 s and left no process. Four sessions were opened across the two runs, two each. |
+| Reconnect with two sessions | A 2 s network cut dropped both connections. Each reconnected within its own retries, the status returned to Translating after 4.2 s, and all three lanes resumed. |
+| Lane change during a session | Hiding the original lane in Settings changed the layout after 0.16 s and the new session was translating after 1.8 s, with no text from the old one. |
+| Other modes | Offline Captions still shows one unlabeled lane (JFK fixture, first caption at 3.0 s). |
+| Layout | The screenshot in the README is from the first check: three stacked lanes, badges at the left, large text. |
+
+**Two defects found by these runs, and fixed.**
+
+1. Replacing a session (a lane change during a session) first took 9.5 s,
+   because the old session waited for final words that would be discarded. A
+   replaced session now closes at once.
+2. With two sessions, the service sometimes needed more than the 8 s finish
+   wait to deliver the last words. Translation now waits up to 12 s.
+
+**Not verified at runtime:** one lane failing while the other continues
+(covered by tests only), pointer selection, and the layout on a real display
+(the screenshot is from the virtual display).
+
 ## Known limitations
 
 - **Offline repetition:** see above. A timestamp-based commit that removes
@@ -436,9 +494,15 @@ mid-speech Stop took 5.3 s and kept the late text.
   instead of at pauses; captions still update continuously.
 - **Online recovery:** a reconnect discards audio captured during the outage.
   Online modes never fall back to another backend by themselves.
-- **Stop wait bound:** Stop waits at most 18 s (10 s handshake + 8 s finish)
-  for an unresponsive online service. Measured live: 1.4 s for captions and
-  5–7 s for translation, which is the service finishing the translation.
+- **Stop wait bound:** for an unresponsive online service, Stop waits at
+  most 18 s in Online Captions and 22 s in Translation (a 10 s handshake plus
+  an 8 s or 12 s finish wait). Measured live: 1.4 s for captions and 5–8 s
+  for translation, which is the service finishing the translation, and 14 s
+  once when the service was slow.
+- **Translation lanes:** at most three, the original and two targets. Each
+  target is a separate paid session. The original lane's badge is `SRC`
+  until the spoken language is named in Settings, and only then can a target
+  equal to it be prevented.
 - **Window size:** a width below the control row's minimum (510–683 px) has
   no further effect.
 - **Not tested:**
