@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.hoangnguyen7474.Lcrt</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>LCRT Live Captions</name>
+  <summary>Real-time captions and translation for system audio</summary>
+  <developer id="io.github.hoangnguyen7474">
+    <name>LCRT contributors</name>
+  </developer>
+  <description>
+    <p>
+      LCRT shows live captions for whatever your computer is playing or for
+      your microphone, in a small window that stays out of the way.
+    </p>
+    <ul>
+      <li>Offline Captions run a local Whisper model; audio never leaves the device.</li>
+      <li>Online Captions and Translation use your own OpenAI API key for
+        English, Japanese, Vietnamese and more.</li>
+      <li>Select a word or phrase in the captions to see its meaning in context.</li>
+      <li>Adjustable font, colors, transparency and window size.</li>
+    </ul>
+    <p>
+      Online features stream audio or selected text to OpenAI only while you use
+      them, and API charges may apply to your OpenAI account. LCRT has no
+      telemetry.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.hoangnguyen7474.Lcrt.desktop</launchable>
+  <url type="homepage">https://github.com/hoangnguyen7474/lcrt</url>
+  <url type="bugtracker">https://github.com/hoangnguyen7474/lcrt/issues</url>
+  <provides>
+    <binary>lcrt</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+    <category>Accessibility</category>
+  </categories>
+  <keywords>
+    <keyword>captions</keyword>
+    <keyword>subtitles</keyword>
+    <keyword>translation</keyword>
+    <keyword>transcription</keyword>
+  </keywords>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.0.0" date="2026-09-30">
+      <description>
+        <p>Online captions, real-time translation, vocabulary explanations,
+          secure API key storage and persistent appearance settings.</p>
+      </description>
+    </release>
+  </releases>
+</component>

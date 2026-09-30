@@ -22,6 +22,7 @@ pub enum CaptionStatus {
 pub struct Caption {
     text: String,
     status: CaptionStatus,
+    original: Option<String>,
 }
 
 impl Caption {
@@ -30,7 +31,13 @@ impl Caption {
         Self {
             text: text.into(),
             status: CaptionStatus::Partial,
+            original: None,
         }
+    }
+
+    /// Returns the spoken-language text when this caption is a translation.
+    pub fn original(&self) -> Option<&str> {
+        self.original.as_deref()
     }
 
     /// Returns the caption text.
@@ -105,9 +112,11 @@ impl CaptionState {
             .checked_add(1)
             .ok_or(CaptionStateError::RevisionOverflow)?;
         let status = update.status();
+        let (text, original) = update.into_parts();
         let caption = Caption {
-            text: update.into_text(),
+            text,
             status,
+            original,
         };
         self.current = Some(caption.clone());
         Ok(CaptionSnapshot {

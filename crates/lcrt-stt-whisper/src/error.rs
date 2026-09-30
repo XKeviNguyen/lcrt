@@ -63,3 +63,12 @@ impl fmt::Display for WhisperBackendError {
 }
 
 impl Error for WhisperBackendError {}
+
+impl From<lcrt_core::AudioConversionError> for WhisperBackendError {
+    fn from(error: lcrt_core::AudioConversionError) -> Self {
+        match error {
+            lcrt_core::AudioConversionError::FormatChanged => Self::AudioFormatChanged,
+            lcrt_core::AudioConversionError::Failed(message) => Self::AudioConversion(message),
+        }
+    }
+}

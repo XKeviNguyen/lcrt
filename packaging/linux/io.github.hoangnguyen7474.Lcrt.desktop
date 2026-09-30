@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LCRT Live Captions
+GenericName=Live Captions
+Comment=Real-time captions and translation for system audio and microphone
+Exec=lcrt
+Icon=io.github.hoangnguyen7474.Lcrt
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=captions;subtitles;transcription;translation;speech;accessibility;
+StartupNotify=true
