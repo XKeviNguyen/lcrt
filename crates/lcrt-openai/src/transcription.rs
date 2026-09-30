@@ -1,6 +1,8 @@
 //! Realtime transcription protocol (`gpt-live-transcribe`) as a pure state
 //! machine: outbound messages from audio, caption updates from server events.
 
+use std::collections::VecDeque;
+
 use base64::Engine as _;
 use lcrt_core::{Language, TranscriptUpdate};
 use serde::Deserialize;
@@ -22,6 +24,8 @@ const TRANSCRIPTION_DELAY: &str = "low";
 const MAX_CAPTION_BYTES: usize = 480;
 /// Turns kept for ordering; older completed turns are dropped.
 const MAX_TURNS: usize = 16;
+/// Retired item ids remembered to ignore their late events.
+const RETIRED_MEMORY: usize = 4 * MAX_TURNS;
 /// Audio sent per append message (100 ms at 24 kHz).
 const APPEND_SAMPLES: usize = 2_400;
 
@@ -38,6 +42,9 @@ pub struct TranscriptionProtocol {
     detector: TurnDetector,
     outgoing: Vec<f32>,
     turns: Vec<Turn>,
+    /// Recently retired item ids, so a late event for one is ignored rather
+    /// than re-adding it out of order.
+    retired: VecDeque<String>,
     uncommitted_turns: usize,
 }
 
@@ -49,6 +56,7 @@ impl TranscriptionProtocol {
             detector: TurnDetector::new(TurnConfig::default()),
             outgoing: Vec::with_capacity(APPEND_SAMPLES),
             turns: Vec::new(),
+            retired: VecDeque::with_capacity(RETIRED_MEMORY),
             uncommitted_turns: 0,
         }
     }
@@ -64,7 +72,11 @@ impl TranscriptionProtocol {
         }
     }
 
-    fn turn_mut(&mut self, item_id: &str) -> &mut Turn {
+    /// The turn for `item_id`, created if new; `None` once it was retired.
+    fn turn_mut(&mut self, item_id: &str) -> Option<&mut Turn> {
+        if self.retired.iter().any(|retired| retired == item_id) {
+            return None;
+        }
         let index = match self.turns.iter().position(|turn| turn.item_id == item_id) {
             Some(index) => index,
             None => {
@@ -76,11 +88,13 @@ impl TranscriptionProtocol {
                 self.turns.len() - 1
             }
         };
-        &mut self.turns[index]
+        Some(&mut self.turns[index])
     }
 
     fn insert_committed(&mut self, item_id: String, previous_item_id: Option<String>) {
-        if self.turns.iter().any(|turn| turn.item_id == item_id) {
+        if self.turns.iter().any(|turn| turn.item_id == item_id)
+            || self.retired.iter().any(|retired| *retired == item_id)
+        {
             return;
         }
         let turn = Turn {
@@ -92,11 +106,19 @@ impl TranscriptionProtocol {
             .and_then(|previous| self.turns.iter().position(|turn| turn.item_id == previous))
             .map_or(self.turns.len(), |index| index + 1);
         self.turns.insert(position, turn);
+        self.prune();
     }
 
+    /// Keeps at most `MAX_TURNS`, retiring the oldest even if the service
+    /// never completed it: a stuck turn must not grow memory or hold every
+    /// later caption in the partial state.
     fn prune(&mut self) {
-        while self.turns.len() > MAX_TURNS && self.turns.first().is_some_and(|turn| turn.complete) {
-            self.turns.remove(0);
+        while self.turns.len() > MAX_TURNS {
+            let oldest = self.turns.remove(0);
+            if self.retired.len() == RETIRED_MEMORY {
+                self.retired.pop_front();
+            }
+            self.retired.push_back(oldest.item_id);
         }
     }
 
@@ -223,8 +245,9 @@ impl Protocol for TranscriptionProtocol {
                 let (Some(item_id), Some(delta)) = (event.item_id, event.delta) else {
                     return EventOutcome::Ignored;
                 };
-                let turn = self.turn_mut(&item_id);
-                if !turn.complete {
+                if let Some(turn) = self.turn_mut(&item_id)
+                    && !turn.complete
+                {
                     turn.text.push_str(&delta);
                 }
                 self.caption()
@@ -234,7 +257,9 @@ impl Protocol for TranscriptionProtocol {
                 let Some(item_id) = event.item_id else {
                     return EventOutcome::Ignored;
                 };
-                let turn = self.turn_mut(&item_id);
+                let Some(turn) = self.turn_mut(&item_id) else {
+                    return EventOutcome::Ignored;
+                };
                 // The completed transcript is authoritative over accumulated deltas.
                 turn.text = event.transcript.unwrap_or_default();
                 turn.complete = true;
@@ -243,8 +268,7 @@ impl Protocol for TranscriptionProtocol {
                     .map_or(EventOutcome::Ignored, EventOutcome::Update)
             }
             "conversation.item.input_audio_transcription.failed" => {
-                if let Some(item_id) = event.item_id {
-                    let turn = self.turn_mut(&item_id);
+                if let Some(turn) = event.item_id.and_then(|item_id| self.turn_mut(&item_id)) {
                     turn.complete = true;
                 }
                 if let Some(error) = event.error {
@@ -472,6 +496,29 @@ mod tests {
         assert!(text.len() <= super::MAX_CAPTION_BYTES);
         assert!(text.ends_with("last."));
         assert!(protocol.turns.len() <= super::MAX_TURNS);
+    }
+
+    #[test]
+    fn a_turn_the_service_never_completes_is_retired_to_bound_memory() {
+        let mut protocol = TranscriptionProtocol::new(None);
+        protocol.on_event(&committed("stuck", None));
+        let mut previous = "stuck".to_owned();
+        for n in 0..40 {
+            let id = format!("item{n}");
+            protocol.on_event(&committed(&id, Some(&previous)));
+            protocol.on_event(&completed(&id, "words."));
+            previous = id;
+        }
+        assert!(protocol.turns.len() <= super::MAX_TURNS);
+        assert!(protocol.turns.iter().all(|turn| turn.item_id != "stuck"));
+        // A late completion for the retired turn is ignored, not re-added.
+        assert!(matches!(
+            protocol.on_event(&completed("stuck", "late.")),
+            EventOutcome::Ignored
+        ));
+        assert!(protocol.turns.iter().all(|turn| turn.item_id != "stuck"));
+        let (_, status) = text_of(protocol.on_event(&completed("item39", "words.")));
+        assert_eq!(status, CaptionStatus::Final);
     }
 
     #[test]

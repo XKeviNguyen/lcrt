@@ -17,8 +17,11 @@ pub struct ServiceError {
 pub enum ServiceErrorImpact {
     /// The session cannot continue until the user fixes the API key.
     Unauthorized,
-    /// Quota, billing, or rate limits stop the session.
+    /// Temporary rate limiting; retrying later can succeed.
     RateLimited,
+    /// Quota, credit or spend limits are exhausted; only a billing or limit
+    /// change on the account helps.
+    QuotaExhausted,
     /// A transient server fault or a benign per-turn rejection; keep going.
     Recoverable,
     /// The service refused the session or its settings (such as the model or
@@ -49,17 +52,16 @@ impl ServiceError {
         let code = self.code.as_deref().unwrap_or_default();
         if kind == "authentication_error" || code == "invalid_api_key" {
             ServiceErrorImpact::Unauthorized
-        } else if kind == "rate_limit_error"
-            || matches!(
-                code,
-                "rate_limit_exceeded"
-                    | "insufficient_quota"
-                    | "credit_balance_exhausted"
-                    | "organization_spend_limit_exceeded"
-                    | "project_spend_limit_exceeded"
-                    | "organization_usage_limit_exceeded"
-            )
-        {
+        } else if matches!(
+            code,
+            "insufficient_quota"
+                | "credit_balance_exhausted"
+                | "organization_spend_limit_exceeded"
+                | "project_spend_limit_exceeded"
+                | "organization_usage_limit_exceeded"
+        ) {
+            ServiceErrorImpact::QuotaExhausted
+        } else if kind == "rate_limit_error" || code == "rate_limit_exceeded" {
             ServiceErrorImpact::RateLimited
         } else if kind == "server_error" || self.is_empty_commit() {
             // Only errors known to affect a single event are survivable:
@@ -144,6 +146,10 @@ mod tests {
         );
         assert_eq!(
             error("invalid_request_error", "insufficient_quota").impact(),
+            ServiceErrorImpact::QuotaExhausted
+        );
+        assert_eq!(
+            error("rate_limit_error", "rate_limit_exceeded").impact(),
             ServiceErrorImpact::RateLimited
         );
         assert_eq!(

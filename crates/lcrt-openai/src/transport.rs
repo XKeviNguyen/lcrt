@@ -30,8 +30,10 @@ pub enum TransportError {
     Unauthorized,
     /// The key lacks access to this model or endpoint (HTTP 403 or 404).
     Forbidden,
-    /// The service is rate limiting or out of quota (HTTP 429).
+    /// The service is rate limiting (HTTP 429).
     RateLimited,
+    /// The account's quota, credit or spend limit is exhausted.
+    QuotaExhausted,
     /// DNS, TCP, TLS, or a server-side (5xx) failure.
     Unreachable(String),
     /// The connection closed or broke after it was established.
@@ -62,6 +64,7 @@ impl fmt::Display for TransportError {
             Self::Unauthorized => formatter.write_str("the API key was rejected"),
             Self::Forbidden => formatter.write_str("the API key has no access to this service"),
             Self::RateLimited => formatter.write_str("the service is rate limiting requests"),
+            Self::QuotaExhausted => formatter.write_str("the account's quota is exhausted"),
             Self::Unreachable(detail) => write!(formatter, "the service is unreachable: {detail}"),
             Self::Closed => formatter.write_str("the connection was lost"),
             Self::Protocol(detail) => write!(formatter, "unexpected service message: {detail}"),
@@ -80,6 +83,8 @@ pub(crate) fn error_for_status(status: u16) -> TransportError {
         401 => TransportError::Unauthorized,
         403 | 404 => TransportError::Forbidden,
         429 => TransportError::RateLimited,
+        // A request timeout says nothing about the request itself.
+        408 => TransportError::Unreachable("HTTP 408".to_owned()),
         // Resending the same request can't fix any other client error.
         400..=499 => TransportError::Rejected(format!("HTTP {status}")),
         other => TransportError::Unreachable(format!("HTTP {other}")),
@@ -339,6 +344,7 @@ mod tests {
             error_for_status(503),
             TransportError::Unreachable(_)
         ));
+        assert!(error_for_status(408).is_transient());
         for status in [400, 422] {
             let error = error_for_status(status);
             assert!(matches!(error, TransportError::Rejected(_)));

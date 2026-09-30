@@ -53,6 +53,10 @@ pub fn user_message(error: &TransportError) -> &'static str {
         TransportError::RateLimited => {
             "The online service is temporarily rate limited. Try again shortly."
         }
+        TransportError::QuotaExhausted => {
+            "Your OpenAI account has run out of quota or credit. Check billing and usage limits \
+             in your OpenAI account settings."
+        }
         TransportError::Unreachable(_) => "Can't reach the online service. Check your connection.",
         TransportError::Closed => "Connection was lost.",
         TransportError::Protocol(_) => "The online service sent an unexpected response.",
@@ -124,6 +128,9 @@ pub struct OnlineSession {
     converter: Option<AudioConverter>,
     finish_timeout: Duration,
     finished: bool,
+    /// A failure that arrived behind caption updates; reported on the next
+    /// call, after those updates are delivered.
+    pending_failure: Option<TransportError>,
     dropped_blocks: u64,
 }
 
@@ -157,6 +164,7 @@ impl OnlineSession {
                     status,
                     limits,
                     finishing: false,
+                    held_update: None,
                 };
                 worker.run();
             })
@@ -172,18 +180,27 @@ impl OnlineSession {
             converter: None,
             finish_timeout: limits.finish + limits.handshake,
             finished: false,
+            pending_failure: None,
             dropped_blocks: 0,
         })
     }
 
     fn collect(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+        if let Some(error) = self.pending_failure.take() {
+            return Err(session_error(&error));
+        }
         let mut updates = Vec::new();
         loop {
             match self.events.try_recv() {
                 Ok(WorkerEvent::Update(update)) => updates.push(update),
                 Ok(WorkerEvent::Failed(error)) => {
                     self.finished = true;
-                    return Err(session_error(&error));
+                    if updates.is_empty() {
+                        return Err(session_error(&error));
+                    }
+                    // Show the last captions first; fail on the next call.
+                    self.pending_failure = Some(error);
+                    break;
                 }
                 Ok(WorkerEvent::Done) => {
                     self.finished = true;
@@ -246,6 +263,11 @@ impl Transcriber for OnlineSession {
 
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
         let mut updates = self.collect()?;
+        if let Some(error) = self.pending_failure.take() {
+            // `finish` can report either captions or a failure, and the
+            // failure is what the user must act on.
+            return Err(session_error(&error));
+        }
         if self.finished {
             return Ok(updates);
         }
@@ -326,6 +348,8 @@ struct Worker<P> {
     status: StatusCallback,
     limits: SessionLimits,
     finishing: bool,
+    /// The newest update, held while the event queue is full.
+    held_update: Option<TranscriptUpdate>,
 }
 
 impl<P: Protocol> Worker<P> {
@@ -373,6 +397,9 @@ impl<P: Protocol> Worker<P> {
                     break;
                 }
             }
+        }
+        if let Some(update) = self.held_update.take() {
+            let _ = self.events.send(WorkerEvent::Update(update));
         }
         let _ = self.events.send(WorkerEvent::Done);
     }
@@ -436,6 +463,9 @@ impl<P: Protocol> Worker<P> {
             if self.cancelled() {
                 return Ok(());
             }
+            if let Some(update) = self.held_update.take() {
+                self.publish(update);
+            }
             self.send_pending_audio(transport, &mut finish_deadline)?;
             if self.finishing && self.protocol.is_drained() {
                 return Ok(());
@@ -482,8 +512,12 @@ impl<P: Protocol> Worker<P> {
         transport: &mut dyn Transport,
         finish_deadline: &mut Option<Instant>,
     ) -> Result<(), TransportError> {
-        let skip_stale_audio = self.backlog_full.swap(false, Ordering::AcqRel);
+        let mut skip_stale_audio = false;
         loop {
+            // Checked per block: the queue can overflow while a send stalls.
+            if self.backlog_full.swap(false, Ordering::AcqRel) {
+                skip_stale_audio = true;
+            }
             match self.commands.try_recv() {
                 Ok(Command::Audio(_)) if skip_stale_audio => {}
                 Ok(Command::Audio(samples)) => {
@@ -516,17 +550,24 @@ impl<P: Protocol> Worker<P> {
         Ok(())
     }
 
+    /// Queues a caption update. Updates are cumulative snapshots, so while
+    /// the queue is full only the newest is kept, and it is sent later.
+    fn publish(&mut self, update: TranscriptUpdate) {
+        match self.events.try_send(WorkerEvent::Update(update)) {
+            Ok(()) => self.held_update = None,
+            Err(TrySendError::Full(WorkerEvent::Update(update))) => self.held_update = Some(update),
+            Err(TrySendError::Full(_)) => {}
+            Err(TrySendError::Disconnected(_)) => self.cancel.store(true, Ordering::Release),
+        }
+    }
+
     fn handle_event(&mut self, text: &str) -> Result<(), TransportError> {
         match self.protocol.on_event(text) {
-            EventOutcome::Update(update) => match self.events.try_send(WorkerEvent::Update(update))
-            {
-                // Updates are cumulative snapshots; a newer one supersedes a dropped one.
-                Ok(()) | Err(TrySendError::Full(_)) => {}
-                Err(TrySendError::Disconnected(_)) => self.cancel.store(true, Ordering::Release),
-            },
+            EventOutcome::Update(update) => self.publish(update),
             EventOutcome::ServiceError(error) => match error.impact() {
                 ServiceErrorImpact::Unauthorized => return Err(TransportError::Unauthorized),
                 ServiceErrorImpact::RateLimited => return Err(TransportError::RateLimited),
+                ServiceErrorImpact::QuotaExhausted => return Err(TransportError::QuotaExhausted),
                 ServiceErrorImpact::Recoverable => {
                     warn!(category = %error.category(), "online service reported an error");
                 }
@@ -569,6 +610,8 @@ pub(crate) mod tests {
         /// Connecting blocks until the sender side is dropped or signals,
         /// then follows the inner script.
         Hold(std::sync::mpsc::Receiver<()>, Box<Script>),
+        /// Every send takes this long (a slow uplink), then the inner script.
+        Slow(Duration, Box<Script>),
         /// Replies to each client message whose type matches with the given
         /// server events; sends `on_open` first; then optionally breaks.
         Serve {
@@ -609,6 +652,7 @@ pub(crate) mod tests {
         replies: Vec<(&'static str, Vec<String>)>,
         break_after: Option<usize>,
         messages: usize,
+        send_delay: Duration,
         record: Record,
         closed: bool,
     }
@@ -631,9 +675,13 @@ pub(crate) mod tests {
                 }
                 other => other,
             };
+            let (send_delay, script) = match script {
+                Script::Slow(delay, inner) => (delay, *inner),
+                other => (Duration::ZERO, other),
+            };
             match script {
                 Script::Refuse(error) => Err(error),
-                Script::Hold(..) => unreachable!("holds are not nested"),
+                Script::Hold(..) | Script::Slow(..) => unreachable!("wrappers are not nested"),
                 Script::Serve {
                     on_open,
                     replies,
@@ -646,6 +694,7 @@ pub(crate) mod tests {
                         replies,
                         break_after: break_after_messages,
                         messages: 0,
+                        send_delay,
                         record: self.record.clone(),
                         closed: false,
                     }))
@@ -656,6 +705,7 @@ pub(crate) mod tests {
 
     impl Transport for FakeTransport {
         fn send_text(&mut self, text: &str) -> Result<(), TransportError> {
+            thread::sleep(self.send_delay);
             self.messages += 1;
             if self.break_after.is_some_and(|limit| self.messages > limit) {
                 return Err(TransportError::Closed);
@@ -910,6 +960,117 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_backlog_that_builds_up_during_a_stalled_send_is_skipped() {
+        let (connector, record) = FakeConnector::new(vec![Script::Slow(
+            Duration::from_millis(50),
+            Box::new(Script::Serve {
+                on_open: vec![created()],
+                replies: vec![],
+                break_after_messages: None,
+            }),
+        )]);
+        let (status, _) = statuses();
+        let mut session = OnlineSession::start(
+            TranslationProtocol::new(Language::English, true),
+            key(),
+            connector,
+            status,
+            fast_limits(),
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(50));
+        // Stale audio (quiet) arrives far faster than the uplink sends it.
+        let quiet = || AudioChunk::new(vec![0.1; 2_400], 24_000, 1).unwrap();
+        for _ in 0..100 {
+            session.push_audio(quiet()).unwrap();
+        }
+        thread::sleep(Duration::from_millis(60));
+        let loud = || AudioChunk::new(vec![0.6; 2_400], 24_000, 1).unwrap();
+        for _ in 0..4 {
+            session.push_audio(loud()).unwrap();
+        }
+        let _ = session.finish();
+        let samples: Vec<i16> = record
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|message| {
+                let value: serde_json::Value = serde_json::from_str(message).ok()?;
+                let audio = value["audio"].as_str()?.to_owned();
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, audio).ok()
+            })
+            .flat_map(|bytes| {
+                bytes
+                    .chunks_exact(2)
+                    .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let first_loud = samples.iter().position(|sample| *sample > 10_000);
+        assert!(first_loud.is_some(), "live audio never reached the service");
+        let stale_seconds = first_loud.unwrap() as f64 / 24_000.0;
+        assert!(
+            stale_seconds < 1.0,
+            "{stale_seconds:.2} s of stale audio sent first"
+        );
+    }
+
+    fn translated_delta(text: &str) -> String {
+        json!({"type": "session.output_transcript.delta", "delta": text}).to_string()
+    }
+
+    fn start_translation(connector: Box<FakeConnector>) -> OnlineSession {
+        let (status, _) = statuses();
+        OnlineSession::start(
+            TranslationProtocol::new(Language::English, true),
+            key(),
+            connector,
+            status,
+            fast_limits(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn captions_received_before_a_failure_are_delivered_before_it() {
+        let rejection = json!({"type": "error", "error": {"type": "invalid_request_error"}});
+        let (connector, _) = FakeConnector::new(vec![Script::Serve {
+            on_open: vec![created()],
+            replies: vec![(
+                "session.update",
+                vec![translated_delta("Last words."), rejection.to_string()],
+            )],
+            break_after_messages: None,
+        }]);
+        let mut session = start_translation(connector);
+        thread::sleep(Duration::from_millis(100));
+        let updates = session.push_audio(silence(0.1)).unwrap();
+        assert!(updates.iter().any(|u| u.text().contains("Last words.")));
+        let error = session.push_audio(silence(0.1)).unwrap_err();
+        assert!(error.to_string().contains("rejected the request"));
+    }
+
+    #[test]
+    fn the_newest_caption_survives_a_full_event_queue() {
+        let deltas: Vec<String> = (1..=70)
+            .map(|n| translated_delta(&format!(" w{n}")))
+            .collect();
+        let (connector, _) = FakeConnector::new(vec![Script::Serve {
+            on_open: vec![created()],
+            // No `session.closed`: its final update would mask a lost one.
+            replies: vec![("session.update", deltas)],
+            break_after_messages: None,
+        }]);
+        let mut session = start_translation(connector);
+        // Nothing is polled while all 70 updates arrive.
+        thread::sleep(Duration::from_millis(200));
+        let updates = session.finish().unwrap();
+        let last = updates.last().unwrap().text();
+        assert!(last.ends_with("w70"), "last caption was {last:?}");
+    }
+
+    #[test]
     fn rejected_key_fails_without_retrying() {
         let (connector, record) =
             FakeConnector::new(vec![Script::Refuse(TransportError::Unauthorized)]);
@@ -1114,9 +1275,8 @@ pub(crate) mod tests {
         .unwrap();
         thread::sleep(Duration::from_millis(50));
         let error = session.finish().unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "The online service is temporarily rate limited. Try again shortly."
-        );
+        // Exhausted quota needs a billing change, not a retry.
+        assert!(error.to_string().contains("run out of quota or credit"));
+        assert!(!error.to_string().contains("Try again shortly"));
     }
 }

@@ -241,13 +241,12 @@ impl<S: SecretStore> Credentials<S> {
     }
 
     /// Forgets the session key and removes the stored key. The environment
-    /// variable, if set, remains in effect.
+    /// variable, if set, remains in effect. An unavailable keyring is an
+    /// error: a key saved there earlier may still be stored.
     pub fn clear(&mut self) -> Result<CredentialStatus, SecretStoreError> {
         self.session = None;
-        match self.store.clear() {
-            Ok(()) | Err(SecretStoreError::Unavailable) => Ok(self.status()),
-            Err(error) => Err(error),
-        }
+        self.store.clear()?;
+        Ok(self.status())
     }
 }
 
@@ -351,6 +350,17 @@ pub(crate) mod tests {
         assert_eq!(status, CredentialStatus::SessionOnly);
         assert_eq!(credentials.status(), CredentialStatus::SessionOnly);
         assert_eq!(*store.value.lock().unwrap(), None);
+    }
+
+    #[test]
+    fn clearing_with_the_keyring_unavailable_is_reported_not_claimed() {
+        let store = FakeStore {
+            value: Arc::new(Mutex::new(Some(ApiKey::parse("saved").unwrap()))),
+            unavailable: true,
+        };
+        let mut credentials = Credentials::new(store.clone(), None);
+        assert_eq!(credentials.clear(), Err(SecretStoreError::Unavailable));
+        assert!(store.value.lock().unwrap().is_some());
     }
 
     #[test]
