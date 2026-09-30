@@ -9,7 +9,8 @@ use std::{
 use gtk::{gdk, glib, prelude::*};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use lcrt_core::{
-    AudioSourceDescriptor, Language, LanguageSelection, Preferences, ProcessingMode, SessionOptions,
+    AudioSourceDescriptor, Language, LanguageSelection, Preferences, ProcessingMode,
+    SessionOptions, TranslationTargets,
 };
 use libadwaita as adw;
 use tracing::{debug, info};
@@ -19,7 +20,7 @@ use crate::{
     captions::{CaptionViews, Vocabulary},
     preferences::{PreferencesShared, PreferencesWindow},
     presentation::{
-        LanguageControl, SessionPhase, active_status, caption_css, language_control,
+        LanguageControl, SessionPhase, active_status, caption_css, lane_layout, language_control,
         preferred_source_index, privacy_notice, source_label,
     },
 };
@@ -162,6 +163,9 @@ struct CaptionWindow {
     last_credential: RefCell<Option<CredentialView>>,
     /// Suppresses reacting to programmatic control changes.
     updating_controls: Cell<bool>,
+    /// The options of the session that was last started, to tell whether a
+    /// settings change needs a restart.
+    started_options: RefCell<Option<SessionOptions>>,
 }
 
 impl CaptionWindow {
@@ -301,6 +305,7 @@ impl CaptionWindow {
                 actions: actions.clone(),
                 last_credential: RefCell::new(None),
                 updating_controls: Cell::new(false),
+                started_options: RefCell::new(None),
             }
         });
 
@@ -409,9 +414,44 @@ impl CaptionWindow {
         self.language.set_visible(kind != LanguageControl::None);
         self.show_original
             .set_visible(mode == ProcessingMode::Translation);
-        self.notice.set_text(privacy_notice(mode));
         self.updating_controls.set(false);
+        self.refresh_lanes();
         self.refresh_start_button();
+    }
+
+    /// Shows the notice, and while no session runs the caption rows, for
+    /// what the controls describe.
+    fn refresh_lanes(&self) {
+        let options = self.described_options();
+        self.notice.set_text(privacy_notice(
+            options.mode,
+            options.translation_targets.iter().count(),
+        ));
+        // The text of a running session belongs to that session's rows.
+        // Relabeling them now would put the old text under new badges, so a
+        // changed layout is applied when the replacement session starts.
+        // While idle, text left from the last session is cleared for the
+        // same reason.
+        if self.phase.get() == SessionPhase::Idle && self.captions.configure(&lane_layout(&options))
+        {
+            self.captions.reset(PLACEHOLDER);
+        }
+    }
+
+    /// Makes the translation controls show the stored settings, after they
+    /// were corrected or changed in Settings.
+    fn sync_translation_controls(&self) {
+        let general = self.preferences.borrow().general.clone();
+        self.updating_controls.set(true);
+        self.show_original.set_active(general.show_original);
+        if self.language_kind.get() == LanguageControl::Target
+            && let Some(index) = Language::ALL
+                .iter()
+                .position(|language| *language == general.translation_target)
+        {
+            self.language.set_selected(index as u32);
+        }
+        self.updating_controls.set(false);
     }
 
     fn refresh_start_button(&self) {
@@ -429,7 +469,16 @@ impl CaptionWindow {
 
     /// The session the controls describe, remembered as the next defaults.
     fn session_options(&self) -> Option<SessionOptions> {
-        let source = self.sources.get(self.source.selected() as usize)?;
+        (!self.sources.is_empty()).then(|| self.described_options())
+    }
+
+    /// What the controls and settings describe, even with no audio source.
+    fn described_options(&self) -> SessionOptions {
+        let source_id = self
+            .sources
+            .get(self.source.selected() as usize)
+            .map(|source| source.id().to_owned())
+            .unwrap_or_default();
         let mode = self.selected_mode();
         let selected = self.language.selected() as usize;
         let general = self.preferences.borrow().general.clone();
@@ -443,18 +492,25 @@ impl CaptionWindow {
         } else {
             general.spoken_language
         };
-        let translation_target = if self.language_kind.get() == LanguageControl::Target {
+        let first_target = if self.language_kind.get() == LanguageControl::Target {
             Language::ALL[selected % Language::ALL.len()]
         } else {
             general.translation_target
         };
-        Some(SessionOptions {
+        let show_original = self.show_original.is_active();
+        SessionOptions {
             mode,
-            source_id: source.id().to_owned(),
+            source_id,
             spoken_language,
-            translation_target,
-            show_original: self.show_original.is_active(),
-        })
+            // The target chosen here wins; a second target that now repeats
+            // it, or the shown source, is dropped.
+            translation_targets: TranslationTargets::resolve(
+                Some(first_target),
+                general.second_translation_target,
+                SessionOptions::shown_source(show_original, spoken_language),
+            ),
+            show_original,
+        }
     }
 
     fn remember(&self, options: &SessionOptions) {
@@ -463,8 +519,9 @@ impl CaptionWindow {
             preferences.general.default_mode = options.mode;
             preferences.general.default_source_id = Some(options.source_id);
             preferences.general.spoken_language = options.spoken_language;
-            preferences.general.translation_target = options.translation_target;
             preferences.general.show_original = options.show_original;
+            preferences.general.translation_target = options.translation_targets.first();
+            preferences.general.second_translation_target = options.translation_targets.second();
         });
     }
 
@@ -495,11 +552,23 @@ impl CaptionWindow {
             return;
         };
         self.remember(&options);
+        self.restart_if_changed();
+    }
+
+    /// Restarts a running session whose options no longer match the controls
+    /// and settings. The controller replaces the session only after the old
+    /// one has fully stopped.
+    fn restart_if_changed(self: &Rc<Self>) {
+        let Some(options) = self.session_options() else {
+            return;
+        };
         if matches!(
             self.phase.get(),
             SessionPhase::Starting | SessionPhase::Running
-        ) && self.send(CaptionUiAction::Start(options))
+        ) && self.started_options.borrow().as_ref() != Some(&options)
+            && self.send(CaptionUiAction::Start(options.clone()))
         {
+            *self.started_options.borrow_mut() = Some(options);
             self.set_phase(SessionPhase::Starting);
         }
     }
@@ -537,7 +606,8 @@ impl CaptionWindow {
                     };
                     this.remember(&options);
                     this.hide_error();
-                    if this.send(CaptionUiAction::Start(options)) {
+                    if this.send(CaptionUiAction::Start(options.clone())) {
+                        *this.started_options.borrow_mut() = Some(options);
                         this.set_phase(SessionPhase::Starting);
                         this.status.set_text("Starting…");
                     }
@@ -583,11 +653,24 @@ impl CaptionWindow {
         }
     }
 
-    fn apply_preferences(&self, preferences: &Preferences) {
+    fn apply_preferences(self: &Rc<Self>, preferences: &Preferences) {
         let appearance = &preferences.appearance;
         self.css.load_from_data(&caption_css(appearance));
         self.window
             .set_default_size(appearance.width, appearance.height);
+        self.sync_translation_controls();
+        self.refresh_lanes();
+        if let Some(window) = self.preferences_window.get() {
+            window.sync_translation(&preferences.general);
+        }
+        // Settings can change the lanes of a running session. Restart it
+        // once this change has been stored, not from inside it.
+        let weak = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            if let Some(this) = weak.upgrade() {
+                this.restart_if_changed();
+            }
+        });
         if let Some(vocabulary) = self.vocabulary.get() {
             vocabulary.configure(
                 preferences.vocabulary.enabled,
@@ -627,14 +710,23 @@ impl CaptionWindow {
             if let Some(presentation) = update.presentation {
                 // A new session's reset must come before any caption that was
                 // coalesced into the same update, or it would erase it.
+                if let Some(options) = presentation.started {
+                    // The controller says what actually started.
+                    *this.started_options.borrow_mut() = Some(options);
+                }
                 if let Some(running) = presentation.running {
                     if running {
+                        // A session starts with empty rows laid out for it.
                         this.captions.reset("");
+                        if let Some(options) = this.started_options.borrow().as_ref() {
+                            this.captions.configure(&lane_layout(options));
+                        }
                         if this.phase.get() != SessionPhase::Stopping {
                             this.set_phase(SessionPhase::Running);
                         }
                     } else {
                         this.set_phase(SessionPhase::Idle);
+                        this.refresh_lanes();
                     }
                 }
                 if let Some(snapshot) = presentation.caption {
@@ -643,11 +735,10 @@ impl CaptionWindow {
                         ui_state_age_us = snapshot.age().as_micros(),
                         "caption update reached GTK"
                     );
-                    let show_original = this.show_original.is_active();
                     this.captions.show(
                         snapshot.caption().text(),
                         snapshot.caption().original(),
-                        show_original,
+                        snapshot.caption().second_translation(),
                     );
                 }
                 if let Some(status) = presentation.status {

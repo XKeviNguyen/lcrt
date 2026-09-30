@@ -23,6 +23,7 @@ pub struct Caption {
     text: String,
     status: CaptionStatus,
     original: Option<String>,
+    second_translation: Option<String>,
 }
 
 impl Caption {
@@ -32,12 +33,19 @@ impl Caption {
             text: text.into(),
             status: CaptionStatus::Partial,
             original: None,
+            second_translation: None,
         }
     }
 
     /// Returns the spoken-language text when this caption is a translation.
     pub fn original(&self) -> Option<&str> {
         self.original.as_deref()
+    }
+
+    /// Returns the second target's text when this caption is a two-target
+    /// translation.
+    pub fn second_translation(&self) -> Option<&str> {
+        self.second_translation.as_deref()
     }
 
     /// Returns the caption text.
@@ -112,11 +120,12 @@ impl CaptionState {
             .checked_add(1)
             .ok_or(CaptionStateError::RevisionOverflow)?;
         let status = update.status();
-        let (text, original) = update.into_parts();
+        let lanes = update.into_lanes();
         let caption = Caption {
-            text,
+            text: lanes.first,
             status,
-            original,
+            original: lanes.original,
+            second_translation: lanes.second,
         };
         self.current = Some(caption.clone());
         Ok(CaptionSnapshot {
@@ -154,7 +163,28 @@ impl Error for CaptionStateError {}
 #[cfg(test)]
 mod tests {
     use super::{Caption, CaptionState, CaptionStatus};
-    use crate::TranscriptUpdate;
+    use crate::{TranscriptUpdate, TranslationLanes};
+
+    #[test]
+    fn every_translation_lane_reaches_the_caption() {
+        let mut state = CaptionState::new();
+        let lanes = TranslationLanes {
+            original: Some("こんにちは".to_owned()),
+            first: "Hello".to_owned(),
+            second: Some("Xin chào".to_owned()),
+        };
+        let update = TranscriptUpdate::lanes(lanes, CaptionStatus::Partial).unwrap();
+        let snapshot = state.apply(update).unwrap();
+        let caption = snapshot.caption();
+        assert_eq!(caption.original(), Some("こんにちは"));
+        assert_eq!(caption.text(), "Hello");
+        assert_eq!(caption.second_translation(), Some("Xin chào"));
+        // A single-lane caption has no second translation.
+        let plain = state
+            .apply(TranscriptUpdate::partial("captions").unwrap())
+            .unwrap();
+        assert_eq!(plain.caption().second_translation(), None);
+    }
 
     #[test]
     fn finalizing_a_partial_caption_preserves_its_text() {
