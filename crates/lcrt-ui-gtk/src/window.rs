@@ -658,7 +658,6 @@ impl CaptionWindow {
         self.css.load_from_data(&caption_css(appearance));
         self.window
             .set_default_size(appearance.width, appearance.height);
-        self.captions.set_font_size(appearance.font_size_points);
         self.sync_translation_controls();
         self.refresh_lanes();
         if let Some(window) = self.preferences_window.get() {
@@ -711,6 +710,10 @@ impl CaptionWindow {
             if let Some(presentation) = update.presentation {
                 // A new session's reset must come before any caption that was
                 // coalesced into the same update, or it would erase it.
+                if let Some(options) = presentation.started {
+                    // The controller says what actually started.
+                    *this.started_options.borrow_mut() = Some(options);
+                }
                 if let Some(running) = presentation.running {
                     if running {
                         // A session starts with empty rows laid out for it.

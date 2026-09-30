@@ -67,6 +67,10 @@ pub struct MultiTargetTranslation {
     /// In target order; the order never changes.
     lanes: Vec<Lane>,
     show_original: bool,
+    /// The lane whose transcript of the source is shown. Two sessions hear
+    /// the same audio but transcribe it at their own pace, so the first one
+    /// to say anything keeps the source lane until its session fails.
+    source_lane: Option<usize>,
     on_lane_failure: LaneFailureCallback,
     abandoned: Arc<AtomicBool>,
     progress: Arc<CombinedStatus>,
@@ -116,6 +120,7 @@ impl MultiTargetTranslation {
         Ok(Self {
             lanes,
             show_original,
+            source_lane: None,
             on_lane_failure,
             abandoned,
             progress,
@@ -124,17 +129,25 @@ impl MultiTargetTranslation {
         })
     }
 
-    /// The source text comes from the first lane that is still running, or
-    /// else from the first lane that has any.
-    fn original(&self) -> Option<String> {
+    /// The source text. A running lane keeps the source lane once it has it;
+    /// when its session fails, the first running lane with a transcript
+    /// takes over, and until one has, the failed lane's last text stays.
+    fn original(&mut self) -> Option<String> {
         if !self.show_original {
             return None;
         }
-        let running = self.lanes.iter().find(|lane| lane.session.is_some());
-        let lane = running
-            .filter(|lane| !lane.original.is_empty())
-            .or_else(|| self.lanes.iter().find(|lane| !lane.original.is_empty()))?;
-        Some(lane.original.clone())
+        let running = |lane: &Lane| lane.session.is_some();
+        if !self
+            .source_lane
+            .is_some_and(|index| running(&self.lanes[index]))
+            && let Some(index) = self
+                .lanes
+                .iter()
+                .position(|lane| running(lane) && !lane.original.is_empty())
+        {
+            self.source_lane = Some(index);
+        }
+        Some(self.lanes[self.source_lane?].original.clone())
     }
 
     /// The combined update, if any lane changed since the last one.
@@ -224,10 +237,13 @@ impl Transcriber for MultiTargetTranslation {
                 }
             }
         }
+        // Combined while the sessions still count as running, so a source
+        // lane that failed during Stop hands over to one that finished.
+        let last = self.combined(CaptionStatus::Final);
         for lane in &mut self.lanes {
             lane.session = None;
         }
-        Ok(self.combined(CaptionStatus::Final))
+        Ok(last)
     }
 }
 
@@ -276,6 +292,7 @@ mod tests {
         sync::{
             Arc, Mutex,
             atomic::{AtomicBool, Ordering},
+            mpsc,
         },
         thread,
         time::{Duration, Instant},
@@ -497,6 +514,79 @@ mod tests {
         let last = started.session.finish().unwrap().pop().unwrap();
         assert_eq!(last.text(), "Hello");
         assert_eq!(last.status(), CaptionStatus::Final);
+    }
+
+    #[test]
+    fn the_source_lane_stays_with_the_session_that_spoke_first() {
+        let (release, held) = mpsc::channel();
+        let mut started = start(
+            true,
+            vec![
+                (
+                    Language::English,
+                    vec![Script::Hold(held, Box::new(serving("one", "Hello")))],
+                ),
+                (
+                    Language::Vietnamese,
+                    vec![serving("one two three", "Xin chào")],
+                ),
+            ],
+        );
+        // The second target's session is ahead: it has the source lane.
+        let update = pump(&mut started.session, |update| update.original().is_some());
+        assert_eq!(update.original(), Some("one two three"));
+        // The first target's session catches up with a shorter transcript,
+        // which must not take back words that are already on screen.
+        release.send(()).unwrap();
+        let update = pump(&mut started.session, |update| update.text() == "Hello");
+        assert_eq!(update.original(), Some("one two three"));
+        let last = started.session.finish().unwrap().pop().unwrap();
+        assert_eq!(last.original(), Some("one two three"));
+    }
+
+    #[test]
+    fn the_source_lane_moves_to_a_running_session_when_its_own_fails() {
+        let rejection = json!({"type": "error", "error": {"type": "invalid_request_error"}});
+        let failing = Script::Serve {
+            on_open: vec![created()],
+            replies: vec![
+                (
+                    "session.update",
+                    vec![source_delta("one"), translated_delta("Hello")],
+                ),
+                (
+                    "session.input_audio_buffer.append",
+                    vec![rejection.to_string()],
+                ),
+            ],
+            break_after_messages: None,
+        };
+        let (release, held) = mpsc::channel();
+        let mut started = start(
+            true,
+            vec![
+                (Language::English, vec![failing]),
+                (
+                    Language::Vietnamese,
+                    vec![Script::Hold(held, Box::new(serving("one two", "Xin chào")))],
+                ),
+            ],
+        );
+        let update = pump(&mut started.session, |update| update.original().is_some());
+        assert_eq!(update.original(), Some("one"));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while started.failures.lock().unwrap().is_empty() {
+            started.session.push_audio(silence(0.1)).unwrap();
+            assert!(Instant::now() < deadline, "the lane never failed");
+            thread::sleep(Duration::from_millis(5));
+        }
+        // The failed session's words stay until another session has some.
+        release.send(()).unwrap();
+        let update = pump(&mut started.session, |update| {
+            update.original() == Some("one two")
+        });
+        assert_eq!(update.text(), "Hello");
+        assert_eq!(update.second_translation(), Some("Xin chào"));
     }
 
     #[test]

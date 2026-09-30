@@ -12,7 +12,7 @@ use lcrt_core::Language;
 
 use crate::{
     CaptionUiAction, VocabularyCard, VocabularyOutcome, VocabularyProblem,
-    presentation::{LaneLayout, line_height, row_fit},
+    presentation::{LaneLayout, row_fit},
 };
 
 /// How long a selection must stay unchanged before it is explained.
@@ -60,6 +60,9 @@ fn caption_view(css_class: &str, accessible_label: &str) -> gtk::TextView {
 struct Lane {
     row: gtk::Box,
     badge: gtk::Label,
+    /// Clips the badge, so neither it nor its offset from the top ever makes
+    /// the row taller than the height it is given.
+    badge_holder: gtk::ScrolledWindow,
     view: gtk::TextView,
     scroller: gtk::ScrolledWindow,
     /// Whether the row has a badge, and therefore fits its text to its
@@ -103,11 +106,16 @@ fn fit_lines(
 
 impl Lane {
     fn new(css_class: &str, accessible_label: &str) -> Self {
-        let badge = gtk::Label::builder()
-            .valign(gtk::Align::Start)
+        let badge = gtk::Label::builder().valign(gtk::Align::Start).build();
+        badge.add_css_class("lane-badge");
+        let badge_holder = gtk::ScrolledWindow::builder()
+            .child(&badge)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::External)
+            .propagate_natural_height(true)
             .visible(false)
             .build();
-        badge.add_css_class("lane-badge");
+        badge_holder.add_css_class("lane-badge-holder");
         let view = caption_view(css_class, accessible_label);
         let scroller = gtk::ScrolledWindow::builder()
             .child(&view)
@@ -131,13 +139,20 @@ impl Lane {
         }
         let labeled = Rc::new(Cell::new(false));
         {
-            // The row's height changed: fit the text to it once this layout
-            // pass is over.
+            // The row's height or the text's height (a new font size)
+            // changed: fit the text to the row once this layout pass is
+            // over. One pending fit is enough however often that happens.
             let widgets = (view.downgrade(), scroller.downgrade(), badge.downgrade());
             let labeled = Rc::clone(&labeled);
-            scroller.vadjustment().connect_page_size_notify(move |_| {
-                let (widgets, labeled) = (widgets.clone(), Rc::clone(&labeled));
+            let pending = Rc::new(Cell::new(false));
+            scroller.vadjustment().connect_changed(move |_| {
+                if pending.replace(true) {
+                    return;
+                }
+                let (widgets, labeled, pending) =
+                    (widgets.clone(), Rc::clone(&labeled), Rc::clone(&pending));
                 glib::idle_add_local_once(move || {
+                    pending.set(false);
                     if let (Some(view), Some(scroller), Some(badge)) = (
                         widgets.0.upgrade(),
                         widgets.1.upgrade(),
@@ -149,11 +164,12 @@ impl Lane {
             });
         }
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        row.append(&badge);
+        row.append(&badge_holder);
         row.append(&scroller);
         Self {
             row,
             badge,
+            badge_holder,
             view,
             scroller,
             labeled,
@@ -161,20 +177,18 @@ impl Lane {
     }
 
     /// Shows the row with `badge`, or without one when `badge` is `None`.
-    /// A row with a badge is never shorter than one line of text
-    /// (`line_height` pixels) and shows no scrollbar.
-    fn configure(&self, visible: bool, badge: Option<&str>, line_height: i32) {
+    /// A row with a badge takes whatever height it is given, fits its text
+    /// to it, and shows no scrollbar.
+    fn configure(&self, visible: bool, badge: Option<&str>) {
         self.row.set_visible(visible);
         let labeled = badge.is_some();
         self.labeled.set(labeled);
-        self.scroller
-            .set_min_content_height(if labeled { line_height } else { -1 });
         self.scroller.set_vscrollbar_policy(if labeled {
             gtk::PolicyType::External
         } else {
             gtk::PolicyType::Automatic
         });
-        self.badge.set_visible(labeled);
+        self.badge_holder.set_visible(labeled);
         if let Some(badge) = badge {
             self.badge.set_text(badge);
         }
@@ -200,8 +214,6 @@ pub(crate) struct CaptionViews {
     first: Lane,
     second: Lane,
     layout: RefCell<LaneLayout>,
-    /// Height of one line of caption text, in pixels.
-    line_height: Cell<i32>,
 }
 
 impl CaptionViews {
@@ -226,7 +238,6 @@ impl CaptionViews {
             first,
             second,
             layout: RefCell::new(LaneLayout::default()),
-            line_height: Cell::new(0),
         };
         views.configure(&LaneLayout::default());
         views
@@ -236,22 +247,13 @@ impl CaptionViews {
     /// which rows or badges are shown. Row order never changes.
     pub(crate) fn configure(&self, layout: &LaneLayout) -> bool {
         let changed = *self.layout.borrow() != *layout;
-        let height = self.line_height.get();
         self.source
-            .configure(layout.source.is_some(), layout.source.as_deref(), height);
-        self.first.configure(true, layout.first.as_deref(), height);
+            .configure(layout.source.is_some(), layout.source.as_deref());
+        self.first.configure(true, layout.first.as_deref());
         self.second
-            .configure(layout.second.is_some(), layout.second.as_deref(), height);
+            .configure(layout.second.is_some(), layout.second.as_deref());
         *self.layout.borrow_mut() = layout.clone();
         changed
-    }
-
-    /// Tells the rows how tall a line of text is at this font size. A
-    /// labeled row is at least that tall, and wraps from twice that.
-    pub(crate) fn set_font_size(&self, points: f64) {
-        self.line_height.set(line_height(points));
-        let layout = self.layout.borrow().clone();
-        self.configure(&layout);
     }
 
     /// Updates each row's text. A row without new text keeps what it shows.

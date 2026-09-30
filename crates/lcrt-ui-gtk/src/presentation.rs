@@ -166,12 +166,6 @@ pub(crate) fn css_font_family(family: Option<&str>) -> Option<String> {
     safe.then(|| family.to_owned())
 }
 
-/// Pixels of one line of caption text at `points` (a point is 4/3 of a
-/// pixel, and a line is about 1.3 times its font size).
-pub(crate) fn line_height(points: f64) -> i32 {
-    (points * 4.0 / 3.0 * 1.3).ceil() as i32
-}
-
 /// How a labeled row's text fits `available` pixels of height, given the
 /// height of one `line`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -230,7 +224,9 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
              border-radius: 9px; padding: 2px 9px; font-weight: 700; \
              font-size: {badge_size:.1}pt; letter-spacing: 1px; min-width: 2.3em; \
              margin-top: {badge_offset:.0}px; }}\n\
-         scrolledwindow.caption-lane undershoot, scrolledwindow.caption-lane overshoot {{ \
+         scrolledwindow.caption-lane undershoot, scrolledwindow.caption-lane overshoot, \
+         scrolledwindow.lane-badge-holder undershoot, \
+         scrolledwindow.lane-badge-holder overshoot {{ \
              background: none; box-shadow: none; }}\n\
          .caption-notice {{ font-size: smaller; }}\n\
          .error {{ color: @error_color; padding: 6px; }}",
@@ -305,14 +301,6 @@ mod tests {
     }
 
     #[test]
-    fn a_line_of_captions_is_about_a_third_taller_than_its_font() {
-        assert_eq!(super::line_height(32.0), 56);
-        // Three one-line rows fit in the default 320-pixel window.
-        assert!(3 * super::line_height(32.0) < 320 - 110);
-        assert!(super::line_height(16.0) < super::line_height(64.0));
-    }
-
-    #[test]
     fn a_labeled_row_shows_whole_lines_and_one_line_when_short() {
         use super::{RowFit, row_fit};
         // Room for one line: a single line, with the spare pixels above it.
@@ -346,14 +334,16 @@ mod tests {
                 top_gap: 43
             }
         );
-        // Shorter than a line: nothing to align.
-        assert_eq!(
-            row_fit(true, 40, 56),
-            RowFit {
-                single_line: true,
-                top_gap: 0
-            }
-        );
+        // Shorter than a line: the row is clipped, with nothing to align.
+        for available in [40, 0] {
+            assert_eq!(
+                row_fit(true, available, 56),
+                RowFit {
+                    single_line: true,
+                    top_gap: 0
+                }
+            );
+        }
         // An unlabeled row is left alone.
         assert_eq!(
             row_fit(false, 60, 56),

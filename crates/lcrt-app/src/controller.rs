@@ -417,7 +417,7 @@ impl Controller {
                 self.save_warning_shown = false;
             }
         }
-        let session_sink = match self.sink.start_session(self.generation) {
+        let session_sink = match self.sink.start_session(self.generation, &options) {
             Ok(sink) => sink,
             Err(error) => {
                 warn!(%error, "caption window is gone; not starting");

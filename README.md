@@ -136,7 +136,9 @@ Vietnamese below it.
 - **Lanes fit the window you chose.** The lanes share the window's height and
   never enlarge it. A lane with room for two lines wraps its text, as in the
   picture. With less room it shows one line that follows the newest words.
-  Either way only whole lines are shown.
+  Either way only whole lines are shown, unless a lane is shorter than one
+  line at a very large font; its text is then cut off rather than the window
+  grown.
 
 ## 📊 Measured, not promised
 

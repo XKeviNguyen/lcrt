@@ -440,7 +440,7 @@ receive the same captured audio. Each has its own bounded queue and bounded
 reconnects, and Stop asks both to close before waiting for either, so the
 waits overlap.
 
-**Automated tests** (226 workspace tests in total at the time of writing):
+**Automated tests** (228 workspace tests in total at the time of writing):
 
 - target validation: duplicates, a target equal to the shown source, a second
   target without a first, and no target at all are each corrected;
@@ -450,10 +450,13 @@ waits overlap.
 - the same audio reaching every lane;
 - one lane failing while the other keeps its captions; the session failing
   only when its last lane does;
+- the original lane staying with the session that transcribed first, and
+  moving to a running session when that one fails;
 - one lane reconnecting while the other keeps running;
 - Stop closing every session, and being idempotent;
 - a replaced session closing at once;
 - lane updates from a replaced session never reaching the new one;
+- a started session giving the window its own lane layout;
 - a finish request never waiting on a full audio queue;
 - how a lane fits its height: one line when short, whole lines only.
 
@@ -497,6 +500,29 @@ three P2 issues. All were fixed:
 - A two-line minimum per lane made the window taller than the height the user
   set. Lanes now share the available height and fit their text to it.
 
+A second review, of `827b02c`, found three P2 issues. All were fixed:
+
+- Each lane still had a minimum height of one line, so three lanes at a
+  large font made the window taller than the height the user set. The
+  minimum is gone, and the badge is clipped with its row, so no part of a
+  lane holds the window taller. The text is fitted again when the font size
+  changes.
+- The window took the lane layout from its own controls, which a diagnostic
+  run (`--smoke-mode translation`) bypasses. A started session now gives the
+  window its own options, so the badges always name the session's languages.
+- The original lane came from the first running session that had any text,
+  so a slower session could take it over with a shorter transcript and
+  remove words already shown. The first session to transcribe now keeps the
+  original lane until it fails.
+
+Checked after these fixes, on the virtual display: three lanes at 32, 48 and
+64 pt kept the 320 px window height (before: 385 px at 64 pt). At 32 pt each lane showed one whole line at 320 px and two at 620 px,
+with live Japanese speech translated into English and Vietnamese. Lowering
+the font from 64 to 20 pt in Settings refitted every lane at once. At 64 pt
+in 320 px a lane is shorter than one line, so its text and badge are cut off
+at the edges. The OpenAI account ran out of quota during these checks, so
+the live runs after the badge change used idle lanes only.
+
 **Not verified at runtime:** one lane failing while the other continues
 (covered by tests only), pointer selection, and the layout on a real display
 (the screenshot is from the virtual display).
@@ -521,6 +547,8 @@ three P2 issues. All were fixed:
   target is a separate paid session. The original lane's badge is `SRC`
   until the spoken language is named in Settings, and only then can a target
   equal to it be prevented.
+- **Window height:** three lanes at a very large font in a short window are
+  each shorter than one line, and their text is cut off at the edges.
 - **Window size:** a width below the control row's minimum (510–683 px) has
   no further effect.
 - **Not tested:**
