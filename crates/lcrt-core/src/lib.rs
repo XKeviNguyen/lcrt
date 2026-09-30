@@ -25,6 +25,11 @@ pub use pipeline::{CaptionPipeline, PipelineError, RunSummary};
 pub use preferences::{
     AppearancePreferences, GeneralPreferences, Preferences, Rgb, VocabularyPreferences,
 };
-pub use session::{Language, LanguageSelection, ProcessingMode, SessionGeneration, SessionOptions};
-pub use transcription::{Transcriber, TranscriptUpdate, TranscriptUpdateError, TranscriptionError};
+pub use session::{
+    CaptionLane, Language, LanguageSelection, MAX_CAPTION_LANES, MAX_TRANSLATION_TARGETS,
+    ProcessingMode, SessionGeneration, SessionOptions, TranslationTargets,
+};
+pub use transcription::{
+    Transcriber, TranscriptUpdate, TranscriptUpdateError, TranscriptionError, TranslationLanes,
+};
 pub use ui::{CaptionSink, CaptionSinkError};

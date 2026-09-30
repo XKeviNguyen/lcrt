@@ -122,6 +122,9 @@ pub(crate) struct UiPresentation {
     pub(crate) caption: Option<CaptionSnapshot>,
     pub(crate) running: Option<bool>,
     pub(crate) status: Option<String>,
+    /// The options of a session that just started. The controller is their
+    /// authority, however the session was started.
+    pub(crate) started: Option<SessionOptions>,
 }
 
 impl UiPresentation {
@@ -135,10 +138,16 @@ impl UiPresentation {
         if newer.status.is_some() {
             self.status = newer.status;
         }
+        if newer.started.is_some() {
+            self.started = newer.started;
+        }
     }
 
     fn is_empty(&self) -> bool {
-        self.caption.is_none() && self.running.is_none() && self.status.is_none()
+        self.caption.is_none()
+            && self.running.is_none()
+            && self.status.is_none()
+            && self.started.is_none()
     }
 }
 
@@ -231,11 +240,20 @@ impl GtkCaptionSink {
     pub fn start_session(
         &self,
         generation: SessionGeneration,
+        options: &SessionOptions,
     ) -> Result<GtkCaptionSink, CaptionSinkError> {
-        self.update(|state| state.current_generation = generation)?;
+        // One update, so the window never sees the session running without
+        // its options. It lays out the caption rows from these, not from its
+        // own controls: a diagnostic run starts sessions the controls don't
+        // show.
+        let options = options.clone();
+        self.update(move |state| {
+            state.current_generation = generation;
+            state.begin_session();
+            state.current.started = Some(options);
+        })?;
         let mut handle = self.clone();
         handle.generation = Some(generation);
-        handle.set_running(true)?;
         Ok(handle)
     }
 
@@ -264,12 +282,7 @@ impl GtkCaptionSink {
     pub fn set_running(&self, running: bool) -> Result<(), CaptionSinkError> {
         self.update(|state| {
             if running {
-                // A new pipeline starts a new caption revision sequence. Keep
-                // an unobserved prior final, but begin new live state after it.
-                state.current = UiPresentation::default();
-                state.latest_caption = None;
-                state.current.running = Some(true);
-                state.current.status = Some("Listening…".to_owned());
+                state.begin_session();
             } else {
                 let presentation = state.control_presentation();
                 presentation.running = Some(false);
@@ -350,6 +363,15 @@ impl GtkCaptionSink {
 }
 
 impl BridgeState {
+    /// A new pipeline starts a new caption revision sequence. Keeps an
+    /// unobserved prior final, but begins new live state after it.
+    fn begin_session(&mut self) {
+        self.current = UiPresentation::default();
+        self.latest_caption = None;
+        self.current.running = Some(true);
+        self.current.status = Some("Listening…".to_owned());
+    }
+
     fn control_presentation(&mut self) -> &mut UiPresentation {
         if self.current.is_empty()
             && let Some(pending) = self.pending_final.as_mut()
@@ -443,9 +465,41 @@ impl Drop for GtkCaptionReceiver {
 #[cfg(test)]
 mod tests {
     use lcrt_core::{
-        CaptionSink, CaptionSnapshot, CaptionState, CaptionStatus, SessionGeneration,
-        TranscriptUpdate,
+        CaptionSink, CaptionSnapshot, CaptionState, CaptionStatus, Language, LanguageSelection,
+        ProcessingMode, SessionGeneration, SessionOptions, TranscriptUpdate, TranslationLanes,
+        TranslationTargets,
     };
+
+    fn translation_options() -> SessionOptions {
+        SessionOptions {
+            mode: ProcessingMode::Translation,
+            source_id: "monitor".to_owned(),
+            spoken_language: LanguageSelection::Language(Language::Japanese),
+            translation_targets: TranslationTargets::resolve(
+                Some(Language::English),
+                Some(Language::Vietnamese),
+                Some(Language::Japanese),
+            ),
+            show_original: true,
+        }
+    }
+
+    #[test]
+    fn a_started_session_tells_the_window_its_own_options() {
+        // A diagnostic run starts sessions the window's controls don't
+        // describe; the rows must follow the session, not the controls.
+        let (controller, receiver) = GtkCaptionSink::bridge();
+        let options = translation_options();
+        controller
+            .start_session(SessionGeneration::default().next(), &options)
+            .unwrap();
+        let started = presentation(&receiver);
+        assert_eq!(started.running, Some(true));
+        assert_eq!(started.started, Some(options));
+        // Later updates of the same session don't repeat them.
+        controller.set_status("Translating…").unwrap();
+        assert_eq!(presentation(&receiver).started, None);
+    }
 
     use super::{
         CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey, GtkCaptionSink,
@@ -658,11 +712,14 @@ mod tests {
     fn stale_session_events_never_reach_the_current_session() {
         let (controller, receiver) = GtkCaptionSink::bridge();
         let mut old = controller
-            .start_session(SessionGeneration::default().next())
+            .start_session(SessionGeneration::default().next(), &translation_options())
             .unwrap();
         receiver.take_update().unwrap();
         let mut current = controller
-            .start_session(SessionGeneration::default().next().next())
+            .start_session(
+                SessionGeneration::default().next().next(),
+                &translation_options(),
+            )
             .unwrap();
         receiver.take_update().unwrap();
 
@@ -687,6 +744,52 @@ mod tests {
             presentation(&receiver).caption.unwrap().caption().text(),
             "current words"
         );
+    }
+
+    fn lanes(
+        captions: &mut CaptionState,
+        original: &str,
+        first: &str,
+        second: &str,
+    ) -> CaptionSnapshot {
+        let lanes = TranslationLanes {
+            original: Some(original.to_owned()),
+            first: first.to_owned(),
+            second: Some(second.to_owned()),
+        };
+        captions
+            .apply(TranscriptUpdate::lanes(lanes, CaptionStatus::Partial).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn lanes_from_a_replaced_translation_never_reach_the_new_one() {
+        let (controller, receiver) = GtkCaptionSink::bridge();
+        let mut old = controller
+            .start_session(SessionGeneration::default().next(), &translation_options())
+            .unwrap();
+        receiver.take_update().unwrap();
+        // The user changed a target: the session is replaced.
+        let mut current = controller
+            .start_session(
+                SessionGeneration::default().next().next(),
+                &translation_options(),
+            )
+            .unwrap();
+        receiver.take_update().unwrap();
+
+        let mut captions = CaptionState::new();
+        old.publish(lanes(&mut captions, "古い", "old English", "cũ"))
+            .unwrap();
+        assert!(receiver.take_update().unwrap().presentation.is_none());
+
+        current
+            .publish(lanes(&mut captions, "こんにちは", "Hello", "Xin chào"))
+            .unwrap();
+        let shown = presentation(&receiver).caption.unwrap();
+        assert_eq!(shown.caption().original(), Some("こんにちは"));
+        assert_eq!(shown.caption().text(), "Hello");
+        assert_eq!(shown.caption().second_translation(), Some("Xin chào"));
     }
 
     #[test]

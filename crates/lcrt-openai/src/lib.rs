@@ -4,6 +4,7 @@
 pub mod audio;
 pub mod credentials;
 pub mod http;
+pub mod lanes;
 pub mod protocol;
 pub mod session;
 pub mod transcription;

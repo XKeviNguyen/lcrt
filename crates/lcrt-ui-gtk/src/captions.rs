@@ -10,7 +10,10 @@ use std::{
 use gtk::{gdk, glib, prelude::*};
 use lcrt_core::Language;
 
-use crate::{CaptionUiAction, VocabularyCard, VocabularyOutcome, VocabularyProblem};
+use crate::{
+    CaptionUiAction, VocabularyCard, VocabularyOutcome, VocabularyProblem,
+    presentation::{LaneLayout, row_fit},
+};
 
 /// How long a selection must stay unchanged before it is explained.
 const SELECTION_SETTLE: Duration = Duration::from_millis(500);
@@ -53,61 +56,230 @@ fn caption_view(css_class: &str, accessible_label: &str) -> gtk::TextView {
     view
 }
 
-/// The original-language and caption text views.
+/// One caption row: a language badge and its selectable text.
+struct Lane {
+    row: gtk::Box,
+    badge: gtk::Label,
+    /// Clips the badge, so neither it nor its offset from the top ever makes
+    /// the row taller than the height it is given.
+    badge_holder: gtk::ScrolledWindow,
+    view: gtk::TextView,
+    scroller: gtk::ScrolledWindow,
+    /// Whether the row has a badge, and therefore fits its text to its
+    /// height.
+    labeled: Rc<Cell<bool>>,
+}
+
+/// Fits a labeled row's text to its height.
+///
+/// With room for two lines the text wraps; with less it is one unwrapped
+/// line that follows the newest words, so the row is always full rather than
+/// showing the last word of a wrapped paragraph. Only whole lines are shown:
+/// the height left over goes above the text, and the badge moves down with it
+/// to stay level with the first line.
+fn fit_lines(
+    view: &gtk::TextView,
+    scroller: &gtk::ScrolledWindow,
+    badge: &gtk::Label,
+    labeled: bool,
+) {
+    let margin = scroller.margin_top();
+    let available = scroller.vadjustment().page_size() as i32 + margin;
+    let line = view.iter_location(&view.buffer().start_iter()).height();
+    let fit = row_fit(labeled, available, line);
+    if fit.single_line != (view.wrap_mode() == gtk::WrapMode::None) {
+        if fit.single_line {
+            // Let the line overflow sideways first, or unwrapping it would
+            // ask for the whole line's width.
+            scroller.set_hscrollbar_policy(gtk::PolicyType::External);
+            view.set_wrap_mode(gtk::WrapMode::None);
+        } else {
+            view.set_wrap_mode(gtk::WrapMode::WordChar);
+            scroller.set_hscrollbar_policy(gtk::PolicyType::Never);
+        }
+    }
+    if fit.top_gap != margin {
+        scroller.set_margin_top(fit.top_gap);
+        badge.set_margin_top(fit.top_gap);
+    }
+}
+
+impl Lane {
+    fn new(css_class: &str, accessible_label: &str) -> Self {
+        let badge = gtk::Label::builder().valign(gtk::Align::Start).build();
+        badge.add_css_class("lane-badge");
+        let badge_holder = gtk::ScrolledWindow::builder()
+            .child(&badge)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::External)
+            .propagate_natural_height(true)
+            .visible(false)
+            .build();
+        badge_holder.add_css_class("lane-badge-holder");
+        let view = caption_view(css_class, accessible_label);
+        let scroller = gtk::ScrolledWindow::builder()
+            .child(&view)
+            .vexpand(true)
+            .hexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .build();
+        scroller.add_css_class("caption-lane");
+        // Keep the newest words in view, down and sideways, while the user
+        // is not selecting.
+        for adjustment in [scroller.vadjustment(), scroller.hadjustment()] {
+            let text = view.downgrade();
+            adjustment.connect_changed(move |adjustment| {
+                if text
+                    .upgrade()
+                    .is_some_and(|view| !view.buffer().has_selection())
+                {
+                    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                }
+            });
+        }
+        let labeled = Rc::new(Cell::new(false));
+        {
+            // The row's height or the text's height (a new font size)
+            // changed: fit the text to the row once this layout pass is
+            // over. One pending fit is enough however often that happens.
+            let widgets = (view.downgrade(), scroller.downgrade(), badge.downgrade());
+            let labeled = Rc::clone(&labeled);
+            let pending = Rc::new(Cell::new(false));
+            scroller.vadjustment().connect_changed(move |_| {
+                if pending.replace(true) {
+                    return;
+                }
+                let (widgets, labeled, pending) =
+                    (widgets.clone(), Rc::clone(&labeled), Rc::clone(&pending));
+                glib::idle_add_local_once(move || {
+                    pending.set(false);
+                    if let (Some(view), Some(scroller), Some(badge)) = (
+                        widgets.0.upgrade(),
+                        widgets.1.upgrade(),
+                        widgets.2.upgrade(),
+                    ) {
+                        fit_lines(&view, &scroller, &badge, labeled.get());
+                    }
+                });
+            });
+        }
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        row.append(&badge_holder);
+        row.append(&scroller);
+        Self {
+            row,
+            badge,
+            badge_holder,
+            view,
+            scroller,
+            labeled,
+        }
+    }
+
+    /// Shows the row with `badge`, or without one when `badge` is `None`.
+    /// A row with a badge takes whatever height it is given, fits its text
+    /// to it, and shows no scrollbar.
+    fn configure(&self, visible: bool, badge: Option<&str>) {
+        self.row.set_visible(visible);
+        let labeled = badge.is_some();
+        self.labeled.set(labeled);
+        self.scroller.set_vscrollbar_policy(if labeled {
+            gtk::PolicyType::External
+        } else {
+            gtk::PolicyType::Automatic
+        });
+        self.badge_holder.set_visible(labeled);
+        if let Some(badge) = badge {
+            self.badge.set_text(badge);
+        }
+        // Rows with a badge read as a list; a single row stays centered.
+        self.view.set_justification(if labeled {
+            gtk::Justification::Left
+        } else {
+            gtk::Justification::Center
+        });
+        fit_lines(&self.view, &self.scroller, &self.badge, labeled);
+    }
+
+    fn set_text(&self, text: &str) {
+        replace_text(&self.view.buffer(), text);
+    }
+}
+
+/// The caption rows, always in the same order: the original speech, the
+/// captions (or first translation), and the second translation.
 pub(crate) struct CaptionViews {
     pub(crate) root: gtk::Box,
-    original: gtk::TextView,
-    caption: gtk::TextView,
-    scroller: gtk::ScrolledWindow,
+    source: Lane,
+    first: Lane,
+    second: Lane,
+    layout: RefCell<LaneLayout>,
 }
 
 impl CaptionViews {
     pub(crate) fn new(placeholder: &str) -> Self {
-        let original = caption_view("caption-original", "Original speech");
-        original.set_visible(false);
-        let caption = caption_view("caption-text", "Captions");
-        caption.buffer().set_text(placeholder);
-        let scroller = gtk::ScrolledWindow::builder()
-            .child(&caption)
-            .vexpand(true)
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .build();
+        let source = Lane::new("caption-original", "Original speech");
+        let first = Lane::new("caption-text", "Captions");
+        let second = Lane::new("caption-text", "Second translation");
+        first.view.buffer().set_text(placeholder);
         let root = gtk::Box::new(gtk::Orientation::Vertical, 6);
         root.set_margin_top(12);
-        root.append(&original);
-        root.append(&scroller);
-        Self {
+        root.set_margin_start(14);
+        root.set_margin_end(14);
+        // Visible rows share the height equally, so a row never moves or
+        // resizes because another one received text.
+        root.set_homogeneous(true);
+        for lane in [&source, &first, &second] {
+            root.append(&lane.row);
+        }
+        let views = Self {
             root,
-            original,
-            caption,
-            scroller,
-        }
+            source,
+            first,
+            second,
+            layout: RefCell::new(LaneLayout::default()),
+        };
+        views.configure(&LaneLayout::default());
+        views
     }
 
-    /// Shows new caption text and, for translations, the original lane.
-    pub(crate) fn show(&self, text: &str, original: Option<&str>, show_original: bool) {
-        let original = original.filter(|text| show_original && !text.trim().is_empty());
-        self.original.set_visible(original.is_some());
+    /// Shows the rows `layout` describes and returns whether that changed
+    /// which rows or badges are shown. Row order never changes.
+    pub(crate) fn configure(&self, layout: &LaneLayout) -> bool {
+        let changed = *self.layout.borrow() != *layout;
+        self.source
+            .configure(layout.source.is_some(), layout.source.as_deref());
+        self.first.configure(true, layout.first.as_deref());
+        self.second
+            .configure(layout.second.is_some(), layout.second.as_deref());
+        *self.layout.borrow_mut() = layout.clone();
+        changed
+    }
+
+    /// Updates each row's text. A row without new text keeps what it shows.
+    pub(crate) fn show(&self, text: &str, original: Option<&str>, second: Option<&str>) {
         if let Some(original) = original {
-            replace_text(&self.original.buffer(), original);
+            self.source.set_text(original);
         }
-        replace_text(&self.caption.buffer(), text);
-        if !self.caption.buffer().has_selection() {
-            // Keep the newest words in view while the user is not selecting.
-            let adjustment = self.scroller.vadjustment();
-            adjustment.set_value(adjustment.upper());
+        self.first.set_text(text);
+        if let Some(second) = second {
+            self.second.set_text(second);
         }
     }
 
-    /// Clears both lanes, showing `placeholder` as the caption.
+    /// Clears every row, showing `placeholder` in the first.
     pub(crate) fn reset(&self, placeholder: &str) {
-        self.original.buffer().set_text("");
-        self.original.set_visible(false);
-        self.caption.buffer().set_text(placeholder);
+        self.source.view.buffer().set_text("");
+        self.second.view.buffer().set_text("");
+        self.first.view.buffer().set_text(placeholder);
     }
 
-    pub(crate) fn views(&self) -> [gtk::TextView; 2] {
-        [self.original.clone(), self.caption.clone()]
+    pub(crate) fn views(&self) -> [gtk::TextView; 3] {
+        [
+            self.source.view.clone(),
+            self.first.view.clone(),
+            self.second.view.clone(),
+        ]
     }
 }
 
@@ -126,6 +298,8 @@ pub(crate) struct Vocabulary {
     /// The text the active request explains, as shown in the popover.
     requested_text: RefCell<String>,
     pending: RefCell<Option<glib::SourceId>>,
+    /// Every caption row whose selection is watched.
+    views: RefCell<Vec<glib::WeakRef<gtk::TextView>>>,
     enabled: Cell<bool>,
     language: Cell<Language>,
     actions: SyncSender<CaptionUiAction>,
@@ -194,6 +368,7 @@ impl Vocabulary {
             active_request: Cell::new(0),
             requested_text: RefCell::new(String::new()),
             pending: RefCell::new(None),
+            views: RefCell::new(Vec::new()),
             enabled: Cell::new(enabled),
             language: Cell::new(language),
             actions,
@@ -240,6 +415,7 @@ impl Vocabulary {
 
     /// Watches a caption view's selection.
     pub(crate) fn attach(self: &Rc<Self>, view: &gtk::TextView) {
+        self.views.borrow_mut().push(view.downgrade());
         let weak = Rc::downgrade(self);
         let target = view.downgrade();
         view.buffer().connect_mark_set(move |_, _, mark| {
@@ -270,6 +446,21 @@ impl Vocabulary {
         }
         if !self.enabled.get() || !view.buffer().has_selection() {
             return;
+        }
+        // One selection at a time across the rows, so it is always clear
+        // which text is being explained. Each row is explained from its own
+        // text only.
+        for other in self
+            .views
+            .borrow()
+            .iter()
+            .filter_map(glib::WeakRef::upgrade)
+        {
+            let buffer = other.buffer();
+            if other != *view && buffer.has_selection() {
+                let cursor = buffer.iter_at_mark(&buffer.get_insert());
+                buffer.place_cursor(&cursor);
+            }
         }
         let weak = Rc::downgrade(self);
         let target = view.downgrade();

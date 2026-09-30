@@ -104,7 +104,7 @@ impl SettingsStore {
 mod tests {
     use std::{fs, path::PathBuf};
 
-    use lcrt_core::{Language, Preferences, ProcessingMode, Rgb};
+    use lcrt_core::{Language, LanguageSelection, Preferences, ProcessingMode, Rgb};
 
     use super::SettingsStore;
 
@@ -135,6 +135,38 @@ mod tests {
         preferences.vocabulary.explanation_language = Language::Japanese;
         store.save(&preferences).unwrap();
         assert_eq!(store.load(), preferences.normalized());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn translation_lane_settings_persist_and_invalid_ones_are_corrected_on_load() {
+        let directory = scratch("lanes");
+        let store = SettingsStore::at(directory.clone());
+        let mut preferences = Preferences::default();
+        preferences.general.spoken_language = LanguageSelection::Language(Language::Japanese);
+        preferences.general.show_original = true;
+        preferences
+            .general
+            .set_translation_targets(Some(Language::English), Some(Language::Vietnamese));
+        store.save(&preferences).unwrap();
+        let loaded = store.load().general;
+        assert_eq!(
+            loaded.spoken_language,
+            LanguageSelection::Language(Language::Japanese)
+        );
+        assert!(loaded.show_original);
+        assert_eq!(loaded.translation_target, Language::English);
+        assert_eq!(loaded.second_translation_target, Some(Language::Vietnamese));
+
+        // A hand-edited file whose targets repeat each other is repaired.
+        let path = directory.join("preferences.json");
+        let edited = fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"vietnamese\"", "\"english\"");
+        fs::write(&path, edited).unwrap();
+        let repaired = store.load().general;
+        assert_eq!(repaired.translation_target, Language::English);
+        assert_eq!(repaired.second_translation_target, None);
         fs::remove_dir_all(directory).unwrap();
     }
 

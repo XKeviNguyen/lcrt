@@ -30,6 +30,12 @@ including silence, to OpenAI's realtime translation service. The service needs
 a continuous stream to translate with low delay. The target language is sent
 with it. LCRT ignores the translated speech audio that the service returns.
 
+You can translate into two languages at once. The service accepts one target
+language per session, so LCRT then opens two sessions and sends the same audio
+to each. API charges apply for each session. The window says so whenever two
+targets are selected. LCRT never opens more sessions than targets, and never
+more than two.
+
 ## Vocabulary explanations
 
 When Vocabulary is on and you select caption text, LCRT sends the following to

@@ -1,7 +1,7 @@
 //! The native Preferences window.
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     path::PathBuf,
     rc::Rc,
     sync::mpsc::{SyncSender, TrySendError},
@@ -10,7 +10,7 @@ use std::{
 
 use gtk::{gdk, gio, glib, pango, prelude::*};
 use lcrt_core::{
-    AppearancePreferences, Language, Preferences, Rgb,
+    AppearancePreferences, GeneralPreferences, Language, LanguageSelection, Preferences, Rgb,
     preferences::{FONT_SIZE_RANGE, HEIGHT_RANGE, WIDTH_RANGE},
 };
 use libadwaita::{self as adw, prelude::*};
@@ -144,6 +144,7 @@ pub(crate) struct PreferencesWindow {
     credential_status: adw::ActionRow,
     /// Disabled while a connection test is in flight.
     test_connection: gtk::Button,
+    translation: Rc<TranslationRows>,
 }
 
 impl PreferencesWindow {
@@ -161,7 +162,8 @@ impl PreferencesWindow {
             .title("Status")
             .subtitle("Checking…")
             .build();
-        window.add(&general_page(&window, shared));
+        let (general, translation) = general_page(&window, shared);
+        window.add(&general);
         let test_connection = gtk::Button::with_label("Test connection");
         window.add(&online_page(shared, &credential_status, &test_connection));
         window.add(&appearance_page(shared));
@@ -171,7 +173,14 @@ impl PreferencesWindow {
             window,
             credential_status,
             test_connection,
+            translation,
         }
+    }
+
+    /// Shows translation-lane settings that were changed in the caption
+    /// window.
+    pub(crate) fn sync_translation(&self, general: &GeneralPreferences) {
+        self.translation.sync(general);
     }
 
     pub(crate) fn present(&self) {
@@ -199,7 +208,7 @@ impl PreferencesWindow {
 fn general_page(
     window: &adw::PreferencesWindow,
     shared: &Rc<PreferencesShared>,
-) -> adw::PreferencesPage {
+) -> (adw::PreferencesPage, Rc<TranslationRows>) {
     let page = adw::PreferencesPage::builder()
         .title("General")
         .name("general")
@@ -267,6 +276,9 @@ fn general_page(
     offline.add(&model_row);
     page.add(&offline);
 
+    let translation = TranslationRows::new(shared);
+    page.add(&translation.group);
+
     let remembered = adw::PreferencesGroup::builder()
         .title("Session")
         .description(
@@ -275,7 +287,125 @@ fn general_page(
         )
         .build();
     page.add(&remembered);
-    page
+    (page, translation)
+}
+
+/// The translation-lane settings. They are re-read from the stored settings
+/// after every change, so a corrected choice shows at once.
+pub(crate) struct TranslationRows {
+    group: adw::PreferencesGroup,
+    spoken: adw::ComboRow,
+    show_source: adw::SwitchRow,
+    first: adw::ComboRow,
+    second: adw::ComboRow,
+    /// Set while the rows are being refreshed, so that doesn't count as a
+    /// change by the user.
+    syncing: Rc<Cell<bool>>,
+}
+
+impl TranslationRows {
+    fn new(shared: &Rc<PreferencesShared>) -> Rc<Self> {
+        let languages = |first: &str| {
+            let labels: Vec<&str> = std::iter::once(first)
+                .chain(Language::ALL.iter().map(|language| language.label()))
+                .collect();
+            gtk::StringList::new(&labels)
+        };
+        let group = adw::PreferencesGroup::builder()
+            .title("Translation lanes")
+            .description(
+                "Translation shows up to three lanes: the original speech and one or two \
+                 translations. Two targets can't be the same, and neither can repeat a spoken \
+                 language you named; such a choice is corrected.",
+            )
+            .build();
+        let spoken = adw::ComboRow::builder()
+            .title("Spoken language")
+            .subtitle("Names the original lane. Translation detects the language itself.")
+            .model(&languages("Detect automatically"))
+            .build();
+        let show_source = adw::SwitchRow::builder()
+            .title("Show the original speech")
+            .build();
+        let first = adw::ComboRow::builder()
+            .title("Translation target 1")
+            .model(&languages("Off"))
+            .build();
+        let second = adw::ComboRow::builder()
+            .title("Translation target 2")
+            .subtitle("Opens a second translation session. API charges apply for each.")
+            .model(&languages("Off"))
+            .build();
+        for row in [
+            spoken.upcast_ref::<gtk::Widget>(),
+            show_source.upcast_ref(),
+            first.upcast_ref(),
+            second.upcast_ref(),
+        ] {
+            group.add(row);
+        }
+        let rows = Rc::new(Self {
+            group,
+            spoken,
+            show_source,
+            first,
+            second,
+            syncing: Rc::new(Cell::new(false)),
+        });
+        rows.sync(&shared.preferences.borrow().general);
+
+        let changed = {
+            let (rows, shared) = (Rc::downgrade(&rows), Rc::clone(shared));
+            move || {
+                let Some(rows) = rows.upgrade() else {
+                    return;
+                };
+                if rows.syncing.get() {
+                    return;
+                }
+                let chosen = |row: &adw::ComboRow| {
+                    (row.selected() as usize)
+                        .checked_sub(1)
+                        .and_then(|index| Language::ALL.get(index).copied())
+                };
+                let spoken = chosen(&rows.spoken)
+                    .map_or(LanguageSelection::Auto, LanguageSelection::Language);
+                let show_original = rows.show_source.is_active();
+                let (first, second) = (chosen(&rows.first), chosen(&rows.second));
+                shared.change(|preferences| {
+                    preferences.general.spoken_language = spoken;
+                    preferences.general.show_original = show_original;
+                    preferences.general.set_translation_targets(first, second);
+                });
+                // Applying the change refreshes these rows from what was
+                // stored, which may be a corrected choice.
+            }
+        };
+        for row in [&rows.spoken, &rows.first, &rows.second] {
+            let changed = changed.clone();
+            row.connect_selected_notify(move |_| changed());
+        }
+        rows.show_source.connect_active_notify(move |_| changed());
+        rows
+    }
+
+    /// Makes the rows show `general`.
+    pub(crate) fn sync(&self, general: &GeneralPreferences) {
+        let index = |language: Option<Language>| {
+            language
+                .and_then(|language| Language::ALL.iter().position(|l| *l == language))
+                .map_or(0, |index| index as u32 + 1)
+        };
+        self.syncing.set(true);
+        self.spoken
+            .set_selected(index(general.spoken_language.language()));
+        self.show_source.set_active(general.show_original);
+        self.first
+            .set_selected(index(Some(general.translation_target)));
+        self.second
+            .set_selected(index(general.second_translation_target));
+        self.syncing.set(false);
+    }
 }
 
 fn online_page(

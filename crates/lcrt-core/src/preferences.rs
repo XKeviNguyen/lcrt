@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Language, LanguageSelection, ProcessingMode};
+use crate::{Language, LanguageSelection, ProcessingMode, SessionOptions, TranslationTargets};
 
 /// Current on-disk preferences schema version.
 pub const PREFERENCES_VERSION: u32 = 1;
@@ -69,6 +69,13 @@ impl Preferences {
             .general
             .default_source_id
             .filter(|id| !id.trim().is_empty());
+        // A hand-edited or older file may hold targets that repeat each
+        // other or the shown source.
+        let (first, second) = (
+            self.general.translation_target,
+            self.general.second_translation_target,
+        );
+        self.general.set_translation_targets(Some(first), second);
         self
     }
 }
@@ -85,10 +92,27 @@ pub struct GeneralPreferences {
     pub model_path: Option<PathBuf>,
     /// Spoken-language hint for transcription.
     pub spoken_language: LanguageSelection,
-    /// Output language for Translation.
+    /// First output language for Translation.
     pub translation_target: Language,
+    /// Optional second output language for Translation. It opens a second
+    /// translation session.
+    pub second_translation_target: Option<Language>,
     /// Whether Translation also shows the original speech.
     pub show_original: bool,
+}
+
+impl GeneralPreferences {
+    /// Stores `first` and `second` as chosen by the user, corrected to a
+    /// valid combination (see [`TranslationTargets::resolve`]).
+    pub fn set_translation_targets(&mut self, first: Option<Language>, second: Option<Language>) {
+        let targets = TranslationTargets::resolve(
+            first,
+            second,
+            SessionOptions::shown_source(self.show_original, self.spoken_language),
+        );
+        self.translation_target = targets.first();
+        self.second_translation_target = targets.second();
+    }
 }
 
 impl Default for GeneralPreferences {
@@ -99,6 +123,7 @@ impl Default for GeneralPreferences {
             model_path: None,
             spoken_language: LanguageSelection::Auto,
             translation_target: Language::English,
+            second_translation_target: None,
             show_original: true,
         }
     }
@@ -185,6 +210,36 @@ impl Default for VocabularyPreferences {
 #[cfg(test)]
 mod tests {
     use super::{AppearancePreferences, PREFERENCES_VERSION, Preferences, Rgb};
+    use crate::{Language, LanguageSelection};
+
+    #[test]
+    fn stored_translation_targets_are_corrected_when_loaded() {
+        let mut preferences = Preferences::default();
+        preferences.general.show_original = true;
+        preferences.general.spoken_language = LanguageSelection::Language(Language::Japanese);
+        preferences.general.translation_target = Language::Japanese;
+        preferences.general.second_translation_target = Some(Language::Vietnamese);
+        let general = preferences.normalized().general;
+        // The first target repeated the shown source, so the second moved up.
+        assert_eq!(general.translation_target, Language::Vietnamese);
+        assert_eq!(general.second_translation_target, None);
+    }
+
+    #[test]
+    fn choosing_targets_keeps_valid_pairs_and_fixes_invalid_ones() {
+        let mut general = Preferences::default().general;
+        general.show_original = false;
+        general.set_translation_targets(Some(Language::English), Some(Language::Vietnamese));
+        assert_eq!(general.translation_target, Language::English);
+        assert_eq!(
+            general.second_translation_target,
+            Some(Language::Vietnamese)
+        );
+        general.set_translation_targets(Some(Language::English), Some(Language::English));
+        assert_eq!(general.second_translation_target, None);
+        general.set_translation_targets(None, None);
+        assert_eq!(general.translation_target, Language::English);
+    }
 
     #[test]
     fn appearance_values_are_clamped_and_non_finite_values_reset() {

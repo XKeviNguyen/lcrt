@@ -11,6 +11,18 @@ pub struct TranscriptUpdate {
     status: CaptionStatus,
     stable_prefix_len: usize,
     original: Option<String>,
+    second_translation: Option<String>,
+}
+
+/// The texts of a translation session's caption lanes.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TranslationLanes {
+    /// The spoken-language text, when the source lane is shown.
+    pub original: Option<String>,
+    /// The first target's text.
+    pub first: String,
+    /// The second target's text, when there is a second target.
+    pub second: Option<String>,
 }
 
 impl TranscriptUpdate {
@@ -59,6 +71,7 @@ impl TranscriptUpdate {
             status,
             stable_prefix_len,
             original: None,
+            second_translation: None,
         })
     }
 
@@ -72,9 +85,32 @@ impl TranscriptUpdate {
         original: impl Into<String>,
         status: CaptionStatus,
     ) -> Result<Self, TranscriptUpdateError> {
-        let text = translation.into();
-        let original = original.into();
-        if text.trim().is_empty() && original.trim().is_empty() {
+        Self::lanes(
+            TranslationLanes {
+                original: Some(original.into()),
+                first: translation.into(),
+                second: None,
+            },
+            status,
+        )
+    }
+
+    /// Creates a translation result from every lane's current text.
+    ///
+    /// Lanes fill at different times, so any of them may be empty, but not
+    /// all of them.
+    pub fn lanes(
+        lanes: TranslationLanes,
+        status: CaptionStatus,
+    ) -> Result<Self, TranscriptUpdateError> {
+        let TranslationLanes {
+            original,
+            first: text,
+            second,
+        } = lanes;
+        let is_empty =
+            |lane: &Option<String>| lane.as_deref().is_none_or(|text| text.trim().is_empty());
+        if text.trim().is_empty() && is_empty(&original) && is_empty(&second) {
             return Err(TranscriptUpdateError::EmptyText);
         }
         let stable_prefix_len = if status == CaptionStatus::Final {
@@ -86,13 +122,19 @@ impl TranscriptUpdate {
             text,
             status,
             stable_prefix_len,
-            original: Some(original),
+            original,
+            second_translation: second,
         })
     }
 
     /// Returns the spoken-language text for translation results.
     pub fn original(&self) -> Option<&str> {
         self.original.as_deref()
+    }
+
+    /// Returns the second target's text for two-target translation results.
+    pub fn second_translation(&self) -> Option<&str> {
+        self.second_translation.as_deref()
     }
 
     /// Returns the update text.
@@ -110,9 +152,13 @@ impl TranscriptUpdate {
         self.text[self.stable_prefix_len..].trim_start()
     }
 
-    /// Consumes the update and returns its text and original lane.
-    pub(crate) fn into_parts(self) -> (String, Option<String>) {
-        (self.text, self.original)
+    /// Consumes the update and returns its lanes.
+    pub(crate) fn into_lanes(self) -> TranslationLanes {
+        TranslationLanes {
+            original: self.original,
+            first: self.text,
+            second: self.second_translation,
+        }
     }
 
     /// Returns whether this update is partial or final.
@@ -202,8 +248,31 @@ impl<T: Transcriber + ?Sized> Transcriber for Box<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TranscriptUpdate, TranscriptUpdateError};
+    use super::{TranscriptUpdate, TranscriptUpdateError, TranslationLanes};
     use crate::CaptionStatus;
+
+    #[test]
+    fn a_lane_update_needs_text_in_at_least_one_lane() {
+        let empty = TranslationLanes {
+            original: Some("  ".to_owned()),
+            first: String::new(),
+            second: Some(String::new()),
+        };
+        assert_eq!(
+            TranscriptUpdate::lanes(empty, CaptionStatus::Partial).unwrap_err(),
+            TranscriptUpdateError::EmptyText
+        );
+        // The second target can be the only lane with text so far.
+        let second_only = TranslationLanes {
+            original: None,
+            first: String::new(),
+            second: Some("Xin chào".to_owned()),
+        };
+        let update = TranscriptUpdate::lanes(second_only, CaptionStatus::Partial).unwrap();
+        assert_eq!(update.text(), "");
+        assert_eq!(update.original(), None);
+        assert_eq!(update.second_translation(), Some("Xin chào"));
+    }
 
     #[test]
     fn transcript_update_rejects_whitespace_only_text() {

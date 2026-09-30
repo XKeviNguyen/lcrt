@@ -425,6 +425,113 @@ mid-speech settled it: the service sends the rest of the translation
 and Stop waits for `session.closed`, bounded at 8 s. On the final build a
 mid-speech Stop took 5.3 s and kept the late text.
 
+## Multi-language caption lanes
+
+Added after the V2 merge, on `feature/multi-language-caption-lanes`.
+
+**What it is.** In Translation mode the caption area is a stack of up to
+three lanes, always in this order: the original speech (optional), the first
+translation, and an optional second translation. Each lane has a language
+badge (`JA`, `EN`, `VI`, …) and its own selectable text.
+
+**Architecture.** The translation service takes one output language per
+session, so each target is its own session: one or two, never more. Both
+receive the same captured audio. Each has its own bounded queue and bounded
+reconnects, and Stop asks both to close before waiting for either, so the
+waits overlap.
+
+**Automated tests** (228 workspace tests in total at the time of writing):
+
+- target validation: duplicates, a target equal to the shown source, a second
+  target without a first, and no target at all are each corrected;
+- lane order and badges, and at most three lanes;
+- settings persistence, and correction of an invalid stored combination;
+- two sessions filling their own lanes; one target with the source hidden;
+- the same audio reaching every lane;
+- one lane failing while the other keeps its captions; the session failing
+  only when its last lane does;
+- the original lane staying with the session that transcribed first, and
+  moving to a running session when that one fails;
+- one lane reconnecting while the other keeps running;
+- Stop closing every session, and being idempotent;
+- a replaced session closing at once;
+- lane updates from a replaced session never reaching the new one;
+- a started session giving the window its own lane layout;
+- a finish request never waiting on a full audio queue;
+- how a lane fits its height: one line when short, whole lines only.
+
+**Runtime checks with OpenAI**, through system audio, with the owner's key
+read from the keyring. The window ran on a virtual display (`Xvfb`) for the
+checks that needed a screenshot, because the workstation's screen was locked.
+
+| Check | Result |
+| --- | --- |
+| Japanese speech, original shown, targets English and Vietnamese | Three lanes with badges `JA`, `EN`, `VI`. All three filled: first text at 3.4 s, 5.7 s and 6.1 s. Two sessions opened. Stop took 7.5 s. |
+| English speech, original hidden, target Japanese | One lane with badge `JA`, one session, Japanese translation. |
+| Lane settings persist | Turning the original lane on in Settings changed the layout at once (`EN`, `JA`), was saved, and survived a restart. A hand-edited file with two identical targets loaded as one target. |
+| Vocabulary from several lanes | Selections in the English, Vietnamese and Japanese lanes were each explained from that lane's text. |
+| Stop and restart with two targets | A second Start began with every lane empty and showed no text from the previous run. Closing the window took 0.32 s and left no process. Four sessions were opened across the two runs, two each. |
+| Reconnect with two sessions | A 2 s network cut dropped both connections. Each reconnected within its own retries, the status returned to Translating after 4.2 s, and all three lanes resumed. |
+| Lane change during a session | Hiding the original lane in Settings changed the layout after 0.16 s and the new session was translating after 1.8 s, with no text from the old one. |
+| Other modes | Offline Captions still shows one unlabeled lane (JFK fixture, first caption at 3.0 s). |
+| Layout at three window heights | At the default 320 px the window kept its height and each lane showed one full line that followed the newest words. At 480 px the same. At 620 px each lane wrapped to two whole lines; the README screenshot is from this run. |
+
+**Two defects found by these runs, and fixed.**
+
+1. Replacing a session (a lane change during a session) first took 9.5 s,
+   because the old session waited for final words that would be discarded. A
+   replaced session now closes at once.
+2. With two sessions, the service sometimes needed more than the 8 s finish
+   wait to deliver the last words. Translation now waits up to 12 s.
+
+**Review fixes (Codex, PR #29).** A review of `17ad927` found one P1 and
+three P2 issues. All were fixed:
+
+- **P1:** asking a session to finish could wait on a full audio queue, which
+  delayed the close request to the other lane. The request is now the act of
+  closing the audio channel, so it never waits, and the `Finish` command is
+  gone.
+- A lane change during a session relabeled the rows at once, while the old
+  session's text was still on them. Rows are now relabeled when the
+  replacement session starts, with empty rows. A layout change while idle
+  clears the previous session's text.
+- A translation diagnostic could be given the same language as source and
+  target. `--smoke-target` equal to `--language` is now rejected.
+- A two-line minimum per lane made the window taller than the height the user
+  set. Lanes now share the available height and fit their text to it.
+
+A second review, of `827b02c`, found three P2 issues. All were fixed:
+
+- Each lane still had a minimum height of one line, so three lanes at a
+  large font made the window taller than the height the user set. The
+  minimum is gone, and the badge is clipped with its row, so no part of a
+  lane holds the window taller. The text is fitted again when the font size
+  changes.
+- The window took the lane layout from its own controls, which a diagnostic
+  run (`--smoke-mode translation`) bypasses. A started session now gives the
+  window its own options, so the badges always name the session's languages.
+- The original lane came from the first running session that had any text,
+  so a slower session could take it over with a shorter transcript and
+  remove words already shown. The first session to transcribe now keeps the
+  original lane until it fails.
+
+A third review, of `e84df13`, found one P2: the session's options and its
+running state reached the window in two updates, so the window could lay the
+rows out between them from stale options. Both are now published in one
+update.
+
+Checked after these fixes, on the virtual display: three lanes at 32, 48 and
+64 pt kept the 320 px window height (before: 385 px at 64 pt). At 32 pt each lane showed one whole line at 320 px and two at 620 px,
+with live Japanese speech translated into English and Vietnamese. Lowering
+the font from 64 to 20 pt in Settings refitted every lane at once. At 64 pt
+in 320 px a lane is shorter than one line, so its text and badge are cut off
+at the edges. The OpenAI account ran out of quota during these checks, so
+the live runs after the badge change used idle lanes only.
+
+**Not verified at runtime:** one lane failing while the other continues
+(covered by tests only), pointer selection, and the layout on a real display
+(the screenshot is from the virtual display).
+
 ## Known limitations
 
 - **Offline repetition:** see above. A timestamp-based commit that removes
@@ -436,9 +543,17 @@ mid-speech Stop took 5.3 s and kept the late text.
   instead of at pauses; captions still update continuously.
 - **Online recovery:** a reconnect discards audio captured during the outage.
   Online modes never fall back to another backend by themselves.
-- **Stop wait bound:** Stop waits at most 18 s (10 s handshake + 8 s finish)
-  for an unresponsive online service. Measured live: 1.4 s for captions and
-  5–7 s for translation, which is the service finishing the translation.
+- **Stop wait bound:** for an unresponsive online service, Stop waits at
+  most 18 s in Online Captions and 22 s in Translation (a 10 s handshake plus
+  an 8 s or 12 s finish wait). Measured live: 1.4 s for captions and 5–8 s
+  for translation, which is the service finishing the translation, and 14 s
+  once when the service was slow.
+- **Translation lanes:** at most three, the original and two targets. Each
+  target is a separate paid session. The original lane's badge is `SRC`
+  until the spoken language is named in Settings, and only then can a target
+  equal to it be prevented.
+- **Window height:** three lanes at a very large font in a short window are
+  each shorter than one line, and their text is cut off at the edges.
 - **Window size:** a width below the control row's minimum (510–683 px) has
   no further effect.
 - **Not tested:**
