@@ -369,6 +369,10 @@ impl Vocabulary {
             .set_visible(!card.context_explanation.is_empty());
         self.context.set_text(&card.context_explanation);
         self.copy.set_visible(true);
+        // The content changed size. A popover's parent must present it again
+        // when that happens, and a text view doesn't for a popover it didn't
+        // create; without this GTK closes the popover instead of resizing it.
+        self.popover.present();
     }
 
     fn show_problem(&self, problem: &VocabularyProblem) {
