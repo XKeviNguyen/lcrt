@@ -515,6 +515,11 @@ A second review, of `827b02c`, found three P2 issues. All were fixed:
   remove words already shown. The first session to transcribe now keeps the
   original lane until it fails.
 
+A third review, of `e84df13`, found one P2: the session's options and its
+running state reached the window in two updates, so the window could lay the
+rows out between them from stale options. Both are now published in one
+update.
+
 Checked after these fixes, on the virtual display: three lanes at 32, 48 and
 64 pt kept the 320 px window height (before: 385 px at 64 pt). At 32 pt each lane showed one whole line at 320 px and two at 620 px,
 with live Japanese speech translated into English and Vietnamese. Lowering

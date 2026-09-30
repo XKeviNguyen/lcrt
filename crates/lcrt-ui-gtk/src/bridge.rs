@@ -242,14 +242,18 @@ impl GtkCaptionSink {
         generation: SessionGeneration,
         options: &SessionOptions,
     ) -> Result<GtkCaptionSink, CaptionSinkError> {
-        self.update(|state| state.current_generation = generation)?;
+        // One update, so the window never sees the session running without
+        // its options. It lays out the caption rows from these, not from its
+        // own controls: a diagnostic run starts sessions the controls don't
+        // show.
+        let options = options.clone();
+        self.update(move |state| {
+            state.current_generation = generation;
+            state.begin_session();
+            state.current.started = Some(options);
+        })?;
         let mut handle = self.clone();
         handle.generation = Some(generation);
-        handle.set_running(true)?;
-        // The window lays out its caption rows from these, not from its own
-        // controls: a diagnostic run starts sessions the controls don't show.
-        let options = options.clone();
-        handle.update(move |state| state.current.started = Some(options))?;
         Ok(handle)
     }
 
@@ -278,12 +282,7 @@ impl GtkCaptionSink {
     pub fn set_running(&self, running: bool) -> Result<(), CaptionSinkError> {
         self.update(|state| {
             if running {
-                // A new pipeline starts a new caption revision sequence. Keep
-                // an unobserved prior final, but begin new live state after it.
-                state.current = UiPresentation::default();
-                state.latest_caption = None;
-                state.current.running = Some(true);
-                state.current.status = Some("Listening…".to_owned());
+                state.begin_session();
             } else {
                 let presentation = state.control_presentation();
                 presentation.running = Some(false);
@@ -364,6 +363,15 @@ impl GtkCaptionSink {
 }
 
 impl BridgeState {
+    /// A new pipeline starts a new caption revision sequence. Keeps an
+    /// unobserved prior final, but begins new live state after it.
+    fn begin_session(&mut self) {
+        self.current = UiPresentation::default();
+        self.latest_caption = None;
+        self.current.running = Some(true);
+        self.current.status = Some("Listening…".to_owned());
+    }
+
     fn control_presentation(&mut self) -> &mut UiPresentation {
         if self.current.is_empty()
             && let Some(pending) = self.pending_final.as_mut()
