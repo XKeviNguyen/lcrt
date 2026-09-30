@@ -166,6 +166,15 @@ mod tests {
     }
 
     #[test]
+    fn a_save_that_cannot_be_written_reports_an_error() {
+        let blocker = scratch("blocked");
+        fs::write(&blocker, "a file where the directory should be").unwrap();
+        let store = SettingsStore::at(blocker.join("lcrt"));
+        assert!(store.save(&Preferences::default()).is_err());
+        fs::remove_file(blocker).unwrap();
+    }
+
+    #[test]
     fn saved_file_contains_no_credential_and_is_private() {
         let directory = scratch("private");
         let store = SettingsStore::at(directory.clone());

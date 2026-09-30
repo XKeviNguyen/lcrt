@@ -1,6 +1,12 @@
 //! The native Preferences window.
 
-use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::mpsc::SyncSender, time::Duration};
+use std::{
+    cell::RefCell,
+    path::PathBuf,
+    rc::Rc,
+    sync::mpsc::{SyncSender, TrySendError},
+    time::Duration,
+};
 
 use gtk::{gdk, gio, glib, pango, prelude::*};
 use lcrt_core::{
@@ -49,6 +55,41 @@ impl PreferencesShared {
             *preferences = normalized;
         }
         (self.apply)(&self.preferences.borrow());
+        self.schedule_save();
+    }
+
+    /// Hands any pending change to the controller now, so the action that
+    /// follows (such as Start) sees it. Returns false if the controller is
+    /// busy; the save is then retried shortly.
+    pub(crate) fn flush(self: &Rc<Self>) -> bool {
+        match self.take_pending() {
+            Some(snapshot) => self.send_snapshot(snapshot),
+            None => true,
+        }
+    }
+
+    /// Cancels the pending save and returns its snapshot, for a caller that
+    /// delivers it itself (window close).
+    pub(crate) fn take_pending(&self) -> Option<Box<Preferences>> {
+        let source = self.pending_save.borrow_mut().take()?;
+        source.remove();
+        Some(Box::new(self.preferences.borrow().clone()))
+    }
+
+    fn send_snapshot(self: &Rc<Self>, snapshot: Box<Preferences>) -> bool {
+        match self
+            .actions
+            .try_send(CaptionUiAction::SavePreferences(snapshot))
+        {
+            Ok(()) | Err(TrySendError::Disconnected(_)) => true,
+            Err(TrySendError::Full(_)) => {
+                self.schedule_save();
+                false
+            }
+        }
+    }
+
+    fn schedule_save(self: &Rc<Self>) {
         if let Some(source) = self.pending_save.borrow_mut().take() {
             source.remove();
         }
@@ -57,9 +98,7 @@ impl PreferencesShared {
             if let Some(shared) = weak.upgrade() {
                 shared.pending_save.borrow_mut().take();
                 let snapshot = Box::new(shared.preferences.borrow().clone());
-                let _ = shared
-                    .actions
-                    .try_send(CaptionUiAction::SavePreferences(snapshot));
+                shared.send_snapshot(snapshot);
             }
         });
         *self.pending_save.borrow_mut() = Some(source);
@@ -103,6 +142,8 @@ fn language_index(language: Language) -> u32 {
 pub(crate) struct PreferencesWindow {
     window: adw::PreferencesWindow,
     credential_status: adw::ActionRow,
+    /// Disabled while a connection test is in flight.
+    test_connection: gtk::Button,
 }
 
 impl PreferencesWindow {
@@ -121,13 +162,15 @@ impl PreferencesWindow {
             .subtitle("Checking…")
             .build();
         window.add(&general_page(&window, shared));
-        window.add(&online_page(shared, &credential_status));
+        let test_connection = gtk::Button::with_label("Test connection");
+        window.add(&online_page(shared, &credential_status, &test_connection));
         window.add(&appearance_page(shared));
         window.add(&vocabulary_page(shared));
         window.add(&about_page());
         Self {
             window,
             credential_status,
+            test_connection,
         }
     }
 
@@ -148,6 +191,8 @@ impl PreferencesWindow {
         };
         self.credential_status
             .set_subtitle(&format!("{marker}{}", view.status));
+        // Every credential action ends with a status, including a test.
+        self.test_connection.set_sensitive(true);
     }
 }
 
@@ -233,7 +278,11 @@ fn general_page(
     page
 }
 
-fn online_page(shared: &Rc<PreferencesShared>, status: &adw::ActionRow) -> adw::PreferencesPage {
+fn online_page(
+    shared: &Rc<PreferencesShared>,
+    status: &adw::ActionRow,
+    test: &gtk::Button,
+) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::builder()
         .title("Online")
         .name("online")
@@ -248,7 +297,7 @@ fn online_page(shared: &Rc<PreferencesShared>, status: &adw::ActionRow) -> adw::
         )
         .build();
     let key_row = adw::PasswordEntryRow::builder().title("API key").build();
-    let test = gtk::Button::with_label("Test connection");
+    let test = test.clone();
     let save = gtk::Button::with_label("Save securely");
     save.add_css_class("suggested-action");
     let clear = gtk::Button::with_label("Clear");
@@ -259,26 +308,41 @@ fn online_page(shared: &Rc<PreferencesShared>, status: &adw::ActionRow) -> adw::
     buttons.append(&clear);
     buttons.append(&save);
 
+    const BUSY: &str = "⚠ LCRT is busy. Try again.";
     let actions = shared.actions.clone();
     let entry = key_row.clone();
+    let row = status.clone();
     save.connect_clicked(move |_| {
-        let text = entry.text().to_string();
-        // Clear the plaintext entry as soon as the key is handed off.
-        entry.set_text("");
-        let _ = actions.try_send(CaptionUiAction::SaveApiKey(EnteredApiKey::new(text)));
+        let action = CaptionUiAction::SaveApiKey(EnteredApiKey::new(entry.text().to_string()));
+        if actions.try_send(action).is_ok() {
+            // Clear the plaintext entry only once the key is handed off.
+            entry.set_text("");
+        } else {
+            row.set_subtitle(BUSY);
+        }
     });
     let actions = shared.actions.clone();
     let row = status.clone();
     let entry = key_row.clone();
-    test.connect_clicked(move |_| {
-        row.set_subtitle("Testing…");
+    test.connect_clicked(move |button| {
         let text = entry.text();
         let entered = (!text.trim().is_empty()).then(|| EnteredApiKey::new(text.to_string()));
-        let _ = actions.try_send(CaptionUiAction::TestConnection(entered));
+        if actions
+            .try_send(CaptionUiAction::TestConnection(entered))
+            .is_ok()
+        {
+            row.set_subtitle("Testing…");
+            button.set_sensitive(false);
+        } else {
+            row.set_subtitle(BUSY);
+        }
     });
     let actions = shared.actions.clone();
+    let row = status.clone();
     clear.connect_clicked(move |_| {
-        let _ = actions.try_send(CaptionUiAction::ClearApiKey);
+        if actions.try_send(CaptionUiAction::ClearApiKey).is_err() {
+            row.set_subtitle(BUSY);
+        }
     });
 
     group.add(&key_row);

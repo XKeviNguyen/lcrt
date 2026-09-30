@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc::{Receiver, RecvTimeoutError, TryRecvError, sync_channel},
     },
     thread::{self, JoinHandle},
@@ -128,6 +128,21 @@ impl StartupGate {
     }
 }
 
+/// Orders credential actions so a slow connection test can't overwrite the
+/// status of a newer test, save or clear.
+#[derive(Clone, Default)]
+struct CredentialActions(Arc<AtomicU64>);
+
+impl CredentialActions {
+    fn begin(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    fn is_latest(&self, action: u64) -> bool {
+        self.0.load(Ordering::Acquire) == action
+    }
+}
+
 /// Why a caption session ended early, in words for the user.
 #[derive(Debug)]
 struct SessionFailure {
@@ -209,6 +224,10 @@ pub(crate) struct Controller {
     credentials: Credentials<KeyringStore>,
     vocabulary_cache: Arc<Mutex<VocabularyCache>>,
     vocabulary_lookups: Arc<AtomicUsize>,
+    credential_actions: CredentialActions,
+    /// The last write of `preferences` failed; retried on the next change
+    /// and at shutdown.
+    preferences_unsaved: bool,
     state: ControllerState,
     generation: SessionGeneration,
     pending_start: Option<SessionOptions>,
@@ -232,6 +251,8 @@ impl Controller {
             credentials: Credentials::new(KeyringStore, environment_key.as_deref()),
             vocabulary_cache: Arc::new(Mutex::new(VocabularyCache::default())),
             vocabulary_lookups: Arc::new(AtomicUsize::new(0)),
+            credential_actions: CredentialActions::default(),
+            preferences_unsaved: false,
             state: ControllerState::Idle,
             generation: SessionGeneration::default(),
             pending_start: None,
@@ -277,6 +298,9 @@ impl Controller {
                     }
                 }
                 Ok(CaptionUiAction::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
+                    if self.preferences_unsaved {
+                        self.persist_preferences();
+                    }
                     request_controller_shutdown(&mut self.state);
                     return if self.overrides.smoke {
                         ControllerOutcome::SmokeFailed
@@ -287,8 +311,12 @@ impl Controller {
                 Ok(CaptionUiAction::SavePreferences(preferences)) => {
                     self.save_preferences(*preferences);
                 }
-                Ok(CaptionUiAction::SaveApiKey(entered)) => self.save_api_key(entered.expose()),
+                Ok(CaptionUiAction::SaveApiKey(entered)) => {
+                    self.credential_actions.begin();
+                    self.save_api_key(entered.expose());
+                }
                 Ok(CaptionUiAction::ClearApiKey) => {
+                    self.credential_actions.begin();
                     let view = match self.credentials.clear() {
                         Ok(status) => credential_view(status),
                         Err(error) => problem_view(&format!("Couldn't clear the key: {error}")),
@@ -428,10 +456,29 @@ impl Controller {
 
     fn save_preferences(&mut self, preferences: Preferences) {
         self.preferences = preferences.normalized();
-        if let Some(store) = &self.store
-            && let Err(error) = store.save(&self.preferences)
-        {
-            warn!(%error, "could not save preferences");
+        self.persist_preferences();
+    }
+
+    /// Writes the authoritative preferences. On failure they still apply
+    /// until LCRT quits, and the user is told they were not saved.
+    fn persist_preferences(&mut self) {
+        let Some(store) = &self.store else {
+            return;
+        };
+        match store.save(&self.preferences) {
+            Ok(()) => {
+                if self.preferences_unsaved {
+                    self.preferences_unsaved = false;
+                    notify_ui(self.sink.clear_error());
+                }
+            }
+            Err(error) => {
+                warn!(%error, "could not save preferences");
+                self.preferences_unsaved = true;
+                notify_ui(self.sink.show_error(format!(
+                    "Couldn't save settings ({error}). Changes apply until LCRT quits."
+                )));
+            }
         }
     }
 
@@ -447,6 +494,7 @@ impl Controller {
     }
 
     fn test_connection(&self, entered: Option<&EnteredApiKey>) {
+        let action = self.credential_actions.begin();
         let key = match key_to_test(entered, || self.credentials.resolve().map(|(key, _)| key)) {
             Ok(key) => key,
             Err(message) => {
@@ -455,6 +503,7 @@ impl Controller {
             }
         };
         let sink = self.sink.clone();
+        let credential_actions = self.credential_actions.clone();
         let spawned = thread::Builder::new()
             .name("lcrt-connection-test".to_owned())
             .spawn(move || {
@@ -465,7 +514,10 @@ impl Controller {
                     },
                     Err(error) => problem_view(user_message(&error)),
                 };
-                notify_ui(sink.set_credential(view));
+                // A newer test, save or clear owns the status now.
+                if credential_actions.is_latest(action) {
+                    notify_ui(sink.set_credential(view));
+                }
             });
         if spawned.is_err() {
             notify_ui(
@@ -762,8 +814,9 @@ mod tests {
     };
 
     use super::{
-        ControllerState, PipelineSession, SessionFailure, StartupGate, StartupPhase,
-        credential_view, key_to_test, request_controller_shutdown, start_audio_after_stt,
+        ControllerState, CredentialActions, PipelineSession, SessionFailure, StartupGate,
+        StartupPhase, credential_view, key_to_test, request_controller_shutdown,
+        start_audio_after_stt,
     };
     use lcrt_core::{PipelineError, TranscriptionError};
     use lcrt_openai::credentials::{ApiKey, CredentialStatus};
@@ -781,6 +834,17 @@ mod tests {
         // Mentioning the key is not the same as the key being rejected.
         let other = TranscriptionError::new("API key accepted but the service is down");
         assert!(!SessionFailure::from_pipeline(&other).needs_settings);
+    }
+
+    #[test]
+    fn only_the_latest_credential_action_reports_its_result() {
+        let actions = CredentialActions::default();
+        let slow_test = actions.begin();
+        let newer_test = actions.begin();
+        assert!(!actions.is_latest(slow_test));
+        assert!(actions.is_latest(newer_test));
+        actions.begin(); // Save or Clear
+        assert!(!actions.is_latest(newer_test));
     }
 
     #[test]

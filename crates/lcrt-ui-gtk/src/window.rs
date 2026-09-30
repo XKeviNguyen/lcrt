@@ -338,8 +338,7 @@ impl CaptionWindow {
         let owner = Rc::clone(&this);
         let close_actions = actions;
         window.connect_close_request(move |_| {
-            let _ = &owner;
-            request_controller_shutdown(close_actions.clone());
+            request_controller_shutdown(close_actions.clone(), owner.shared.take_pending());
             glib::Propagation::Proceed
         });
     }
@@ -469,7 +468,13 @@ impl CaptionWindow {
         });
     }
 
-    fn send(&self, action: CaptionUiAction) -> bool {
+    fn send(self: &Rc<Self>, action: CaptionUiAction) -> bool {
+        // The controller must see pending preference changes (such as a
+        // newly chosen model) before the action that depends on them.
+        if !self.shared.flush() {
+            self.show_error("LCRT is busy. Try again.", false);
+            return false;
+        }
         match self.actions.try_send(action) {
             Ok(()) => true,
             Err(_) => {
@@ -481,7 +486,7 @@ impl CaptionWindow {
 
     /// Reacts to a control change: remember it and, during a session,
     /// restart with the new options.
-    fn controls_changed(&self) {
+    fn controls_changed(self: &Rc<Self>) {
         if self.updating_controls.get() {
             return;
         }
@@ -678,13 +683,32 @@ impl CaptionWindow {
     }
 }
 
-fn request_controller_shutdown(actions: SyncSender<CaptionUiAction>) {
-    match actions.try_send(CaptionUiAction::Shutdown) {
-        Ok(()) | Err(TrySendError::Disconnected(_)) => {}
-        Err(TrySendError::Full(action)) => {
-            thread::spawn(move || {
-                let _ = actions.send(action);
-            });
+/// Delivers a pending preference change, then Shutdown, in that order. A
+/// full queue must not lose either, so the rest is sent from a helper thread.
+fn request_controller_shutdown(
+    actions: SyncSender<CaptionUiAction>,
+    pending: Option<Box<Preferences>>,
+) {
+    let mut queue: std::collections::VecDeque<CaptionUiAction> = pending
+        .map(CaptionUiAction::SavePreferences)
+        .into_iter()
+        .chain([CaptionUiAction::Shutdown])
+        .collect();
+    while let Some(action) = queue.pop_front() {
+        match actions.try_send(action) {
+            Ok(()) => {}
+            Err(TrySendError::Disconnected(_)) => return,
+            Err(TrySendError::Full(action)) => {
+                queue.push_front(action);
+                thread::spawn(move || {
+                    for action in queue {
+                        if actions.send(action).is_err() {
+                            return;
+                        }
+                    }
+                });
+                return;
+            }
         }
     }
 }
@@ -730,10 +754,37 @@ fn overlay_protocol_is_usable(
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::mpsc::sync_channel, time::Duration};
+
+    use lcrt_core::Preferences;
+
     use super::{
         CaptionUiMode, CaptionUiOptions, DIAGNOSTIC_APPLICATION_ID, NORMAL_APPLICATION_ID,
-        overlay_protocol_is_usable,
+        overlay_protocol_is_usable, request_controller_shutdown,
     };
+    use crate::CaptionUiAction;
+
+    #[test]
+    fn closing_delivers_a_pending_preference_change_before_shutdown_even_when_busy() {
+        let (actions, received) = sync_channel(1);
+        actions.try_send(CaptionUiAction::Stop).unwrap(); // the queue is full
+        let mut preferences = Preferences::default();
+        preferences.appearance.width = 999;
+        request_controller_shutdown(actions, Some(Box::new(preferences.clone())));
+        let timeout = Duration::from_secs(5);
+        assert_eq!(
+            received.recv_timeout(timeout).unwrap(),
+            CaptionUiAction::Stop
+        );
+        assert_eq!(
+            received.recv_timeout(timeout).unwrap(),
+            CaptionUiAction::SavePreferences(Box::new(preferences))
+        );
+        assert_eq!(
+            received.recv_timeout(timeout).unwrap(),
+            CaptionUiAction::Shutdown
+        );
+    }
 
     #[test]
     fn overlay_is_preferred_by_default() {
