@@ -38,8 +38,9 @@ pub enum TransportError {
     Closed,
     /// The service sent something outside the bounded protocol.
     Protocol(String),
-    /// The service refused the session or its settings; the payload is the
-    /// error's type and code, never its message.
+    /// The service refused the request or session settings (an HTTP 4xx or a
+    /// session-level error event); the payload is the status or the error's
+    /// type and code, never its message.
     Rejected(String),
 }
 
@@ -64,8 +65,8 @@ impl fmt::Display for TransportError {
             Self::Unreachable(detail) => write!(formatter, "the service is unreachable: {detail}"),
             Self::Closed => formatter.write_str("the connection was lost"),
             Self::Protocol(detail) => write!(formatter, "unexpected service message: {detail}"),
-            Self::Rejected(category) => {
-                write!(formatter, "the service refused the session: {category}")
+            Self::Rejected(detail) => {
+                write!(formatter, "the service rejected the request: {detail}")
             }
         }
     }
@@ -79,6 +80,8 @@ pub(crate) fn error_for_status(status: u16) -> TransportError {
         401 => TransportError::Unauthorized,
         403 | 404 => TransportError::Forbidden,
         429 => TransportError::RateLimited,
+        // Resending the same request can't fix any other client error.
+        400..=499 => TransportError::Rejected(format!("HTTP {status}")),
         other => TransportError::Unreachable(format!("HTTP {other}")),
     }
 }
@@ -336,6 +339,11 @@ mod tests {
             error_for_status(503),
             TransportError::Unreachable(_)
         ));
+        for status in [400, 422] {
+            let error = error_for_status(status);
+            assert!(matches!(error, TransportError::Rejected(_)));
+            assert!(!error.is_transient());
+        }
     }
 
     #[test]

@@ -254,9 +254,16 @@ impl Protocol for TranscriptionProtocol {
                 self.caption()
                     .map_or(EventOutcome::Ignored, EventOutcome::Update)
             }
-            "error" => event
-                .error
-                .map_or(EventOutcome::Ignored, EventOutcome::ServiceError),
+            "error" => {
+                let Some(error) = event.error else {
+                    return EventOutcome::Ignored;
+                };
+                if error.is_empty_commit() {
+                    // That commit will never be acknowledged; don't wait for it.
+                    self.uncommitted_turns = self.uncommitted_turns.saturating_sub(1);
+                }
+                EventOutcome::ServiceError(error)
+            }
             other => {
                 debug!(event = other, "ignoring transcription event");
                 EventOutcome::Ignored
@@ -375,6 +382,24 @@ mod tests {
         );
         assert!(messages.iter().all(|message| message.len() < 16 * 1024));
         assert!(!protocol.is_drained());
+    }
+
+    #[test]
+    fn a_rejected_empty_commit_does_not_hold_up_stop() {
+        let mut protocol = TranscriptionProtocol::new(None);
+        protocol.on_audio(&vec![0.2; 24_000]);
+        protocol.on_audio(&vec![0.0; 24_000]);
+        assert!(!protocol.is_drained());
+        let rejected = json!({"type": "error", "error": {
+            "type": "invalid_request_error",
+            "code": "input_audio_buffer_commit_empty",
+        }})
+        .to_string();
+        assert!(matches!(
+            protocol.on_event(&rejected),
+            EventOutcome::ServiceError(_)
+        ));
+        assert!(protocol.is_drained());
     }
 
     #[test]

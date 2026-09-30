@@ -37,6 +37,12 @@ impl ServiceError {
         )
     }
 
+    /// Whether the service refused to commit an empty audio buffer. Only
+    /// that commit is affected; the stream continues.
+    pub fn is_empty_commit(&self) -> bool {
+        self.code.as_deref() == Some("input_audio_buffer_commit_empty")
+    }
+
     /// Classifies the error by its documented type and code.
     pub fn impact(&self) -> ServiceErrorImpact {
         let kind = self.kind.as_deref().unwrap_or_default();
@@ -55,7 +61,7 @@ impl ServiceError {
             )
         {
             ServiceErrorImpact::RateLimited
-        } else if kind == "server_error" || code == "input_audio_buffer_commit_empty" {
+        } else if kind == "server_error" || self.is_empty_commit() {
             // Only errors known to affect a single event are survivable:
             // continuing past anything else would stream audio that can
             // never produce captions.

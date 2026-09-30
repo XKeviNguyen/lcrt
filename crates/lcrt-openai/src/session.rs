@@ -57,7 +57,7 @@ pub fn user_message(error: &TransportError) -> &'static str {
         TransportError::Closed => "Connection was lost.",
         TransportError::Protocol(_) => "The online service sent an unexpected response.",
         TransportError::Rejected(_) => {
-            "The online service couldn't start this session. Check the selected languages and try again."
+            "The online service rejected the request. Check the selected languages and try again."
         }
     }
 }
@@ -118,6 +118,9 @@ pub struct OnlineSession {
     events: Receiver<WorkerEvent>,
     worker: Option<JoinHandle<()>>,
     cancel: Arc<AtomicBool>,
+    /// Set when capture outran the network; the worker then skips the
+    /// queued (stale) audio and resumes from live input.
+    backlog_full: Arc<AtomicBool>,
     converter: Option<AudioConverter>,
     finish_timeout: Duration,
     finished: bool,
@@ -138,6 +141,8 @@ impl OnlineSession {
         let (event_sender, events) = sync_channel(EVENT_QUEUE_CAPACITY);
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancel);
+        let backlog_full = Arc::new(AtomicBool::new(false));
+        let worker_backlog_full = Arc::clone(&backlog_full);
         let worker = thread::Builder::new()
             .name("lcrt-online-session".to_owned())
             .spawn(move || {
@@ -148,6 +153,7 @@ impl OnlineSession {
                     commands: command_receiver,
                     events: event_sender,
                     cancel: worker_cancel,
+                    backlog_full: worker_backlog_full,
                     status,
                     limits,
                     finishing: false,
@@ -162,6 +168,7 @@ impl OnlineSession {
             events,
             worker: Some(worker),
             cancel,
+            backlog_full,
             converter: None,
             finish_timeout: limits.finish + limits.handshake,
             finished: false,
@@ -221,8 +228,9 @@ impl Transcriber for OnlineSession {
             match commands.try_send(Command::Audio(samples)) {
                 Ok(()) | Err(TrySendError::Disconnected(_)) => {}
                 Err(TrySendError::Full(_)) => {
-                    // The network is behind; live captions drop stale audio
-                    // instead of buffering it.
+                    // The network is behind. Live captions must follow live
+                    // speech, so the worker discards the stale backlog.
+                    self.backlog_full.store(true, Ordering::Release);
                     self.dropped_blocks += 1;
                     if self.dropped_blocks.is_power_of_two() {
                         warn!(
@@ -314,6 +322,7 @@ struct Worker<P> {
     commands: Receiver<Command>,
     events: SyncSender<WorkerEvent>,
     cancel: Arc<AtomicBool>,
+    backlog_full: Arc<AtomicBool>,
     status: StatusCallback,
     limits: SessionLimits,
     finishing: bool,
@@ -473,8 +482,10 @@ impl<P: Protocol> Worker<P> {
         transport: &mut dyn Transport,
         finish_deadline: &mut Option<Instant>,
     ) -> Result<(), TransportError> {
+        let skip_stale_audio = self.backlog_full.swap(false, Ordering::AcqRel);
         loop {
             match self.commands.try_recv() {
+                Ok(Command::Audio(_)) if skip_stale_audio => {}
                 Ok(Command::Audio(samples)) => {
                     for message in self.protocol.on_audio(&samples) {
                         transport.send_text(&message)?;
@@ -555,6 +566,9 @@ pub(crate) mod tests {
     /// What one scripted connection does.
     pub(crate) enum Script {
         Refuse(TransportError),
+        /// Connecting blocks until the sender side is dropped or signals,
+        /// then follows the inner script.
+        Hold(std::sync::mpsc::Receiver<()>, Box<Script>),
         /// Replies to each client message whose type matches with the given
         /// server events; sends `on_open` first; then optionally breaks.
         Serve {
@@ -610,8 +624,16 @@ pub(crate) mod tests {
                 .unwrap_or(Script::Refuse(TransportError::Unreachable(
                     "exhausted".to_owned(),
                 )));
+            let script = match script {
+                Script::Hold(release, inner) => {
+                    let _ = release.recv();
+                    *inner
+                }
+                other => other,
+            };
             match script {
                 Script::Refuse(error) => Err(error),
+                Script::Hold(..) => unreachable!("holds are not nested"),
                 Script::Serve {
                     on_open,
                     replies,
@@ -821,9 +843,70 @@ pub(crate) mod tests {
         .unwrap();
         thread::sleep(Duration::from_millis(100));
         let error = session.finish().unwrap_err();
-        assert!(error.to_string().contains("couldn't start this session"));
+        assert!(error.to_string().contains("rejected the request"));
         assert!(!error.is_credential_rejected());
         assert_eq!(record.connects.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_backlog_from_a_slow_connection_is_skipped_to_follow_live_audio() {
+        let (release, held) = std::sync::mpsc::channel();
+        let (connector, record) = FakeConnector::new(vec![Script::Hold(
+            held,
+            Box::new(Script::Serve {
+                on_open: vec![created()],
+                replies: vec![],
+                break_after_messages: None,
+            }),
+        )]);
+        let (status, _) = statuses();
+        let mut session = OnlineSession::start(
+            TranslationProtocol::new(Language::English, true),
+            key(),
+            connector,
+            status,
+            fast_limits(),
+        )
+        .unwrap();
+        // 10 s of audio while the connection is still opening overflows the
+        // 64-block queue.
+        for _ in 0..100 {
+            session.push_audio(speech(0.1)).unwrap();
+        }
+        release.send(()).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        for _ in 0..10 {
+            session.push_audio(speech(0.1)).unwrap();
+            thread::sleep(Duration::from_millis(5));
+        }
+        let _ = session.finish();
+        let appended_seconds: f64 = record
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|message| {
+                let value: serde_json::Value = serde_json::from_str(message).ok()?;
+                let audio = value["audio"].as_str()?;
+                Some(
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, audio)
+                        .ok()?
+                        .len(),
+                )
+            })
+            .sum::<usize>() as f64
+            / 2.0
+            / 24_000.0;
+        // Only live audio after the backlog was skipped reaches the service,
+        // not the 6.4 s that filled the queue.
+        assert!(
+            appended_seconds < 2.5,
+            "sent {appended_seconds:.2} s of audio"
+        );
+        assert!(
+            appended_seconds > 0.5,
+            "sent {appended_seconds:.2} s of audio"
+        );
     }
 
     #[test]
