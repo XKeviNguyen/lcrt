@@ -1,0 +1,18 @@
+{
+  "models": [
+    {
+      "id": "whisper-base-multilingual",
+      "purpose": "Offline Captions: speech recognition in the spoken language (Whisper base, multilingual)",
+      "source": "https://huggingface.co/ggerganov/whisper.cpp",
+      "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin",
+      "file": "ggml-base.bin",
+      "size": 147951465,
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+      "license": "MIT",
+      "license_file": "packaging/licenses/whisper-MIT.txt",
+      "copyright": "Copyright (c) 2022 OpenAI (Whisper weights); ggml conversion by the whisper.cpp authors",
+      "destination": "usr/share/lcrt/models/ggml-base.bin"
+    }
+  ]
+}

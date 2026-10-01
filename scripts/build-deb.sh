@@ -3,6 +3,10 @@
 #
 # Usage: scripts/build-deb.sh [output-directory]
 #
+# The package includes the models listed in packaging/models.json. They are
+# fetched into LCRT_MODEL_CACHE (default: target/share/lcrt/models) and used
+# only if their SHA-256 matches the manifest; a mismatch fails the build.
+#
 # Runtime dependencies are derived from the linked libraries with
 # dpkg-shlibdeps, so build on the Ubuntu release you are packaging for.
 # File timestamps come from the last commit, so identical sources and
@@ -30,6 +34,8 @@ architecture="$(dpkg --print-architecture)"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}"
 
 cargo build --locked --release -p lcrt-app
+model_cache="$(realpath -m -- "${LCRT_MODEL_CACHE:-${repo_root}/target/share/lcrt/models}")"
+python3 scripts/fetch-models.py "${model_cache}"
 
 work_dir="$(mktemp -d)"
 trap 'rm -rf -- "${work_dir}"' EXIT
@@ -45,6 +51,16 @@ install -Dm644 "packaging/linux/${APP_ID}.metainfo.xml" \
   "${stage}/usr/share/metainfo/${APP_ID}.metainfo.xml"
 install -Dm644 "packaging/linux/${APP_ID}.svg" \
   "${stage}/usr/share/icons/hicolor/scalable/apps/${APP_ID}.svg"
+# Models, each at its manifest destination: file, destination, license file.
+python3 - "${model_cache}" "${stage}" <<'MODELS'
+import json, os, shutil, sys
+cache, stage = sys.argv[1:3]
+for model in json.load(open('packaging/models.json'))['models']:
+    target = os.path.join(stage, model['destination'])
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    shutil.copyfile(os.path.join(cache, model['file']), target)
+    os.chmod(target, 0o644)
+MODELS
 install -Dm644 README.md "${doc_dir}/README.md"
 install -Dm644 docs/PRIVACY.md "${doc_dir}/PRIVACY.md"
 
@@ -60,6 +76,19 @@ install -Dm644 docs/PRIVACY.md "${doc_dir}/PRIVACY.md"
   printf '\nFiles: *\nCopyright: %s\nLicense: MIT\n' \
     "$(sed -n 's/^Copyright (c) //p' LICENSE)"
   sed '1,/^Copyright (c)/d; s/^$/./; s/^/ /' LICENSE
+  # Each bundled model with its source, pinned revision and license text.
+  python3 - <<'MODELS'
+import json
+for model in json.load(open('packaging/models.json'))['models']:
+    print(f"\nFiles: {model['destination']}")
+    print(f"Copyright: {model['copyright']}")
+    print(f"License: {model['license']}")
+    print(f"Comment: {model['purpose']}.")
+    print(f" Source: {model['url']}")
+    print(f" SHA-256: {model['sha256']}")
+    for line in open(model['license_file']).read().rstrip().splitlines():
+        print(' ' + (line or '.'))
+MODELS
 } >"${doc_dir}/copyright"
 chmod 644 "${doc_dir}/copyright"
 
@@ -87,8 +116,9 @@ Priority: optional
 Homepage: https://github.com/hoangnguyen7474/lcrt
 Description: Live captions and translation for system audio
  LCRT shows real-time captions for system audio or a microphone.
- Offline Captions use a local Whisper model chosen in Settings; audio stays
- on the device. Online Captions, Translation and vocabulary explanations use
+ Offline Captions work right after installation with the included
+ multilingual speech model (Whisper base); audio stays on the device.
+ Online Captions, Translation and vocabulary explanations use
  the user's own OpenAI API key, stored in the desktop keyring, and stream
  audio or selected text to OpenAI only while in use. API charges may apply.
  LCRT has no telemetry.

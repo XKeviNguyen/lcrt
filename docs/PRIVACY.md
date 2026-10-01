@@ -7,8 +7,21 @@ What leaves your computer depends only on the mode and features you choose.
 
 ## Offline Captions
 
-Audio is processed on this device by a local Whisper model. LCRT makes no
-network requests for audio in this mode.
+Audio is processed on this device. Audio and transcription stay on this
+device.
+
+The speech model (Whisper base, multilingual) is a file installed with LCRT.
+LCRT never downloads a model, checks for model updates or contacts any
+service to caption offline. In this mode it opens no network connection at
+all: the acceptance runs record every socket the app opens, with the network
+removed from its process, and found none (see
+[V2_ACCEPTANCE.md](V2_ACCEPTANCE.md)).
+
+Offline Captions never fall back to an online service. If the model is
+missing or damaged, LCRT says so and does not start.
+
+There is no Offline Translation yet; Translation uses OpenAI, as described
+below.
 
 ## Online Captions
 
@@ -35,6 +48,13 @@ language per session, so LCRT then opens two sessions and sends the same audio
 to each. API charges apply for each session. The window says so whenever two
 targets are selected. LCRT never opens more sessions than targets, and never
 more than two.
+
+Hiding a lane with its language chip changes only what you see: that
+language's session keeps receiving audio. The service also transcribes the
+original speech while its lane is hidden, so the lane can be shown again at
+once. **Pause translation** in the chip's
+menu closes the session, so no more audio goes to it until you resume it, and
+**Remove language** closes it for good.
 
 ## Vocabulary explanations
 
@@ -77,7 +97,8 @@ LCRT writes one file, `~/.config/lcrt/preferences.json`, readable only by
 you. It holds these settings:
 
 - mode, audio source and languages;
-- the model path;
+- a custom model path, if you chose one;
+- which translation lanes you hid;
 - appearance;
 - vocabulary settings.
 

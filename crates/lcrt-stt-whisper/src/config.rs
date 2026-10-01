@@ -5,11 +5,12 @@ use crate::{WhisperBackendError, backend::MIN_CHUNK_RESERVATION};
 /// Explicit limits and inference behavior for local streaming STT.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WhisperConfig {
-    /// Path to a whisper.cpp-compatible ggml model; model data is never bundled.
+    /// Path to a whisper.cpp-compatible ggml model file.
     pub model_path: PathBuf,
     /// ISO language code, `auto`, or `None` for automatic detection.
     pub language: Option<String>,
-    /// CPU threads used by whisper.cpp inference.
+    /// CPU threads used by whisper.cpp inference. More threads than the
+    /// CPUs LCRT may run on make every pass slower, not faster.
     pub inference_threads: u8,
     /// Maximum captured audio waiting behind inference, independent of chunk
     /// size. It may not exceed `window_duration`: a larger backlog could not
@@ -39,7 +40,7 @@ impl WhisperConfig {
         Self {
             model_path: model_path.into(),
             language: None,
-            inference_threads: 4,
+            inference_threads: default_inference_threads(),
             max_input_backlog: Duration::from_secs(8),
             window_duration: Duration::from_secs(8),
             partial_step: Duration::from_millis(1_500),
@@ -121,11 +122,29 @@ impl WhisperConfig {
     }
 }
 
+/// One thread per CPU this process may use (its affinity and cgroup quota
+/// count), at most four: whisper.cpp gains little beyond that, and the rest
+/// of LCRT needs a CPU too.
+fn default_inference_threads() -> u8 {
+    std::thread::available_parallelism()
+        .map_or(1, |cpus| cpus.get().min(4))
+        .try_into()
+        .unwrap_or(4)
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use super::{MIN_CHUNK_RESERVATION, WhisperConfig};
+    use super::{MIN_CHUNK_RESERVATION, WhisperConfig, default_inference_threads};
+
+    #[test]
+    fn inference_uses_the_available_cpus_up_to_four() {
+        let threads = default_inference_threads();
+        assert!((1..=4).contains(&threads));
+        let available = std::thread::available_parallelism().unwrap().get();
+        assert_eq!(usize::from(threads), available.min(4));
+    }
 
     #[test]
     fn input_backlog_may_not_exceed_the_rolling_window() {

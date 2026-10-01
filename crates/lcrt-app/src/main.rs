@@ -1,4 +1,5 @@
 mod controller;
+mod models;
 mod settings;
 
 use std::{
@@ -25,6 +26,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     controller::{Controller, ControllerOutcome, RunOverrides, notify_ui},
+    models::built_in_model,
     settings::SettingsStore,
 };
 
@@ -35,7 +37,7 @@ const MAX_SMOKE_SECONDS: u64 = 3_600;
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AppConfig {
     model_path: Option<PathBuf>,
-    language: Option<String>,
+    language: Option<Language>,
     list_sources: bool,
     smoke: Option<SmokeConfig>,
 }
@@ -118,7 +120,9 @@ fn run_application(
     let preferences = store.as_ref().map(SettingsStore::load).unwrap_or_default();
     let overrides = RunOverrides {
         model_path: config.model_path.clone(),
-        language: config.language.clone(),
+        built_in_model: env::current_exe()
+            .ok()
+            .and_then(|executable| built_in_model(&executable)),
         smoke: config.smoke.is_some(),
     };
     let environment_key = env::var(API_KEY_ENVIRONMENT_VARIABLE).ok();
@@ -143,7 +147,7 @@ fn run_application(
     };
 
     if let Some(smoke) = config.smoke.clone() {
-        spawn_smoke_actions(actions.clone(), smoke, config.language.as_deref());
+        spawn_smoke_actions(actions.clone(), smoke, config.language);
     }
     let options = CaptionUiOptions {
         mode: if config.smoke.is_some() {
@@ -180,11 +184,9 @@ fn application_exit_status(
 fn spawn_smoke_actions(
     actions: SyncSender<CaptionUiAction>,
     smoke: SmokeConfig,
-    language: Option<&str>,
+    language: Option<Language>,
 ) {
-    let spoken_language = language
-        .and_then(Language::from_code)
-        .map_or(LanguageSelection::Auto, LanguageSelection::Language);
+    let spoken_language = language.map_or(LanguageSelection::Auto, LanguageSelection::Language);
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(250));
         let options = SessionOptions {
@@ -194,9 +196,8 @@ fn spawn_smoke_actions(
             translation_targets: TranslationTargets::resolve(
                 Some(smoke.target),
                 None,
-                SessionOptions::shown_source(true, spoken_language),
+                spoken_language.language(),
             ),
-            show_original: true,
         };
         if actions.send(CaptionUiAction::Start(options)).is_err() {
             return;
@@ -227,7 +228,15 @@ fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> Result<Pars
                 model_path = Some(PathBuf::from(next_value(&mut arguments, "--model")?));
             }
             "--language" => {
-                language = Some(os_to_string(next_value(&mut arguments, "--language")?)?);
+                // Only a diagnostic run uses it; the window has its own.
+                smoke_option_set = true;
+                // A mistyped code must not quietly become Auto: a diagnostic
+                // would then pass for a language it never used.
+                let code = os_to_string(next_value(&mut arguments, "--language")?)?;
+                language = Some(
+                    Language::from_code(&code)
+                        .ok_or_else(|| format!("unsupported --language: {code}"))?,
+                );
             }
             "--list-sources" => list_sources = true,
             "--smoke-source" => {
@@ -274,9 +283,7 @@ fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> Result<Pars
         return Err("smoke options require --smoke-source".to_owned());
     }
     // The diagnostic shows the source lane, and a target can't repeat it.
-    if smoke_mode == ProcessingMode::Translation
-        && language.as_deref().and_then(Language::from_code) == Some(smoke_target)
-    {
+    if smoke_mode == ProcessingMode::Translation && language == Some(smoke_target) {
         return Err("--smoke-target must differ from --language".to_owned());
     }
     Ok(ParsedCommand::Run(AppConfig {
@@ -316,11 +323,11 @@ fn usage() -> &'static str {
         "  lcrt --version\n",
         "  lcrt --smoke-source ID [--smoke-seconds 1..3600]\n",
         "       [--smoke-mode offline|online|translation] [--smoke-target CODE]\n\n",
-        "Everyday settings, including the local Whisper model and the OpenAI API key,\n",
-        "are in Settings inside the app.\n\n",
+        "Everyday settings, including languages and the OpenAI API key, are in\n",
+        "Settings inside the app. Offline Captions use the built-in model.\n\n",
         "Developer options:\n",
         "  --model PATH or LCRT_MODEL_PATH   use this Whisper model for this run\n",
-        "  --language CODE                   spoken-language hint (offline Whisper and diagnostics)\n",
+        "  --language CODE                   spoken language of a diagnostic run\n",
         "  OPENAI_API_KEY                    fallback API key; never shown in the app\n",
         "  RUST_LOG                          structured diagnostic logging"
     )
@@ -367,7 +374,7 @@ mod tests {
                 smoke: Some(SmokeConfig { source_id, duration, mode, target }),
                 list_sources: false,
             }) if path.as_os_str() == "model.bin"
-                && language == "en"
+                && language == Language::English
                 && source_id == "source-id"
                 && duration == Duration::from_secs(12)
                 && mode == ProcessingMode::Translation
@@ -385,6 +392,9 @@ mod tests {
             parse_arguments(arguments(&["--smoke-source", "s", "--smoke-target", "xx"])).is_err()
         );
         assert!(parse_arguments(arguments(&["--unknown"])).is_err());
+        assert!(parse_arguments(arguments(&["--language", "jp"])).is_err());
+        // Outside a diagnostic run it would be ignored, so it is refused.
+        assert!(parse_arguments(arguments(&["--language", "ja"])).is_err());
         // A translation diagnostic can't translate a language into itself.
         let translation = |language: &str, target: &str| {
             parse_arguments(arguments(&[

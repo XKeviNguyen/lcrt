@@ -27,9 +27,11 @@ pub use preferences::{
 };
 pub use session::{
     CaptionLane, Language, LanguageSelection, MAX_CAPTION_LANES, MAX_TRANSLATION_TARGETS,
-    ProcessingMode, SessionGeneration, SessionOptions, TranslationTargets,
+    ProcessingMode, SessionGeneration, SessionOptions, TargetChange, TargetStatus,
+    TranslationTargets,
 };
 pub use transcription::{
-    Transcriber, TranscriptUpdate, TranscriptUpdateError, TranscriptionError, TranslationLanes,
+    TargetText, Transcriber, TranscriptUpdate, TranscriptUpdateError, TranscriptionError,
+    TranslationLanes,
 };
 pub use ui::{CaptionSink, CaptionSinkError};

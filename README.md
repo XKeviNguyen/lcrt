@@ -60,8 +60,9 @@ used in that sentence.
 
 ### 🔒 Private by default
 
-**Offline Captions** run a local Whisper model. Audio never leaves the
-device, and LCRT has no telemetry.
+**Offline Captions** work right after installing, in eight languages, with
+the speech model that comes with LCRT. Audio never leaves the device, and
+LCRT has no telemetry.
 
 </td>
 <td valign="top">
@@ -94,11 +95,11 @@ X11). Ubuntu ARM64 and Windows 10/11 are portability targets.
 
 | | Offline Captions | Online Captions | Translation |
 | --- | --- | --- | --- |
-| **Engine** | Whisper, on this device | OpenAI realtime transcription | OpenAI realtime translation |
+| **Engine** | Whisper base (multilingual), included with LCRT, on this device | OpenAI realtime transcription | OpenAI realtime translation |
 | **Audio goes to** | nowhere | OpenAI, while a session runs | OpenAI, while a session runs |
-| **Languages** | the chosen model's (the tiny model is English) | English, Japanese, Vietnamese, Chinese, Korean, Spanish, French, German, or Auto | the spoken language is detected automatically; translated into one or two of those eight |
-| **You choose** | a Whisper model file | the spoken language, or Auto | one or two target languages; show or hide the original |
-| **Needs** | a model file | your OpenAI API key and a network | your OpenAI API key and a network |
+| **Languages** | English, Japanese, Vietnamese, Chinese, Korean, Spanish, French, German, or Auto | the same eight, or Auto | the spoken language is detected automatically; translated into one or two of those eight |
+| **You choose** | the spoken language, or Auto | the spoken language, or Auto | one or two target languages, with the language chips; show or hide each lane |
+| **Needs** | nothing: the model is installed with LCRT | your OpenAI API key and a network | your OpenAI API key and a network |
 | **Cost** | none | charged to your OpenAI account | charged to your OpenAI account, once per target language |
 
 Each session uses exactly one backend. LCRT never switches to another backend
@@ -115,7 +116,7 @@ or to a paid service on its own.
 In Translation mode the caption area becomes a stack of lanes. Each lane has a
 language badge on the left and its own selectable text:
 
-1. the **original speech**, when you choose to show it;
+1. the **original speech**;
 2. the **first translation**;
 3. an optional **second translation**.
 
@@ -123,14 +124,30 @@ The order never changes, and there are at most three lanes: the original and
 two translations. For example, Japanese speech can be shown with English and
 Vietnamese below it.
 
+Next to Start, a **language chip** stands for each lane, such as
+`JA EN VI +`. They work while captions run, without Stop and Start:
+
+| Do this | And this happens |
+| --- | --- |
+| Click a chip | Its lane is hidden or shown again. Hiding only changes what you see: the lane keeps translating, so showing it again is instant. A hidden lane's chip stays, dimmed. At least one lane always stays visible. |
+| Open a chip's menu (its arrow) | **Pause translation** closes that language's session, so it stops costing anything, and keeps its text; **Resume translation** opens it again from the live audio. **Remove language** drops the lane. The other lanes keep running. |
+| Click **+** | Lists the languages you can add. The new lane shows **Connecting…** and then translates from the live audio. The other lanes are not restarted. With two translation languages, + is disabled. |
+
+While a session is still starting, the chips only show and hide lanes; the
+other changes are available once captions have started. When every language
+is paused, the notice under the controls says that no audio is being sent.
+
+Only changing the mode or the audio source restarts a session.
+
 - **One session per target.** The translation service takes one output
   language per session, so a second target opens a second session and is
-  charged separately. There are never more sessions than targets.
+  charged separately. There are never more sessions than running targets.
 - **Targets are kept valid.** Two targets can't be the same, and a target
-  can't repeat a spoken language you named. Such a choice is corrected as
-  soon as you make it, and there is always at least one target.
+  can't repeat a spoken language you named in Settings. There is always at
+  least one target.
 - **Lanes fail independently.** If one target's session fails, LCRT says so
-  and the other lane keeps translating.
+  and the other lane keeps translating. **Resume translation** in the failed
+  lane's menu tries again.
 - **Words in context work in every lane.** Select text in any lane to have it
   explained from that lane's own text.
 - **Lanes fit the window you chose.** The lanes share the window's height and
@@ -153,15 +170,21 @@ every result are in [docs/V2_ACCEPTANCE.md](docs/V2_ACCEPTANCE.md).
 | Online Captions, Vietnamese | 2.1 s | 7.5% of words | 1.4 s |
 | Translation, English → Japanese | 1.7 s | not scored | 6.5 s |
 | Translation, Vietnamese → English | 2.0 s | original lane 7.7% of words | 7.1 s |
-| Offline Captions, English (tiny model) | 4.0 s | see the note below | 0.3 s |
+| Offline Captions, English (base model) | 2.3 s | recovers 93% of words* | 0.9 s |
+| Offline Captions, Japanese (base model) | 3.5 s | recovers 79% of characters* | 0.9 s |
+| Offline Captions, Vietnamese (base model) | 2.3 s | recovers 71% of words* | 0.9 s |
 
 - **Network drops:** after a 2 s cut in the middle of a session, captions
   were back 3.8 s later without an error.
 - **Translation takes a few seconds to stop** because the service delivers
   the last words of the translation after you press Stop.
-- **Offline Captions repeat phrases** on continuous speech: about 40% of the
-  words are repeats. It is the main known quality issue, and it is listed
-  with the other [limitations](#-limitations).
+- **Offline Captions repeat phrases** on continuous speech, so their error
+  rate isn't comparable with the online rows. *Their rows give the share of
+  the reference the captions recover, in order. The repeats are the main
+  known quality issue, listed with the other [limitations](#-limitations).
+- **Offline on two CPUs:** limited to two logical CPUs and 2 GB of memory,
+  Offline Captions kept up with speech in all three languages, and used
+  under 500 MB.
 
 ## 📦 Install on Ubuntu
 
@@ -174,44 +197,48 @@ scripts/build-deb.sh            # prints target/debian/lcrt_2.0.0_amd64.deb
 sudo apt install ./target/debian/lcrt_2.0.0_amd64.deb
 ```
 
-Then open **LCRT Live Captions** from the app grid, or run `lcrt`.
+Then open **LCRT Live Captions** from the app grid, or run `lcrt`. Offline
+Captions work at once, with no download and no setup.
+
+The package includes the speech model (Whisper base, multilingual,
+148 MB), so it is larger than a typical desktop app: 125 MiB to download and
+149 MiB installed. The build script downloads the model once, from a
+pinned source, and refuses it unless its SHA-256 matches
+[packaging/models.json](packaging/models.json).
 
 ## 🚀 Use
 
 1. **Choose a mode and an audio source.** System audio sources are listed as
-   **System audio**, microphones as **Microphone**. Online modes also have a
-   language:
-   - Online Captions: the spoken language, or Auto.
-   - Translation: the target language. The spoken language is detected
-     automatically.
-
-   Offline Captions has no language choice. It follows the chosen Whisper
-   model.
+   **System audio**, microphones as **Microphone**. Then choose the language:
+   - Offline and Online Captions: the spoken language, or **Auto** to have it
+     detected. Captions are always in the spoken language; they are never
+     translated.
+   - Translation: the language chips (see
+     [Multi-language lanes](#multi-language-lanes)). The spoken language is
+     detected automatically.
 2. **Press Start.** Captions update as speech is recognized. **Stop** finishes
    the last sentence and keeps the text on screen.
 3. **Select a word or phrase** in the captions to see what it means in that
    sentence.
-4. **Open Settings** to choose the Whisper model, enter your OpenAI API key,
-   set up translation lanes, and adjust appearance and vocabulary.
+4. **Open Settings** to enter your OpenAI API key and adjust appearance and
+   vocabulary.
 
-In Translation mode the window shows the first target and an **Original**
-checkbox. **Settings → General → Translation lanes** has the rest: the spoken
-language (it names the original lane), and translation targets 1 and 2.
-Changing a lane while a session runs restarts the session with the new lanes.
-
-LCRT remembers the last mode, source and languages.
+LCRT remembers the last mode, source, languages and which lanes you hid.
 
 <details>
-<summary><b>Offline model</b>: where to get one</summary>
+<summary><b>Offline model</b>: built in, with an optional custom one</summary>
 
 <br>
 
-LCRT does not download models by itself. Download the checksum-verified tiny
-English model and choose it in **Settings → General**:
+Offline Captions use the model installed with LCRT: Whisper base,
+multilingual, at `/usr/share/lcrt/models/ggml-base.bin`. Settings shows it as
+**Offline model: Built-in multilingual model**; there is nothing to choose.
 
-```sh
-./scripts/download-whisper-model.sh     # saves models/ggml-tiny.en.bin
-```
+Under **Settings → General → Advanced**, **Use a custom Whisper model** lets
+you pick another whisper.cpp model file instead. It is never required.
+Language support then depends on that model: an English-only model (such as
+`ggml-base.en.bin`) is refused for any spoken language other than English or
+Auto, rather than inventing English text for other speech.
 
 </details>
 
@@ -247,7 +274,7 @@ still works, but LCRT cannot keep it on top.
 
 | What you do | What leaves your computer |
 | --- | --- |
-| Offline Captions | Nothing. |
+| Offline Captions | Nothing. LCRT opens no network connection in this mode. |
 | Online Captions | Audio from the selected source, only while speech is detected, plus the language hint. |
 | Translation | All audio from the selected source while the session runs, plus the target language. With two targets, the same audio goes to two sessions, one per target. |
 | Select text, with Vocabulary on | The selection (at most 200 characters) and up to 160 characters of caption on each side. |
@@ -302,8 +329,13 @@ The portable core and its adapter boundaries are described in
 
 - **Offline Captions repeat overlapping phrases** on continuous speech. V1
   chose a visible repeat over silently losing words. A better fix is planned.
-- Offline accuracy and speed depend on the model and CPU. The tiny model is
-  English-focused.
+- Offline accuracy and speed depend on the CPU. The built-in base model is
+  small enough for modest hardware, so its Japanese and Vietnamese captions
+  contain more mistakes than the online service's.
+- **There is no offline translation yet.** Translation uses OpenAI. The
+  planned local translation model (Tencent Hy-MT2, 1.25-bit) runs about 30
+  times too slowly on x86 CPUs with today's llama.cpp; see
+  [docs/V2_ACCEPTANCE.md](docs/V2_ACCEPTANCE.md).
 - Audio sources are discovered at launch.
 - Online modes need a network connection. LCRT reconnects a few times after a
   brief drop, then reports the problem.
@@ -315,7 +347,7 @@ The portable core and its adapter boundaries are described in
   prevented once you have named it.
 - Translation takes 5–8 s to stop, and up to about 14 s when the service is
   slow, because the service delivers the last words after you press Stop.
-  Changing lanes during a session does not wait for them.
+  Changing the mode or source during a session does not wait for them.
 - Always-on-top needs a compositor with layer shell. GNOME does not provide
   it.
 
@@ -356,11 +388,15 @@ cargo test --locked --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps
 ```
 
-Run from source, optionally overriding the model for one run:
+Fetch the built-in model once, then run from source. A build in `target/`
+finds the model in `target/share/lcrt/models/`, where the script saves it:
 
 ```sh
-cargo run -p lcrt-app --bin lcrt -- --model models/ggml-tiny.en.bin
+scripts/fetch-models.py         # verifies the pinned SHA-256
+cargo run -p lcrt-app --bin lcrt
 ```
+
+`--model PATH` (or `LCRT_MODEL_PATH`) uses another model for one run.
 
 <details>
 <summary><b>Diagnostics</b>: source IDs and bounded runs</summary>
@@ -372,8 +408,7 @@ closes after the given time:
 
 ```sh
 cargo run -p lcrt-app --bin lcrt -- --list-sources
-cargo run -p lcrt-app --bin lcrt -- \
-  --model models/ggml-tiny.en.bin --smoke-source SOURCE_ID --smoke-seconds 10
+cargo run -p lcrt-app --bin lcrt -- --smoke-source SOURCE_ID --smoke-seconds 10
 ```
 
 `--smoke-mode online|translation` runs the same diagnostic against OpenAI and
@@ -430,20 +465,16 @@ not exercise audio capture or online services.
 The speech-to-text adapter uses whisper.cpp through `whisper-rs`, runs model
 inference on a dedicated worker, downsamples input to 16 kHz mono, and keeps
 both its input queue and rolling audio window bounded. Models are deliberately
-excluded from Git. Download the English tiny model locally with:
-
-```sh
-./scripts/download-whisper-model.sh
-```
-
-The downloader verifies the model's pinned SHA-256 digest before installation.
+excluded from Git; `scripts/fetch-models.py` downloads the ones listed in
+[packaging/models.json](packaging/models.json) and keeps a file only if its
+SHA-256 matches.
 
 Transcribe a signed 16-bit PCM or 32-bit float WAV file with the bounded
 diagnostic utility:
 
 ```sh
 cargo run -p lcrt-stt-whisper --bin lcrt-whisper-transcribe -- \
-  models/ggml-tiny.en.bin path/to/audio.wav en
+  target/share/lcrt/models/ggml-base.bin path/to/audio.wav ja
 ```
 
 A missing or invalid model produces an actionable error in the window. In
