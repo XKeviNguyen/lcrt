@@ -10,7 +10,7 @@ use gtk::{gdk, glib, prelude::*};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use lcrt_core::{
     AudioSourceDescriptor, Language, LanguageSelection, Preferences, ProcessingMode,
-    SessionOptions, TranslationTargets,
+    SessionOptions, TargetChange, TargetStatus, TranslationTargets,
 };
 use libadwaita as adw;
 use tracing::{debug, info};
@@ -18,10 +18,11 @@ use tracing::{debug, info};
 use crate::{
     CaptionUiAction, CredentialView, GtkCaptionReceiver,
     captions::{CaptionViews, Vocabulary},
+    lane_controls::{LaneAction, LaneControls},
     preferences::{PreferencesShared, PreferencesWindow},
     presentation::{
-        LanguageControl, SessionPhase, active_status, caption_css, lane_layout, language_control,
-        preferred_source_index, privacy_notice, source_label,
+        SessionPhase, active_status, caption_css, lane_layout, preferred_source_index,
+        privacy_notice, source_label, translation_status,
     },
 };
 
@@ -147,9 +148,10 @@ struct CaptionWindow {
     phase: Cell<SessionPhase>,
     mode: gtk::DropDown,
     source: gtk::DropDown,
+    /// The spoken language of Offline and Online Captions.
     language: gtk::DropDown,
-    language_kind: Cell<LanguageControl>,
-    show_original: gtk::CheckButton,
+    /// The lane chips of Translation, in place of the language dropdown.
+    lanes: OnceCell<Rc<LaneControls>>,
     start: gtk::Button,
     status: gtk::Label,
     notice: gtk::Label,
@@ -163,9 +165,12 @@ struct CaptionWindow {
     last_credential: RefCell<Option<CredentialView>>,
     /// Suppresses reacting to programmatic control changes.
     updating_controls: Cell<bool>,
-    /// The options of the session that was last started, to tell whether a
-    /// settings change needs a restart.
-    started_options: RefCell<Option<SessionOptions>>,
+    /// The options of the running session, with its targets as they are
+    /// after live changes. They tell whether a change needs a restart, and
+    /// they lay out the rows while the session runs.
+    session: RefCell<Option<SessionOptions>>,
+    /// What each target of the running session reported last.
+    target_statuses: RefCell<Vec<(Language, TargetStatus)>>,
 }
 
 impl CaptionWindow {
@@ -197,10 +202,17 @@ impl CaptionWindow {
         // popup list still shows full names.
         source.set_factory(Some(&label_factory(true)));
         source.set_list_factory(Some(&label_factory(false)));
-        let language = gtk::DropDown::new(None::<gtk::StringList>, None::<gtk::Expression>);
+        let language_labels: Vec<String> = std::iter::once("Auto".to_owned())
+            .chain(
+                Language::ALL
+                    .iter()
+                    .map(|language| language.label().to_owned()),
+            )
+            .collect();
+        let language =
+            gtk::DropDown::new(Some(string_list(&language_labels)), None::<gtk::Expression>);
+        language.set_tooltip_text(Some("Spoken language (Auto detects it)"));
         language.update_property(&[gtk::accessible::Property::Label("Language")]);
-        let show_original = gtk::CheckButton::with_label("Original");
-        show_original.set_tooltip_text(Some("Also show the original speech"));
         let start = gtk::Button::with_label("Start");
         start.add_css_class("suggested-action");
         start.set_tooltip_text(Some("Start or stop captions"));
@@ -216,7 +228,6 @@ impl CaptionWindow {
             mode.upcast_ref::<gtk::Widget>(),
             source.upcast_ref(),
             language.upcast_ref(),
-            show_original.upcast_ref(),
             start.upcast_ref(),
             status.upcast_ref(),
             settings.upcast_ref(),
@@ -291,8 +302,7 @@ impl CaptionWindow {
                 mode,
                 source,
                 language,
-                language_kind: Cell::new(LanguageControl::None),
-                show_original,
+                lanes: OnceCell::new(),
                 start,
                 status,
                 notice,
@@ -305,9 +315,19 @@ impl CaptionWindow {
                 actions: actions.clone(),
                 last_credential: RefCell::new(None),
                 updating_controls: Cell::new(false),
-                started_options: RefCell::new(None),
+                session: RefCell::new(None),
+                target_statuses: RefCell::new(Vec::new()),
             }
         });
+
+        let weak = Rc::downgrade(&this);
+        let lanes = LaneControls::new(move |action| {
+            if let Some(this) = weak.upgrade() {
+                this.lane_action(action);
+            }
+        });
+        controls.insert_child_after(&lanes.root, Some(&this.language));
+        let _ = this.lanes.set(lanes);
 
         let weak = Rc::downgrade(&this);
         let vocabulary_preferences = this.preferences.borrow().vocabulary.clone();
@@ -361,8 +381,8 @@ impl CaptionWindow {
         {
             self.source.set_selected(index as u32);
         }
-        self.show_original.set_active(general.show_original);
         self.updating_controls.set(false);
+        self.sync_language();
         self.refresh_mode_controls();
     }
 
@@ -370,88 +390,157 @@ impl CaptionWindow {
         ProcessingMode::ALL[self.mode.selected() as usize % ProcessingMode::ALL.len()]
     }
 
-    /// Rebuilds the language choice for the selected mode.
+    /// Shows the language choice of the selected mode: the spoken language
+    /// for captions, the lane chips for Translation.
     fn refresh_mode_controls(&self) {
-        let mode = self.selected_mode();
-        let kind = language_control(mode);
-        self.updating_controls.set(true);
-        let general = self.preferences.borrow().general.clone();
-        if kind != self.language_kind.get() {
-            let (labels, tooltip, selected): (Vec<String>, &str, usize) = match kind {
-                LanguageControl::None => (Vec::new(), "", 0),
-                LanguageControl::Spoken => (
-                    std::iter::once("Auto".to_owned())
-                        .chain(
-                            Language::ALL
-                                .iter()
-                                .map(|language| language.label().to_owned()),
-                        )
-                        .collect(),
-                    "Spoken language (Auto detects it)",
-                    general
-                        .spoken_language
-                        .language()
-                        .and_then(|language| Language::ALL.iter().position(|l| *l == language))
-                        .map_or(0, |index| index + 1),
-                ),
-                LanguageControl::Target => (
-                    Language::ALL
-                        .iter()
-                        .map(|language| format!("→ {}", language.label()))
-                        .collect(),
-                    "Translate to (the spoken language is detected automatically)",
-                    Language::ALL
-                        .iter()
-                        .position(|language| *language == general.translation_target)
-                        .unwrap_or_default(),
-                ),
-            };
-            self.language.set_model(Some(&string_list(&labels)));
-            self.language.set_selected(selected as u32);
-            self.language.set_tooltip_text(Some(tooltip));
-            self.language_kind.set(kind);
+        let translation = self.selected_mode() == ProcessingMode::Translation;
+        self.language.set_visible(!translation);
+        if let Some(lanes) = self.lanes.get() {
+            lanes.root.set_visible(translation);
         }
-        self.language.set_visible(kind != LanguageControl::None);
-        self.show_original
-            .set_visible(mode == ProcessingMode::Translation);
-        self.updating_controls.set(false);
         self.refresh_lanes();
         self.refresh_start_button();
     }
 
-    /// Shows the notice, and while no session runs the caption rows, for
-    /// what the controls describe.
+    /// Whether a session is starting or running, so live changes reach it.
+    fn session_running(&self) -> bool {
+        matches!(
+            self.phase.get(),
+            SessionPhase::Starting | SessionPhase::Running
+        )
+    }
+
+    /// The targets on screen: the running session's, else the stored ones.
+    fn current_targets(&self) -> TranslationTargets {
+        match (self.session_running(), self.session.borrow().as_ref()) {
+            (true, Some(session)) => session.translation_targets,
+            _ => self.preferences.borrow().general.translation_targets(),
+        }
+    }
+
+    /// Lays out the caption rows and lane chips, and shows the notice, for
+    /// the running session or what the controls describe.
     fn refresh_lanes(&self) {
-        let options = self.described_options();
+        let general = self.preferences.borrow().general.clone();
+        let options = match (self.session_running(), self.session.borrow().clone()) {
+            // Translation detects the language itself, so naming it in
+            // Settings relabels the source lane without a restart.
+            (true, Some(mut session)) => {
+                if session.mode == ProcessingMode::Translation {
+                    session.spoken_language = general.spoken_language;
+                }
+                session
+            }
+            _ => self.described_options(),
+        };
+        let statuses = self.target_statuses.borrow().clone();
+        let layout = lane_layout(
+            options.mode,
+            options.spoken_language,
+            options.translation_targets,
+            &general,
+            &statuses,
+        );
         self.notice.set_text(privacy_notice(
             options.mode,
             options.translation_targets.iter().count(),
         ));
-        // The text of a running session belongs to that session's rows.
-        // Relabeling them now would put the old text under new badges, so a
-        // changed layout is applied when the replacement session starts.
-        // While idle, text left from the last session is cleared for the
-        // same reason.
-        if self.phase.get() == SessionPhase::Idle && self.captions.configure(&lane_layout(&options))
-        {
+        // While idle, text left from the last session is cleared when the
+        // rows now show other languages, or captions instead of lanes.
+        if self.captions.configure(&layout) && self.phase.get() == SessionPhase::Idle {
             self.captions.reset(PLACEHOLDER);
+        }
+        if let Some(lanes) = self.lanes.get() {
+            lanes.update(
+                &layout,
+                &options
+                    .translation_targets
+                    .addable(options.spoken_language.language()),
+                self.session_running(),
+            );
         }
     }
 
-    /// Makes the translation controls show the stored settings, after they
-    /// were corrected or changed in Settings.
-    fn sync_translation_controls(&self) {
-        let general = self.preferences.borrow().general.clone();
+    /// Makes the language dropdown show the stored spoken language, after it
+    /// was changed in Settings.
+    fn sync_language(&self) {
+        let spoken = self.preferences.borrow().general.spoken_language;
+        let index = spoken
+            .language()
+            .and_then(|language| Language::ALL.iter().position(|l| *l == language))
+            .map_or(0, |index| index + 1);
         self.updating_controls.set(true);
-        self.show_original.set_active(general.show_original);
-        if self.language_kind.get() == LanguageControl::Target
-            && let Some(index) = Language::ALL
-                .iter()
-                .position(|language| *language == general.translation_target)
-        {
-            self.language.set_selected(index as u32);
-        }
+        self.language.set_selected(index as u32);
         self.updating_controls.set(false);
+    }
+
+    /// Carries out a lane chip's action at once. Showing and hiding change
+    /// only what is shown; target changes reach a running session as
+    /// [`TargetChange`], which opens or closes that target's session only.
+    fn lane_action(self: &Rc<Self>, action: LaneAction) {
+        let running = self.session_running();
+        let spoken = self.preferences.borrow().general.spoken_language.language();
+        let current = self.current_targets();
+        let change = match action {
+            LaneAction::Toggle(lane) => {
+                let visible = self.preferences.borrow().general.lane_visible(lane);
+                self.shared.change(|preferences| {
+                    preferences.general.set_lane_visible(lane, !visible);
+                });
+                return;
+            }
+            LaneAction::Add(language) => current
+                .with_added(language, spoken)
+                .map(|targets| (targets, TargetChange::Add(language))),
+            LaneAction::Remove(language) => current
+                .without(language)
+                .map(|targets| (targets, TargetChange::Remove(language))),
+            LaneAction::Pause(language) if running => {
+                self.send_target_change(TargetChange::Pause(language), Some(TargetStatus::Paused));
+                return;
+            }
+            LaneAction::Resume(language) if running => {
+                self.send_target_change(
+                    TargetChange::Resume(language),
+                    Some(TargetStatus::Connecting),
+                );
+                return;
+            }
+            LaneAction::Pause(_) | LaneAction::Resume(_) => return,
+        };
+        let Some((targets, change)) = change else {
+            return;
+        };
+        if running {
+            if let Some(session) = self.session.borrow_mut().as_mut() {
+                session.translation_targets = targets;
+            }
+            let expected =
+                matches!(change, TargetChange::Add(_)).then_some(TargetStatus::Connecting);
+            self.send_target_change(change, expected);
+        }
+        self.shared.change(|preferences| {
+            preferences
+                .general
+                .set_translation_targets(Some(targets.first()), targets.second());
+        });
+    }
+
+    /// Sends a live target change and shows `expected` on its lane until
+    /// the session reports otherwise; a removed lane has none.
+    fn send_target_change(self: &Rc<Self>, change: TargetChange, expected: Option<TargetStatus>) {
+        let (TargetChange::Add(language)
+        | TargetChange::Remove(language)
+        | TargetChange::Pause(language)
+        | TargetChange::Resume(language)) = change;
+        if !self.send(CaptionUiAction::ChangeTarget(change)) {
+            return;
+        }
+        let mut statuses = self.target_statuses.borrow_mut();
+        statuses.retain(|(target, _)| *target != language);
+        statuses.extend(expected.map(|status| (language, status)));
+        drop(statuses);
+        self.refresh_lanes();
     }
 
     fn refresh_start_button(&self) {
@@ -480,36 +569,24 @@ impl CaptionWindow {
             .map(|source| source.id().to_owned())
             .unwrap_or_default();
         let mode = self.selected_mode();
-        let selected = self.language.selected() as usize;
         let general = self.preferences.borrow().general.clone();
-        let spoken_language = if self.language_kind.get() == LanguageControl::Spoken {
-            match selected {
+        // Translation has no language dropdown; it names the spoken language
+        // in Settings, only to label the source lane.
+        let spoken_language = if mode == ProcessingMode::Translation {
+            general.spoken_language
+        } else {
+            match self.language.selected() as usize {
                 0 => LanguageSelection::Auto,
                 index => {
                     LanguageSelection::Language(Language::ALL[(index - 1) % Language::ALL.len()])
                 }
             }
-        } else {
-            general.spoken_language
         };
-        let first_target = if self.language_kind.get() == LanguageControl::Target {
-            Language::ALL[selected % Language::ALL.len()]
-        } else {
-            general.translation_target
-        };
-        let show_original = self.show_original.is_active();
         SessionOptions {
             mode,
             source_id,
             spoken_language,
-            // The target chosen here wins; a second target that now repeats
-            // it, or the shown source, is dropped.
-            translation_targets: TranslationTargets::resolve(
-                Some(first_target),
-                general.second_translation_target,
-                SessionOptions::shown_source(show_original, spoken_language),
-            ),
-            show_original,
+            translation_targets: general.translation_targets(),
         }
     }
 
@@ -519,9 +596,6 @@ impl CaptionWindow {
             preferences.general.default_mode = options.mode;
             preferences.general.default_source_id = Some(options.source_id);
             preferences.general.spoken_language = options.spoken_language;
-            preferences.general.show_original = options.show_original;
-            preferences.general.translation_target = options.translation_targets.first();
-            preferences.general.second_translation_target = options.translation_targets.second();
         });
     }
 
@@ -555,21 +629,28 @@ impl CaptionWindow {
         self.restart_if_changed();
     }
 
-    /// Restarts a running session whose options no longer match the controls
-    /// and settings. The controller replaces the session only after the old
-    /// one has fully stopped.
+    /// Restarts a running session when the controls changed what its
+    /// backend depends on: the mode, the audio source, or the spoken
+    /// language of captions. Everything else changes live. The controller
+    /// replaces the session only after the old one has fully stopped.
     fn restart_if_changed(self: &Rc<Self>) {
-        let Some(options) = self.session_options() else {
+        let Some(mut options) = self.session_options() else {
             return;
         };
-        if matches!(
-            self.phase.get(),
-            SessionPhase::Starting | SessionPhase::Running
-        ) && self.started_options.borrow().as_ref() != Some(&options)
-            && self.send(CaptionUiAction::Start(options.clone()))
-        {
-            *self.started_options.borrow_mut() = Some(options);
-            self.set_phase(SessionPhase::Starting);
+        let needs_restart = self
+            .session
+            .borrow()
+            .as_ref()
+            .is_none_or(|session| session.needs_restart_for(&options));
+        if self.session_running() && needs_restart {
+            // The replacement keeps the targets the running session has.
+            if let Some(session) = self.session.borrow().as_ref() {
+                options.translation_targets = session.translation_targets;
+            }
+            if self.send(CaptionUiAction::Start(options.clone())) {
+                *self.session.borrow_mut() = Some(options);
+                self.set_phase(SessionPhase::Starting);
+            }
         }
     }
 
@@ -588,12 +669,6 @@ impl CaptionWindow {
             });
         }
         let weak = Rc::downgrade(self);
-        self.show_original.connect_toggled(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.controls_changed();
-            }
-        });
-        let weak = Rc::downgrade(self);
         self.start.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else {
                 return;
@@ -607,7 +682,7 @@ impl CaptionWindow {
                     this.remember(&options);
                     this.hide_error();
                     if this.send(CaptionUiAction::Start(options.clone())) {
-                        *this.started_options.borrow_mut() = Some(options);
+                        *this.session.borrow_mut() = Some(options);
                         this.set_phase(SessionPhase::Starting);
                         this.status.set_text("Starting…");
                     }
@@ -658,7 +733,7 @@ impl CaptionWindow {
         self.css.load_from_data(&caption_css(appearance));
         self.window
             .set_default_size(appearance.width, appearance.height);
-        self.sync_translation_controls();
+        self.sync_language();
         self.refresh_lanes();
         if let Some(window) = self.preferences_window.get() {
             window.sync_translation(&preferences.general);
@@ -710,24 +785,44 @@ impl CaptionWindow {
             if let Some(presentation) = update.presentation {
                 // A new session's reset must come before any caption that was
                 // coalesced into the same update, or it would erase it.
+                // Lanes are laid out again only when they changed, not for
+                // every caption, so an open chip menu stays open.
+                let lanes_changed = presentation.started.is_some()
+                    || presentation.session_targets.is_some()
+                    || presentation.running.is_some()
+                    || !presentation.targets.is_empty();
                 if let Some(options) = presentation.started {
                     // The controller says what actually started.
-                    *this.started_options.borrow_mut() = Some(options);
+                    *this.session.borrow_mut() = Some(options);
+                }
+                if let Some(targets) = presentation.session_targets
+                    && let Some(session) = this.session.borrow_mut().as_mut()
+                {
+                    // ...and which targets it has after a live change.
+                    session.translation_targets = targets;
                 }
                 if let Some(running) = presentation.running {
                     if running {
                         // A session starts with empty rows laid out for it.
                         this.captions.reset("");
-                        if let Some(options) = this.started_options.borrow().as_ref() {
-                            this.captions.configure(&lane_layout(options));
-                        }
+                        this.target_statuses.borrow_mut().clear();
                         if this.phase.get() != SessionPhase::Stopping {
                             this.set_phase(SessionPhase::Running);
                         }
                     } else {
                         this.set_phase(SessionPhase::Idle);
-                        this.refresh_lanes();
+                        this.target_statuses.borrow_mut().clear();
                     }
+                }
+                {
+                    let mut statuses = this.target_statuses.borrow_mut();
+                    for (language, status) in &presentation.targets {
+                        statuses.retain(|(target, _)| target != language);
+                        statuses.push((*language, *status));
+                    }
+                }
+                if lanes_changed {
+                    this.refresh_lanes();
                 }
                 if let Some(snapshot) = presentation.caption {
                     debug!(
@@ -735,11 +830,7 @@ impl CaptionWindow {
                         ui_state_age_us = snapshot.age().as_micros(),
                         "caption update reached GTK"
                     );
-                    this.captions.show(
-                        snapshot.caption().text(),
-                        snapshot.caption().original(),
-                        snapshot.caption().second_translation(),
-                    );
+                    this.captions.show(snapshot.caption());
                 }
                 if let Some(status) = presentation.status {
                     let status = if status == "Listening…" {
@@ -748,6 +839,13 @@ impl CaptionWindow {
                         status
                     };
                     this.status.set_text(&status);
+                }
+                // A translation's status follows its targets' own.
+                if this.phase.get() == SessionPhase::Running
+                    && !presentation.targets.is_empty()
+                    && let Some(status) = translation_status(&this.target_statuses.borrow())
+                {
+                    this.status.set_text(status);
                 }
             }
             if let Some(error) = update.error {

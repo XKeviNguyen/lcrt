@@ -16,12 +16,12 @@ use std::{
 use lcrt_audio_pipewire::{PipeWireCapture, PipeWireCaptureConfig};
 use lcrt_core::{
     AudioSourceDescriptor, CaptionPipeline, CaptionSinkError, Language, PipelineError, Preferences,
-    ProcessingMode, RunSummary, RuntimeConfig, SessionGeneration, SessionOptions, Transcriber,
-    TranscriptionError,
+    ProcessingMode, RunSummary, RuntimeConfig, SessionGeneration, SessionOptions, TargetChange,
+    TargetStatus, Transcriber, TranscriptionError,
 };
 use lcrt_openai::{
     credentials::{ApiKey, CredentialStatus, Credentials, KeyringStore},
-    lanes::{MultiTargetTranslation, TranslationOptions},
+    lanes::{MultiTargetTranslation, TargetControl, TranslationOptions},
     session::{OnlineSession, OnlineStatus, SessionLimits, user_message},
     transcription::TranscriptionProtocol,
     transport::WebSocketConnector,
@@ -34,14 +34,12 @@ use lcrt_ui_gtk::{
 };
 use tracing::{error, info, warn};
 
-use crate::settings::SettingsStore;
+use crate::{models::offline_model, settings::SettingsStore};
 
 const CONTROLLER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_VOCABULARY_LOOKUPS: usize = 3;
 
 /// User-facing text for settings-fixable problems.
-pub(crate) const MISSING_MODEL: &str =
-    "Choose a local Whisper model in Settings to use Offline Captions.";
 pub(crate) const MISSING_KEY: &str = "Online mode needs an OpenAI API key.";
 const MISSING_VOCABULARY_KEY: &str = "Vocabulary explanations need an OpenAI API key.";
 
@@ -50,8 +48,8 @@ const MISSING_VOCABULARY_KEY: &str = "Vocabulary explanations need an OpenAI API
 pub(crate) struct RunOverrides {
     /// `--model` or `LCRT_MODEL_PATH`.
     pub(crate) model_path: Option<PathBuf>,
-    /// `--language`, for offline Whisper.
-    pub(crate) language: Option<String>,
+    /// The built-in model installed with LCRT, found from the executable.
+    pub(crate) built_in_model: Option<PathBuf>,
     /// A bounded diagnostic run that quits after its session.
     pub(crate) smoke: bool,
 }
@@ -187,6 +185,8 @@ struct PipelineSession {
     /// Set when this session is being replaced, so it ends without waiting
     /// for final results nobody will see.
     abandoned: Arc<AtomicBool>,
+    /// A translation session's targets, changed live without a restart.
+    targets: Option<TargetControl>,
 }
 
 /// The controller is the authoritative owner of application termination.
@@ -218,6 +218,8 @@ enum Backend {
     Online {
         key: ApiKey,
         options: SessionOptions,
+        /// Set for Translation: the targets, shared with the controller.
+        targets: Option<TargetControl>,
     },
 }
 
@@ -315,6 +317,7 @@ impl Controller {
                         return ControllerOutcome::SmokeFailed;
                     }
                 }
+                Ok(CaptionUiAction::ChangeTarget(change)) => self.change_target(change),
                 Ok(CaptionUiAction::Stop) => {
                     self.pending_start = None;
                     if self.cancel_active() {
@@ -375,6 +378,36 @@ impl Controller {
         });
     }
 
+    /// Applies a live target change to the running translation session,
+    /// and to the session that will replace it, if one is waiting.
+    fn change_target(&mut self, change: TargetChange) {
+        if let Some(pending) = &mut self.pending_start {
+            let targets = pending.translation_targets;
+            let source = pending.spoken_language.language();
+            if let Some(changed) = match change {
+                TargetChange::Add(language) => targets.with_added(language, source),
+                TargetChange::Remove(language) => targets.without(language),
+                TargetChange::Pause(_) | TargetChange::Resume(_) => None,
+            } {
+                pending.translation_targets = changed;
+            }
+        }
+        if let ControllerState::Active(PipelineSession {
+            targets: Some(control),
+            ..
+        }) = &self.state
+        {
+            if !control.apply(change) {
+                warn!(?change, "a translation target change was refused");
+            }
+            // The window shows the session's targets as this reports them,
+            // whatever it showed while the change was on its way.
+            if let Some(targets) = control.targets() {
+                notify_ui(self.sink.set_session_targets(targets));
+            }
+        }
+    }
+
     fn cancel_active(&self) -> bool {
         if let ControllerState::Active(session) = &self.state {
             session.startup.cancel();
@@ -397,8 +430,8 @@ impl Controller {
         };
         let backend = match self.resolve_backend(&options) {
             Ok(backend) => backend,
-            Err(message) => {
-                self.show_error(message, true);
+            Err((message, needs_settings)) => {
+                self.show_error(message, needs_settings);
                 notify_ui(self.sink.set_running(false));
                 notify_ui(self.sink.set_status("Ready"));
                 return false;
@@ -448,25 +481,33 @@ impl Controller {
         }
     }
 
-    fn resolve_backend(&self, options: &SessionOptions) -> Result<Backend, &'static str> {
+    /// The backend for `options`, or what to tell the user and whether
+    /// Settings can fix it.
+    fn resolve_backend(&self, options: &SessionOptions) -> Result<Backend, (&'static str, bool)> {
         match options.mode {
             ProcessingMode::OfflineCaptions => {
-                let model_path = self
-                    .overrides
-                    .model_path
-                    .clone()
-                    .or_else(|| self.preferences.general.model_path.clone())
-                    .ok_or(MISSING_MODEL)?;
+                let model_path = offline_model(
+                    self.overrides.model_path.as_deref(),
+                    self.preferences.general.custom_model.as_deref(),
+                    self.overrides.built_in_model.as_deref(),
+                )
+                .map_err(|problem| (problem.message(), problem.needs_settings()))?;
                 Ok(Backend::Offline {
                     model_path,
-                    language: self.overrides.language.clone(),
+                    // Auto lets Whisper detect the language on every pass.
+                    language: options
+                        .spoken_language
+                        .language()
+                        .map(|language| language.code().to_owned()),
                 })
             }
             ProcessingMode::OnlineCaptions | ProcessingMode::Translation => {
-                let (key, _) = self.credentials.resolve().ok_or(MISSING_KEY)?;
+                let (key, _) = self.credentials.resolve().ok_or((MISSING_KEY, true))?;
                 Ok(Backend::Online {
                     key,
                     options: options.clone(),
+                    targets: (options.mode == ProcessingMode::Translation)
+                        .then(|| TargetControl::new(options.translation_targets)),
                 })
             }
         }
@@ -717,6 +758,10 @@ fn start_pipeline(
     let worker_ready = Arc::clone(&backend_ready);
     let abandoned = Arc::new(AtomicBool::new(false));
     let worker_abandoned = Arc::clone(&abandoned);
+    let targets = match &backend {
+        Backend::Online { targets, .. } => targets.clone(),
+        Backend::Offline { .. } => None,
+    };
     let (result_sender, result) = sync_channel(1);
     let worker = thread::Builder::new()
         .name("lcrt-caption-pipeline".to_owned())
@@ -736,6 +781,7 @@ fn start_pipeline(
         worker,
         backend_ready,
         abandoned,
+        targets,
     })
 }
 
@@ -769,60 +815,68 @@ fn open_backend(
             ready.store(true, Ordering::Release);
             Ok(Box::new(transcriber))
         }
-        Backend::Online { key, options } => {
+        Backend::Online {
+            key,
+            options,
+            targets: Some(control),
+        } => {
+            // One session per target language, each reporting its own
+            // status; a target that fails is reported while the others
+            // keep translating. The window derives the overall status.
             let status_sink = sink.clone();
-            let active = match options.mode {
-                ProcessingMode::Translation => "Translating…",
-                _ => "Listening…",
-            };
+            let on_status = Arc::new(move |target: Language, status: TargetStatus| {
+                if status == TargetStatus::Active {
+                    ready.store(true, Ordering::Release);
+                }
+                notify_ui(status_sink.set_target_status(target, status));
+            });
+            let failure_sink = sink.clone();
+            let on_lane_failure = Arc::new(move |target: Language, error: &TranscriptionError| {
+                notify_ui(
+                    failure_sink
+                        .show_error(format!("{} translation stopped: {error}", target.label())),
+                );
+            });
+            debug_assert_eq!(options.mode, ProcessingMode::Translation);
+            Ok(Box::new(MultiTargetTranslation::start(
+                TranslationOptions {
+                    control,
+                    limits: SessionLimits {
+                        finish: TRANSLATION_FINISH_WAIT,
+                        ..SessionLimits::default()
+                    },
+                    abandoned,
+                },
+                &key,
+                Box::new(|_| Box::new(WebSocketConnector::default())),
+                on_status,
+                on_lane_failure,
+            )?))
+        }
+        Backend::Online {
+            key,
+            options,
+            targets: None,
+        } => {
+            let status_sink = sink.clone();
             let status = Arc::new(move |status: OnlineStatus| {
                 let text = match status {
                     OnlineStatus::Connecting => "Connecting…",
                     OnlineStatus::Active => {
                         ready.store(true, Ordering::Release);
-                        active
+                        "Listening…"
                     }
                     OnlineStatus::Reconnecting => "Reconnecting…",
                 };
                 notify_ui(status_sink.set_status(text));
             });
-            let limits = SessionLimits::default();
-            match options.mode {
-                ProcessingMode::Translation => {
-                    // One session per target language; a target that fails
-                    // is reported while the other keeps translating.
-                    let failure_sink = sink.clone();
-                    let on_lane_failure =
-                        Arc::new(move |target: Language, error: &TranscriptionError| {
-                            notify_ui(failure_sink.show_error(format!(
-                                "{} translation stopped: {error}",
-                                target.label()
-                            )));
-                        });
-                    Ok(Box::new(MultiTargetTranslation::start(
-                        TranslationOptions {
-                            targets: options.translation_targets,
-                            show_original: options.show_original,
-                            limits: SessionLimits {
-                                finish: TRANSLATION_FINISH_WAIT,
-                                ..limits
-                            },
-                            abandoned,
-                        },
-                        &key,
-                        |_| Box::new(WebSocketConnector::default()),
-                        status,
-                        on_lane_failure,
-                    )?))
-                }
-                _ => Ok(Box::new(OnlineSession::start(
-                    TranscriptionProtocol::new(options.spoken_language.language()),
-                    key,
-                    Box::new(WebSocketConnector::default()),
-                    status,
-                    limits,
-                )?)),
-            }
+            Ok(Box::new(OnlineSession::start(
+                TranscriptionProtocol::new(options.spoken_language.language()),
+                key,
+                Box::new(WebSocketConnector::default()),
+                status,
+                SessionLimits::default(),
+            )?))
         }
     }
 }
@@ -987,6 +1041,7 @@ mod tests {
             worker,
             backend_ready: Arc::new(AtomicBool::new(false)),
             abandoned: Arc::new(AtomicBool::new(false)),
+            targets: None,
         });
 
         request_controller_shutdown(&mut state);
@@ -1008,6 +1063,7 @@ mod tests {
                 worker: thread::spawn(|| {}),
                 backend_ready: Arc::new(AtomicBool::new(ready)),
                 abandoned: Arc::new(AtomicBool::new(false)),
+                targets: None,
             });
             let (completed, backend_ready) = take_completed_session(&mut state).unwrap();
             assert!(completed.is_ok());

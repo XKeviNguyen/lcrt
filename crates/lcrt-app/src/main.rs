@@ -1,4 +1,5 @@
 mod controller;
+mod models;
 mod settings;
 
 use std::{
@@ -25,6 +26,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     controller::{Controller, ControllerOutcome, RunOverrides, notify_ui},
+    models::built_in_model,
     settings::SettingsStore,
 };
 
@@ -118,7 +120,9 @@ fn run_application(
     let preferences = store.as_ref().map(SettingsStore::load).unwrap_or_default();
     let overrides = RunOverrides {
         model_path: config.model_path.clone(),
-        language: config.language.clone(),
+        built_in_model: env::current_exe()
+            .ok()
+            .and_then(|executable| built_in_model(&executable)),
         smoke: config.smoke.is_some(),
     };
     let environment_key = env::var(API_KEY_ENVIRONMENT_VARIABLE).ok();
@@ -194,9 +198,8 @@ fn spawn_smoke_actions(
             translation_targets: TranslationTargets::resolve(
                 Some(smoke.target),
                 None,
-                SessionOptions::shown_source(true, spoken_language),
+                spoken_language.language(),
             ),
-            show_original: true,
         };
         if actions.send(CaptionUiAction::Start(options)).is_err() {
             return;
@@ -316,11 +319,11 @@ fn usage() -> &'static str {
         "  lcrt --version\n",
         "  lcrt --smoke-source ID [--smoke-seconds 1..3600]\n",
         "       [--smoke-mode offline|online|translation] [--smoke-target CODE]\n\n",
-        "Everyday settings, including the local Whisper model and the OpenAI API key,\n",
-        "are in Settings inside the app.\n\n",
+        "Everyday settings, including languages and the OpenAI API key, are in\n",
+        "Settings inside the app. Offline Captions use the built-in model.\n\n",
         "Developer options:\n",
         "  --model PATH or LCRT_MODEL_PATH   use this Whisper model for this run\n",
-        "  --language CODE                   spoken-language hint (offline Whisper and diagnostics)\n",
+        "  --language CODE                   spoken language of a diagnostic run\n",
         "  OPENAI_API_KEY                    fallback API key; never shown in the app\n",
         "  RUST_LOG                          structured diagnostic logging"
     )

@@ -149,7 +149,8 @@ pub const MAX_CAPTION_LANES: usize = 1 + MAX_TRANSLATION_TARGETS;
 /// The target languages of a translation session.
 ///
 /// There is always a first target, the second is optional, the two differ,
-/// and neither repeats a source language that is shown in its own lane.
+/// and neither is the spoken language when the user named it: translating
+/// speech into its own language is never useful.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TranslationTargets {
     first: Language,
@@ -160,28 +161,71 @@ impl TranslationTargets {
     /// Builds valid targets from what the user chose, correcting invalid
     /// combinations instead of rejecting them:
     ///
-    /// - a target equal to `shown_source` is dropped;
+    /// - a target equal to `source` is dropped;
     /// - a repeated target is dropped;
     /// - a second target without a first becomes the first;
-    /// - with no target left, the first language other than `shown_source`
-    ///   is used, because a translation session needs one.
+    /// - with no target left, the first language other than `source` is
+    ///   used, because a translation session needs one.
     pub fn resolve(
         first: Option<Language>,
         second: Option<Language>,
-        shown_source: Option<Language>,
+        source: Option<Language>,
     ) -> Self {
         let mut chosen = [first, second]
             .into_iter()
             .flatten()
-            .filter(|target| Some(*target) != shown_source);
+            .filter(|target| Some(*target) != source);
         let first = chosen.next().unwrap_or_else(|| {
             Language::ALL
                 .into_iter()
-                .find(|language| Some(*language) != shown_source)
+                .find(|language| Some(*language) != source)
                 .unwrap_or(Language::English)
         });
         let second = chosen.find(|target| *target != first);
         Self { first, second }
+    }
+
+    /// These targets with `language` added last, or `None` when there are
+    /// already [`MAX_TRANSLATION_TARGETS`], it already is a target, or it
+    /// is the spoken language.
+    pub fn with_added(self, language: Language, source: Option<Language>) -> Option<Self> {
+        (self.second.is_none() && language != self.first && Some(language) != source).then_some(
+            Self {
+                first: self.first,
+                second: Some(language),
+            },
+        )
+    }
+
+    /// These targets without `language`, or `None` when it is not a target
+    /// or is the only one: a translation session always has a target.
+    pub fn without(self, language: Language) -> Option<Self> {
+        let second = self.second?;
+        if language == self.first {
+            Some(Self {
+                first: second,
+                second: None,
+            })
+        } else {
+            (language == second).then_some(Self {
+                first: self.first,
+                second: None,
+            })
+        }
+    }
+
+    /// Whether `language` is one of these targets.
+    pub fn contains(self, language: Language) -> bool {
+        self.iter().any(|target| target == language)
+    }
+
+    /// The languages [`Self::with_added`] would accept, in presentation
+    /// order; none once the targets are full.
+    pub fn addable(self, source: Option<Language>) -> Vec<Language> {
+        Language::ALL
+            .into_iter()
+            .filter(|language| self.with_added(*language, source).is_some())
+            .collect()
     }
 
     /// The first target; it always exists.
@@ -200,13 +244,42 @@ impl TranslationTargets {
     }
 }
 
-/// One visible caption row.
+/// One caption row of a translation session.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CaptionLane {
     /// The original speech, in the spoken language.
-    Source(LanguageSelection),
+    Source,
     /// A translation into this language.
     Target(Language),
+}
+
+/// What one translation target's session is doing, as shown on its lane.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TargetStatus {
+    /// Opening its session; no translation yet.
+    Connecting,
+    /// Translating.
+    Active,
+    /// Recovering a lost connection.
+    Reconnecting,
+    /// Paused by the user: its session is closed, its text kept.
+    Paused,
+    /// Its session failed; the other targets keep translating.
+    Failed,
+}
+
+/// A change to the targets of a running translation session. Only the
+/// named target is affected: audio capture and the other targets go on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TargetChange {
+    /// Start translating into another language.
+    Add(Language),
+    /// Stop translating into a language and drop its lane.
+    Remove(Language),
+    /// Close a target's session, keeping its lane and text.
+    Pause(Language),
+    /// Open a paused or failed target's session again.
+    Resume(Language),
 }
 
 /// Monotonic identity of one caption session.
@@ -236,43 +309,35 @@ pub struct SessionOptions {
     pub mode: ProcessingMode,
     /// Stable platform identifier of the audio source.
     pub source_id: String,
-    /// The spoken language. Online Captions send it as a hint. Translation
-    /// detects the language itself and uses this only to label the source
-    /// lane and to keep targets from repeating it.
+    /// The spoken language. Offline Captions pass it to Whisper and Online
+    /// Captions send it as a hint; Auto detects it. Translation detects the
+    /// language itself and uses this only to label the source lane and to
+    /// keep targets from repeating it.
     pub spoken_language: LanguageSelection,
-    /// Output languages for [`ProcessingMode::Translation`].
+    /// Output languages for [`ProcessingMode::Translation`]. A running
+    /// session changes them with [`TargetChange`], without a restart.
     pub translation_targets: TranslationTargets,
-    /// Whether Translation also transcribes and shows the original speech.
-    pub show_original: bool,
 }
 
 impl SessionOptions {
-    /// The source language when Translation shows it in its own lane and the
-    /// user named it; targets must not repeat it.
-    pub fn shown_source(show_original: bool, spoken: LanguageSelection) -> Option<Language> {
-        spoken.language().filter(|_| show_original)
-    }
-
-    /// The caption lanes of a translation session, in their fixed order:
-    /// the source when shown, then each target. Other modes have one
-    /// unlabeled lane and return nothing here.
-    pub fn translation_lanes(&self) -> Vec<CaptionLane> {
-        if self.mode != ProcessingMode::Translation {
-            return Vec::new();
-        }
-        self.show_original
-            .then_some(CaptionLane::Source(self.spoken_language))
-            .into_iter()
-            .chain(self.translation_targets.iter().map(CaptionLane::Target))
-            .collect()
+    /// Whether moving from these options to `next` needs a new session.
+    /// Only what the backend itself depends on does: the mode, the audio
+    /// source, and the spoken language where it is sent to the backend.
+    /// Translation targets change live, and which lanes are shown is
+    /// presentation only.
+    pub fn needs_restart_for(&self, next: &SessionOptions) -> bool {
+        self.mode != next.mode
+            || self.source_id != next.source_id
+            || (self.mode != ProcessingMode::Translation
+                && self.spoken_language != next.spoken_language)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptionLane, Language, LanguageSelection, MAX_CAPTION_LANES, ProcessingMode,
-        SessionGeneration, SessionOptions, TranslationTargets,
+        Language, LanguageSelection, MAX_TRANSLATION_TARGETS, ProcessingMode, SessionGeneration,
+        SessionOptions, TranslationTargets,
     };
 
     fn targets(
@@ -310,8 +375,8 @@ mod tests {
     }
 
     #[test]
-    fn targets_never_repeat_the_shown_source_language() {
-        use Language::{English, Japanese, Vietnamese};
+    fn targets_never_repeat_the_named_spoken_language() {
+        use Language::{English, Japanese};
         // The repeated target is dropped and the other one moves up.
         assert_eq!(
             targets(Some(Japanese), Some(English), Some(Japanese)),
@@ -321,15 +386,8 @@ mod tests {
             targets(Some(English), Some(Japanese), Some(Japanese)),
             [English]
         );
-        // A hidden source restricts nothing.
-        let hidden = SessionOptions::shown_source(false, LanguageSelection::Language(Japanese));
-        assert_eq!(
-            targets(Some(Japanese), Some(Vietnamese), hidden),
-            [Japanese, Vietnamese]
-        );
-        // Neither does an automatically detected one.
-        let auto = SessionOptions::shown_source(true, LanguageSelection::Auto);
-        assert_eq!(targets(Some(Japanese), None, auto), [Japanese]);
+        // An automatically detected language restricts nothing.
+        assert_eq!(targets(Some(Japanese), None, None), [Japanese]);
     }
 
     #[test]
@@ -349,62 +407,74 @@ mod tests {
         );
     }
 
-    fn options(
-        show_original: bool,
-        spoken: LanguageSelection,
-        first: Language,
-        second: Option<Language>,
-    ) -> SessionOptions {
-        SessionOptions {
-            mode: ProcessingMode::Translation,
-            source_id: "monitor".to_owned(),
-            spoken_language: spoken,
-            translation_targets: TranslationTargets::resolve(
-                Some(first),
-                second,
-                SessionOptions::shown_source(show_original, spoken),
-            ),
-            show_original,
-        }
-    }
-
     #[test]
-    fn lanes_keep_a_fixed_order_and_never_exceed_three() {
+    fn a_target_is_added_only_while_there_is_room_and_it_is_new() {
         use Language::{English, Japanese, Vietnamese};
-        let japanese = LanguageSelection::Language(Japanese);
+        let one = TranslationTargets::resolve(Some(English), None, Some(Japanese));
+        let two = one.with_added(Vietnamese, Some(Japanese)).unwrap();
+        assert_eq!(two.iter().collect::<Vec<_>>(), [English, Vietnamese]);
+        // Full, a duplicate, and the spoken language are all refused.
+        assert_eq!(two.with_added(Language::German, Some(Japanese)), None);
+        assert_eq!(one.with_added(English, Some(Japanese)), None);
+        assert_eq!(one.with_added(Japanese, Some(Japanese)), None);
+        assert_eq!(two.iter().count(), MAX_TRANSLATION_TARGETS);
+        // The menu offers exactly what would be accepted.
+        let addable = one.addable(Some(Japanese));
+        assert!(!addable.contains(&English) && !addable.contains(&Japanese));
+        assert!(addable.contains(&Vietnamese));
+        assert!(two.addable(Some(Japanese)).is_empty());
+    }
+
+    #[test]
+    fn removing_a_target_keeps_the_other_and_never_the_last() {
+        use Language::{English, Vietnamese};
+        let two = TranslationTargets::resolve(Some(English), Some(Vietnamese), None);
+        // Removing the first moves the second up.
+        let rest = two.without(English).unwrap();
+        assert_eq!(rest.iter().collect::<Vec<_>>(), [Vietnamese]);
         assert_eq!(
-            options(true, japanese, English, Some(Vietnamese)).translation_lanes(),
-            [
-                CaptionLane::Source(japanese),
-                CaptionLane::Target(English),
-                CaptionLane::Target(Vietnamese),
-            ]
+            two.without(Vietnamese).unwrap().iter().collect::<Vec<_>>(),
+            [English]
         );
-        assert_eq!(
-            options(false, LanguageSelection::Language(English), Japanese, None)
-                .translation_lanes(),
-            [CaptionLane::Target(Japanese)]
-        );
-        assert_eq!(
-            options(true, LanguageSelection::Auto, English, None).translation_lanes(),
-            [
-                CaptionLane::Source(LanguageSelection::Auto),
-                CaptionLane::Target(English)
-            ]
-        );
-        for show in [false, true] {
-            for second in [None, Some(Vietnamese), Some(English)] {
-                let lanes = options(show, japanese, English, second).translation_lanes();
-                assert!((1..=MAX_CAPTION_LANES).contains(&lanes.len()));
-            }
+        // The only target, or a language that isn't one, can't be removed.
+        assert_eq!(rest.without(Vietnamese), None);
+        assert_eq!(two.without(Language::German), None);
+        assert!(two.contains(Vietnamese) && !rest.contains(English));
+    }
+
+    fn options(mode: ProcessingMode, source: &str, spoken: LanguageSelection) -> SessionOptions {
+        SessionOptions {
+            mode,
+            source_id: source.to_owned(),
+            spoken_language: spoken,
+            translation_targets: TranslationTargets::resolve(Some(Language::English), None, None),
         }
     }
 
     #[test]
-    fn other_modes_have_no_labeled_lanes() {
-        let mut offline = options(true, LanguageSelection::Auto, Language::English, None);
-        offline.mode = ProcessingMode::OnlineCaptions;
-        assert!(offline.translation_lanes().is_empty());
+    fn only_backend_changes_need_a_new_session() {
+        use ProcessingMode::{OfflineCaptions, OnlineCaptions, Translation};
+        let japanese = LanguageSelection::Language(Language::Japanese);
+        let auto = LanguageSelection::Auto;
+        let running = options(Translation, "monitor", auto);
+        // Targets change live in a running translation session.
+        let mut more_targets = running.clone();
+        more_targets.translation_targets = running
+            .translation_targets
+            .with_added(Language::Vietnamese, None)
+            .unwrap();
+        assert!(!running.needs_restart_for(&more_targets));
+        // Translation detects the language; naming it only relabels a lane.
+        assert!(!running.needs_restart_for(&options(Translation, "monitor", japanese)));
+        // Captions send the spoken language to the backend.
+        for mode in [OfflineCaptions, OnlineCaptions] {
+            assert!(
+                options(mode, "monitor", auto)
+                    .needs_restart_for(&options(mode, "monitor", japanese))
+            );
+        }
+        assert!(running.needs_restart_for(&options(OnlineCaptions, "monitor", auto)));
+        assert!(running.needs_restart_for(&options(Translation, "microphone", auto)));
     }
 
     #[test]

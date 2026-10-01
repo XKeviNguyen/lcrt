@@ -75,9 +75,8 @@ impl WhisperTranscriber {
                     worker_inference_count,
                 );
                 if let Err(error) = &result {
-                    let message = error.to_string();
-                    let _ = startup_sender.try_send(Err(message.clone()));
-                    let _ = event_sender.send(WorkerEvent::Failure(message));
+                    let _ = startup_sender.try_send(Err(error.clone()));
+                    let _ = event_sender.send(WorkerEvent::Failure(error.to_string()));
                 }
                 let _ = event_sender.send(WorkerEvent::Done);
                 result
@@ -95,10 +94,10 @@ impl WhisperTranscriber {
                 finished: false,
                 inference_count,
             }),
-            Ok(Err(message)) => {
+            Ok(Err(error)) => {
                 drop(commands);
                 let _ = worker.join();
-                Err(WhisperBackendError::Whisper(message))
+                Err(error)
             }
             Err(RecvTimeoutError::Timeout) => {
                 cancel.store(true, Ordering::Release);
@@ -314,7 +313,7 @@ fn run_worker(
     commands: Receiver<WorkerCommand>,
     backlog: &InputBacklog,
     events: SyncSender<WorkerEvent>,
-    startup: SyncSender<Result<(), String>>,
+    startup: SyncSender<Result<(), WhisperBackendError>>,
     cancel: Arc<AtomicBool>,
     inference_count: Arc<AtomicU64>,
 ) -> Result<(), WhisperBackendError> {
@@ -326,10 +325,17 @@ fn run_worker(
     })?;
     let context = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
         .map_err(|error| WhisperBackendError::Whisper(error.to_string()))?;
+    // The model's own vocabulary says whether it knows other languages; an
+    // English-only model would render other speech as invented English.
+    if !context.is_multilingual()
+        && let Some(language) = config.language.as_deref().filter(|code| *code != "en")
+    {
+        return Err(WhisperBackendError::EnglishOnlyModel(language.to_owned()));
+    }
     let mut state = context
         .create_state()
         .map_err(|error| WhisperBackendError::Whisper(error.to_string()))?;
-    let parameters = decoding_parameters(&config);
+    let mut decoding = Decoding::new(&config, context.is_multilingual());
     let mut window = StreamingWindow::new(&config)?;
     let mut converter = None;
     let mut transcript = TranscriptAssembler::new(config.max_transcript_bytes);
@@ -351,7 +357,7 @@ fn run_worker(
                         &mut converter,
                         &mut window,
                         &mut state,
-                        &parameters,
+                        &mut decoding,
                         &events,
                         &mut transcript,
                         &inference_count,
@@ -363,7 +369,7 @@ fn run_worker(
                         kind,
                         &mut window,
                         &mut state,
-                        &parameters,
+                        &mut decoding,
                         &events,
                         &mut transcript,
                         &inference_count,
@@ -379,7 +385,7 @@ fn run_worker(
                         kind,
                         &mut window,
                         &mut state,
-                        &parameters,
+                        &mut decoding,
                         &events,
                         &mut transcript,
                         &inference_count,
@@ -391,7 +397,7 @@ fn run_worker(
                     &mut converter,
                     &mut window,
                     &mut state,
-                    &parameters,
+                    &mut decoding,
                     &events,
                     &mut transcript,
                     &inference_count,
@@ -466,7 +472,7 @@ fn finish_stream(
     converter: &mut Option<AudioConverter>,
     window: &mut StreamingWindow,
     state: &mut WhisperState,
-    parameters: &FullParams<'_, '_>,
+    decoding: &mut Decoding<'_>,
     events: &SyncSender<WorkerEvent>,
     transcript: &mut TranscriptAssembler,
     inference_count: &AtomicU64,
@@ -480,7 +486,7 @@ fn finish_stream(
             kind,
             window,
             state,
-            parameters,
+            decoding,
             events,
             transcript,
             inference_count,
@@ -493,13 +499,14 @@ fn infer_and_publish(
     kind: InferenceKind,
     window: &mut StreamingWindow,
     state: &mut WhisperState,
-    parameters: &FullParams<'_, '_>,
+    decoding: &mut Decoding<'_>,
     events: &SyncSender<WorkerEvent>,
     transcript: &mut TranscriptAssembler,
     inference_count: &AtomicU64,
 ) -> Result<(), WhisperBackendError> {
     let started = Instant::now();
     let audio_duration_ms = window.samples().len() * 1_000 / 16_000;
+    let parameters = decoding.for_pass(state, window.samples())?;
     let text = transcribe_window(state, window.samples(), parameters)?;
     inference_count.fetch_add(1, Ordering::Relaxed);
     let window_rolled = window.rolled_since_inference();
@@ -576,13 +583,189 @@ fn backlog_reservation_us(chunk: &AudioChunk) -> u64 {
         .max(MIN_CHUNK_RESERVATION.as_micros() as u64)
 }
 
-/// Builds decoding parameters once per worker. whisper-rs 0.15 never frees
-/// the language string it allocates, so each pass clones these parameters
-/// instead of building new ones.
-fn decoding_parameters(config: &WhisperConfig) -> FullParams<'_, '_> {
+/// Audio a pass must span before Auto keeps the language it detected.
+/// Detection on the first second of speech is unreliable: measured on
+/// Japanese, it often chose English or Hindi.
+const LANGUAGE_LOCK_SAMPLES: usize = 3 * WHISPER_SAMPLE_RATE;
+/// Share of the probability, among the languages LCRT offers, the detected
+/// language needs before it is kept.
+const LANGUAGE_LOCK_CONFIDENCE: f32 = 0.7;
+/// How long a kept language is used before it is checked again.
+const LANGUAGE_RECHECK: Duration = Duration::from_secs(30);
+
+/// The spoken language Auto transcribes in.
+///
+/// Whisper's language detection is an encoder pass of its own, as costly as
+/// transcribing. Detecting on every pass doubled the cost and made inference
+/// fall 8 s behind capture within 45 s; detecting once per utterance still
+/// did on two CPUs, after 81 s. So a confidently detected language is kept
+/// and checked again only every 30 s, which follows a change of language
+/// with at most one extra pass per 30 s.
+#[derive(Clone, Copy, Debug, Default)]
+struct AutoLanguage {
+    /// The kept language and when it was last detected.
+    kept: Option<(&'static str, Instant)>,
+}
+
+impl AutoLanguage {
+    /// The kept language, unless it is time to detect again.
+    fn current(&self, now: Instant) -> Option<&'static str> {
+        self.kept
+            .filter(|(_, checked)| now.duration_since(*checked) < LANGUAGE_RECHECK)
+            .map(|(language, _)| language)
+    }
+
+    /// Records a detection over `samples` audio samples and returns the
+    /// language to transcribe this pass in. A short or unsure detection is
+    /// used for this pass only; a language kept before stays kept.
+    fn detected(
+        &mut self,
+        language: &'static str,
+        confidence: f32,
+        samples: usize,
+        now: Instant,
+    ) -> &'static str {
+        if samples >= LANGUAGE_LOCK_SAMPLES && confidence >= LANGUAGE_LOCK_CONFIDENCE {
+            self.kept = Some((language, now));
+            language
+        } else if let Some((kept, _)) = self.kept {
+            // Unsure: keep the language, and check again after a full wait.
+            self.kept = Some((kept, now));
+            kept
+        } else {
+            language
+        }
+    }
+}
+
+/// Decoding parameters for each pass: the language the user chose, or the
+/// language Auto detected.
+struct Decoding<'a> {
+    configured: FullParams<'a, 'a>,
+    /// Detects the language; false when the user named one, or the model
+    /// knows only English.
+    auto: bool,
+    /// Parameters for each language used so far. whisper-rs 0.15 never
+    /// frees the language string it allocates, so parameters are built once
+    /// per language, which bounds that leak by the number of languages.
+    by_language: Vec<(&'static str, FullParams<'a, 'a>)>,
+    language: AutoLanguage,
+    threads: i32,
+    max_tokens: i32,
+    audio_ctx: i32,
+}
+
+impl<'a> Decoding<'a> {
+    fn new(config: &'a WhisperConfig, multilingual: bool) -> Self {
+        let threads = i32::from(config.inference_threads);
+        let max_tokens = window_token_limit(config.window_duration);
+        let audio_ctx = window_audio_ctx(config.window_duration);
+        Self {
+            configured: decoding_parameters(
+                config.language.as_deref(),
+                threads,
+                max_tokens,
+                audio_ctx,
+            ),
+            auto: config.language.is_none() && multilingual,
+            by_language: Vec::new(),
+            language: AutoLanguage::default(),
+            threads,
+            max_tokens,
+            audio_ctx,
+        }
+    }
+
+    /// The parameters to transcribe `samples` with.
+    fn for_pass(
+        &mut self,
+        state: &mut WhisperState,
+        samples: &[f32],
+    ) -> Result<&FullParams<'a, 'a>, WhisperBackendError> {
+        if !self.auto {
+            return Ok(&self.configured);
+        }
+        let now = Instant::now();
+        let language = match self.language.current(now) {
+            Some(language) => language,
+            None => {
+                let (language, confidence) = detect_language(state, samples, self.threads)?;
+                debug!(language, confidence, "Whisper detected the spoken language");
+                self.language
+                    .detected(language, confidence, samples.len(), now)
+            }
+        };
+        if !self.by_language.iter().any(|(known, _)| *known == language) {
+            self.by_language.push((
+                language,
+                decoding_parameters(
+                    Some(language),
+                    self.threads,
+                    self.max_tokens,
+                    self.audio_ctx,
+                ),
+            ));
+        }
+        Ok(self
+            .by_language
+            .iter()
+            .find(|(known, _)| *known == language)
+            .map(|(_, parameters)| parameters)
+            .unwrap_or(&self.configured))
+    }
+}
+
+/// The most likely of the languages LCRT offers in `samples`, by Whisper's
+/// own language detection, and its share of their combined probability.
+///
+/// Detection encodes with the encoder size of the previous pass, which
+/// whisper.cpp keeps in `state`; only the session's first detection, before
+/// any pass, uses the full 30 s encoder.
+fn detect_language(
+    state: &mut WhisperState,
+    samples: &[f32],
+    threads: i32,
+) -> Result<(&'static str, f32), WhisperBackendError> {
+    let threads = usize::try_from(threads).unwrap_or(1);
+    let whisper = |error: whisper_rs::WhisperError| WhisperBackendError::Whisper(error.to_string());
+    state.pcm_to_mel(samples, threads).map_err(whisper)?;
+    let (_, probabilities) = state.lang_detect(0, threads).map_err(whisper)?;
+    Ok(most_likely_offered(|code| {
+        whisper_rs::get_lang_id(code)
+            .and_then(|id| probabilities.get(usize::try_from(id).ok()?).copied())
+            .unwrap_or(0.0)
+    }))
+}
+
+/// The offered language with the highest `probability`, and its share of
+/// the offered languages' combined probability.
+fn most_likely_offered(probability: impl Fn(&'static str) -> f32) -> (&'static str, f32) {
+    let offered =
+        lcrt_core::Language::ALL.map(|language| (language.code(), probability(language.code())));
+    let total: f32 = offered.iter().map(|(_, probability)| probability).sum();
+    let (language, best) = offered
+        .into_iter()
+        .fold(("en", f32::MIN), |best, candidate| {
+            if candidate.1 > best.1 {
+                candidate
+            } else {
+                best
+            }
+        });
+    (language, if total > 0.0 { best / total } else { 0.0 })
+}
+
+/// Builds decoding parameters for `language`, or automatic detection.
+fn decoding_parameters<'a>(
+    language: Option<&'a str>,
+    threads: i32,
+    max_tokens: i32,
+    audio_ctx: i32,
+) -> FullParams<'a, 'a> {
     let mut parameters = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    parameters.set_n_threads(i32::from(config.inference_threads));
-    parameters.set_language(config.language.as_deref());
+    parameters.set_audio_ctx(audio_ctx);
+    parameters.set_n_threads(threads);
+    parameters.set_language(language);
     parameters.set_translate(false);
     parameters.set_no_context(true);
     parameters.set_no_timestamps(true);
@@ -592,8 +775,21 @@ fn decoding_parameters(config: &WhisperConfig) -> FullParams<'_, '_> {
     parameters.set_print_timestamps(false);
     parameters.set_suppress_blank(true);
     parameters.set_suppress_nst(true);
-    parameters.set_max_tokens(window_token_limit(config.window_duration));
+    parameters.set_max_tokens(max_tokens);
     parameters
+}
+
+/// Encoder positions per second of audio: Whisper encodes 30 s in 1,500.
+const ENCODER_POSITIONS_PER_SECOND: f64 = 50.0;
+
+/// Sizes the encoder to the rolling window instead of Whisper's fixed 30 s.
+/// Every pass, and Auto's language detection, runs the encoder, whose cost
+/// grows with this size; at 30 s an 8 s window spends most of it on padding,
+/// and on two CPUs one pass took 3.5–4.6 s.
+fn window_audio_ctx(window: Duration) -> i32 {
+    (window.as_secs_f64() * ENCODER_POSITIONS_PER_SECOND)
+        .ceil()
+        .clamp(1.0, 1_500.0) as i32
 }
 
 /// Scales whisper.cpp's own decode limit, `n_text_ctx / 2 - 4 = 220` tokens
@@ -649,11 +845,59 @@ mod tests {
     use lcrt_core::AudioChunk;
 
     use super::{
-        InputBacklog, WhisperTranscriber, WorkerCommand, backlog_reservation_us, drain_backlog,
-        window_token_limit,
+        AutoLanguage, InputBacklog, LANGUAGE_LOCK_SAMPLES, LANGUAGE_RECHECK, WhisperTranscriber,
+        WorkerCommand, backlog_reservation_us, drain_backlog, most_likely_offered,
+        window_audio_ctx, window_token_limit,
     };
     use crate::window::{InferenceKind, StreamingWindow};
     use crate::{WhisperBackendError, WhisperConfig};
+
+    #[test]
+    fn the_encoder_is_sized_to_the_rolling_window() {
+        assert_eq!(window_audio_ctx(Duration::from_secs(8)), 400);
+        assert_eq!(window_audio_ctx(Duration::from_millis(8_010)), 401);
+        assert_eq!(window_audio_ctx(Duration::from_secs(60)), 1_500);
+    }
+
+    #[test]
+    fn auto_keeps_a_confident_language_and_checks_it_every_30_seconds() {
+        let start = std::time::Instant::now();
+        let mut auto = AutoLanguage::default();
+        assert_eq!(auto.current(start), None);
+        // A short pass is transcribed in what it detected, but not kept.
+        assert_eq!(auto.detected("en", 0.9, 16_000, start), "en");
+        assert_eq!(auto.current(start), None);
+        // A long, confident pass is kept, with no detection until 30 s on.
+        assert_eq!(auto.detected("ja", 0.9, LANGUAGE_LOCK_SAMPLES, start), "ja");
+        assert_eq!(auto.current(start + LANGUAGE_RECHECK / 2), Some("ja"));
+        let recheck = start + LANGUAGE_RECHECK;
+        assert_eq!(auto.current(recheck), None);
+        // An unsure check keeps the language for another 30 s.
+        assert_eq!(
+            auto.detected("vi", 0.4, LANGUAGE_LOCK_SAMPLES, recheck),
+            "ja"
+        );
+        assert_eq!(auto.current(recheck + LANGUAGE_RECHECK / 2), Some("ja"));
+        // A confident check follows a change of language.
+        let later = recheck + LANGUAGE_RECHECK;
+        assert_eq!(auto.detected("vi", 0.9, LANGUAGE_LOCK_SAMPLES, later), "vi");
+        assert_eq!(auto.current(later), Some("vi"));
+    }
+
+    #[test]
+    fn auto_chooses_among_the_offered_languages_only() {
+        // Whisper leans to Hindi, which LCRT doesn't offer: Japanese wins,
+        // with its share of the offered languages' probability.
+        let (language, confidence) = most_likely_offered(|code| match code {
+            "ja" => 0.3,
+            "en" => 0.1,
+            _ => 0.0,
+        });
+        assert_eq!(language, "ja");
+        assert!((confidence - 0.75).abs() < 1e-6);
+        // Nothing offered is likely at all: no confidence to keep it.
+        assert_eq!(most_likely_offered(|_| 0.0).1, 0.0);
+    }
 
     #[test]
     fn missing_model_fails_before_worker_start() {

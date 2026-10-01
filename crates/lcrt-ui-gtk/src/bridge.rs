@@ -5,7 +5,7 @@ use std::{
 
 use lcrt_core::{
     CaptionSink, CaptionSinkError, CaptionSnapshot, CaptionStatus, Language, Preferences,
-    SessionGeneration, SessionOptions,
+    SessionGeneration, SessionOptions, TargetChange, TargetStatus, TranslationTargets,
 };
 
 /// An API key typed into Preferences. `Debug` never reveals it.
@@ -38,6 +38,9 @@ pub enum CaptionUiAction {
     Start(SessionOptions),
     /// Stop caption processing and release capture resources.
     Stop,
+    /// Change one target of the running translation session. Only that
+    /// target's session opens or closes; nothing restarts.
+    ChangeTarget(TargetChange),
     /// Terminate the controller after cancelling any active caption session.
     Shutdown,
     /// Persist non-secret preferences.
@@ -125,10 +128,23 @@ pub(crate) struct UiPresentation {
     /// The options of a session that just started. The controller is their
     /// authority, however the session was started.
     pub(crate) started: Option<SessionOptions>,
+    /// The newest status of each translation target that reported one.
+    pub(crate) targets: Vec<(Language, TargetStatus)>,
+    /// The running session's targets after a live change. The controller
+    /// is their authority; the window may have shown the change already.
+    pub(crate) session_targets: Option<TranslationTargets>,
 }
 
 impl UiPresentation {
+    fn set_target(&mut self, language: Language, status: TargetStatus) {
+        self.targets.retain(|(target, _)| *target != language);
+        self.targets.push((language, status));
+    }
+
     fn merge(&mut self, newer: Self) {
+        for (language, status) in newer.targets {
+            self.set_target(language, status);
+        }
         if newer.caption.is_some() {
             self.caption = newer.caption;
         }
@@ -141,6 +157,9 @@ impl UiPresentation {
         if newer.started.is_some() {
             self.started = newer.started;
         }
+        if newer.session_targets.is_some() {
+            self.session_targets = newer.session_targets;
+        }
     }
 
     fn is_empty(&self) -> bool {
@@ -148,6 +167,8 @@ impl UiPresentation {
             && self.running.is_none()
             && self.status.is_none()
             && self.started.is_none()
+            && self.targets.is_empty()
+            && self.session_targets.is_none()
     }
 }
 
@@ -300,6 +321,20 @@ impl GtkCaptionSink {
             ));
         }
         self.update(move |state| state.control_presentation().status = Some(status))
+    }
+
+    /// Tells the window the running session's targets after a live change.
+    pub fn set_session_targets(&self, targets: TranslationTargets) -> Result<(), CaptionSinkError> {
+        self.update(move |state| state.current.session_targets = Some(targets))
+    }
+
+    /// Shows what one translation target's session is doing.
+    pub fn set_target_status(
+        &self,
+        language: Language,
+        status: TargetStatus,
+    ) -> Result<(), CaptionSinkError> {
+        self.update(move |state| state.control_presentation().set_target(language, status))
     }
 
     /// Shows an actionable error in the caption window.
@@ -466,8 +501,8 @@ impl Drop for GtkCaptionReceiver {
 mod tests {
     use lcrt_core::{
         CaptionSink, CaptionSnapshot, CaptionState, CaptionStatus, Language, LanguageSelection,
-        ProcessingMode, SessionGeneration, SessionOptions, TranscriptUpdate, TranslationLanes,
-        TranslationTargets,
+        ProcessingMode, SessionGeneration, SessionOptions, TargetStatus, TargetText,
+        TranscriptUpdate, TranslationLanes, TranslationTargets,
     };
 
     fn translation_options() -> SessionOptions {
@@ -480,7 +515,6 @@ mod tests {
                 Some(Language::Vietnamese),
                 Some(Language::Japanese),
             ),
-            show_original: true,
         }
     }
 
@@ -753,9 +787,17 @@ mod tests {
         second: &str,
     ) -> CaptionSnapshot {
         let lanes = TranslationLanes {
-            original: Some(original.to_owned()),
-            first: first.to_owned(),
-            second: Some(second.to_owned()),
+            original: original.to_owned(),
+            targets: vec![
+                TargetText {
+                    language: Language::English,
+                    text: first.to_owned(),
+                },
+                TargetText {
+                    language: Language::Vietnamese,
+                    text: second.to_owned(),
+                },
+            ],
         };
         captions
             .apply(TranscriptUpdate::lanes(lanes, CaptionStatus::Partial).unwrap())
@@ -787,9 +829,57 @@ mod tests {
             .publish(lanes(&mut captions, "こんにちは", "Hello", "Xin chào"))
             .unwrap();
         let shown = presentation(&receiver).caption.unwrap();
-        assert_eq!(shown.caption().original(), Some("こんにちは"));
-        assert_eq!(shown.caption().text(), "Hello");
-        assert_eq!(shown.caption().second_translation(), Some("Xin chào"));
+        let lanes = shown.caption().translation_lanes().unwrap();
+        assert_eq!(lanes.original, "こんにちは");
+        assert_eq!(lanes.target(Language::English), Some("Hello"));
+        assert_eq!(lanes.target(Language::Vietnamese), Some("Xin chào"));
+    }
+
+    #[test]
+    fn target_statuses_keep_the_newest_per_language_and_live_targets_reach_the_window() {
+        let (controller, receiver) = GtkCaptionSink::bridge();
+        let session = controller
+            .start_session(SessionGeneration::default().next(), &translation_options())
+            .unwrap();
+        receiver.take_update().unwrap();
+        session
+            .set_target_status(Language::English, TargetStatus::Connecting)
+            .unwrap();
+        session
+            .set_target_status(Language::Vietnamese, TargetStatus::Connecting)
+            .unwrap();
+        session
+            .set_target_status(Language::English, TargetStatus::Active)
+            .unwrap();
+        let shown = presentation(&receiver);
+        assert_eq!(
+            shown.targets,
+            [
+                (Language::Vietnamese, TargetStatus::Connecting),
+                (Language::English, TargetStatus::Active),
+            ]
+        );
+        let targets = TranslationTargets::resolve(Some(Language::German), None, None);
+        controller.set_session_targets(targets).unwrap();
+        assert_eq!(presentation(&receiver).session_targets, Some(targets));
+    }
+
+    #[test]
+    fn a_replaced_session_cannot_report_target_statuses() {
+        let (controller, receiver) = GtkCaptionSink::bridge();
+        let old = controller
+            .start_session(SessionGeneration::default().next(), &translation_options())
+            .unwrap();
+        let _current = controller
+            .start_session(
+                SessionGeneration::default().next().next(),
+                &translation_options(),
+            )
+            .unwrap();
+        receiver.take_update().unwrap();
+        old.set_target_status(Language::English, TargetStatus::Failed)
+            .unwrap();
+        assert!(receiver.take_update().unwrap().presentation.is_none());
     }
 
     #[test]

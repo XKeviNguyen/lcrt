@@ -8,11 +8,11 @@ use std::{
 };
 
 use gtk::{gdk, glib, prelude::*};
-use lcrt_core::Language;
+use lcrt_core::{Caption, Language, MAX_TRANSLATION_TARGETS};
 
 use crate::{
     CaptionUiAction, VocabularyCard, VocabularyOutcome, VocabularyProblem,
-    presentation::{LaneLayout, row_fit},
+    presentation::{LaneLayout, lane_status_text, row_fit},
 };
 
 /// How long a selection must stay unchanged before it is explained.
@@ -65,6 +65,9 @@ struct Lane {
     badge_holder: gtk::ScrolledWindow,
     view: gtk::TextView,
     scroller: gtk::ScrolledWindow,
+    /// What the row's target is doing while it has no live translation,
+    /// such as "Connecting…" or "Paused".
+    status: gtk::Label,
     /// Whether the row has a badge, and therefore fits its text to its
     /// height.
     labeled: Rc<Cell<bool>>,
@@ -163,24 +166,34 @@ impl Lane {
                 });
             });
         }
+        let status = gtk::Label::builder()
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        status.add_css_class("dim-label");
+        status.add_css_class("lane-status");
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         row.append(&badge_holder);
         row.append(&scroller);
+        row.append(&status);
         Self {
             row,
             badge,
             badge_holder,
             view,
             scroller,
+            status,
             labeled,
         }
     }
 
-    /// Shows the row with `badge`, or without one when `badge` is `None`.
-    /// A row with a badge takes whatever height it is given, fits its text
-    /// to it, and shows no scrollbar.
-    fn configure(&self, visible: bool, badge: Option<&str>) {
+    /// Shows the row with `badge`, or without one when `badge` is `None`,
+    /// and `status` beside its text. A row with a badge takes whatever
+    /// height it is given, fits its text to it, and shows no scrollbar.
+    fn configure(&self, visible: bool, badge: Option<&str>, status: Option<&str>) {
         self.row.set_visible(visible);
+        self.status.set_visible(status.is_some());
+        self.status.set_text(status.unwrap_or_default());
         let labeled = badge.is_some();
         self.labeled.set(labeled);
         self.scroller.set_vscrollbar_policy(if labeled {
@@ -206,22 +219,33 @@ impl Lane {
     }
 }
 
-/// The caption rows, always in the same order: the original speech, the
-/// captions (or first translation), and the second translation.
+/// The caption rows: the original speech, then one row per translation
+/// target. Outside Translation the first target row shows the captions,
+/// unlabeled.
+///
+/// A target row stays bound to its language while that language is a
+/// target, so adding, removing or hiding another lane never moves or clears
+/// its text; a row gets empty text only when it is bound to a new language.
 pub(crate) struct CaptionViews {
     pub(crate) root: gtk::Box,
     source: Lane,
-    first: Lane,
-    second: Lane,
-    layout: RefCell<LaneLayout>,
+    targets: [Lane; MAX_TRANSLATION_TARGETS],
+    bound: RefCell<[Option<Language>; MAX_TRANSLATION_TARGETS]>,
+    /// The idle placeholder, while one is shown, and the target row it is
+    /// in. It moves to the first visible target row when the rows change.
+    placeholder: RefCell<Option<(String, usize)>>,
+    /// The target row the placeholder belongs in.
+    first_visible: Cell<usize>,
 }
 
 impl CaptionViews {
     pub(crate) fn new(placeholder: &str) -> Self {
         let source = Lane::new("caption-original", "Original speech");
-        let first = Lane::new("caption-text", "Captions");
-        let second = Lane::new("caption-text", "Second translation");
-        first.view.buffer().set_text(placeholder);
+        let targets = [
+            Lane::new("caption-text", "Captions"),
+            Lane::new("caption-text", "Second translation"),
+        ];
+        targets[0].view.buffer().set_text(placeholder);
         let root = gtk::Box::new(gtk::Orientation::Vertical, 6);
         root.set_margin_top(12);
         root.set_margin_start(14);
@@ -229,56 +253,143 @@ impl CaptionViews {
         // Visible rows share the height equally, so a row never moves or
         // resizes because another one received text.
         root.set_homogeneous(true);
-        for lane in [&source, &first, &second] {
+        root.append(&source.row);
+        for lane in &targets {
             root.append(&lane.row);
         }
         let views = Self {
             root,
             source,
-            first,
-            second,
-            layout: RefCell::new(LaneLayout::default()),
+            targets,
+            bound: RefCell::new([None; MAX_TRANSLATION_TARGETS]),
+            placeholder: RefCell::new(Some((placeholder.to_owned(), 0))),
+            first_visible: Cell::new(0),
         };
         views.configure(&LaneLayout::default());
         views
     }
 
-    /// Shows the rows `layout` describes and returns whether that changed
-    /// which rows or badges are shown. Row order never changes.
+    /// Shows the rows `layout` describes, in its order. Returns whether
+    /// which languages the rows show changed, or whether the rows gained or
+    /// lost their badges; showing or hiding a row is not a change.
     pub(crate) fn configure(&self, layout: &LaneLayout) -> bool {
-        let changed = *self.layout.borrow() != *layout;
-        self.source
-            .configure(layout.source.is_some(), layout.source.as_deref());
-        self.first.configure(true, layout.first.as_deref());
-        self.second
-            .configure(layout.second.is_some(), layout.second.as_deref());
-        *self.layout.borrow_mut() = layout.clone();
-        changed
+        let mut bound = self.bound.borrow_mut();
+        let before = (*bound, self.source.labeled.get());
+        let languages: Vec<Language> = layout
+            .targets
+            .iter()
+            .map(|(language, _)| *language)
+            .collect();
+        // Release rows whose language is no longer a target, then bind each
+        // new target to a free row.
+        for slot in bound.iter_mut() {
+            if slot.is_some_and(|language| !languages.contains(&language)) {
+                *slot = None;
+            }
+        }
+        for language in &languages {
+            if !bound.contains(&Some(*language))
+                && let Some(index) = bound.iter().position(Option::is_none)
+            {
+                bound[index] = Some(*language);
+                self.targets[index].view.buffer().set_text("");
+            }
+        }
+        // Rows appear in target order, whichever row a language is bound to.
+        let mut previous = self.source.row.clone().upcast::<gtk::Widget>();
+        for language in &languages {
+            if let Some(index) = bound.iter().position(|slot| *slot == Some(*language)) {
+                self.root
+                    .reorder_child_after(&self.targets[index].row, Some(&previous));
+                previous = self.targets[index].row.clone().upcast();
+            }
+        }
+        match &layout.source {
+            Some(row) => self.source.configure(row.visible, Some(&row.badge), None),
+            None => self.source.configure(false, None, None),
+        }
+        for (index, lane) in self.targets.iter().enumerate() {
+            let row = bound[index].and_then(|language| {
+                layout
+                    .targets
+                    .iter()
+                    .find(|(target, _)| *target == language)
+                    .map(|(_, row)| row)
+            });
+            match row {
+                Some(row) => {
+                    let language = bound[index].map_or("", Language::label);
+                    lane.view
+                        .update_property(&[gtk::accessible::Property::Label(&format!(
+                            "{language} translation"
+                        ))]);
+                    lane.configure(row.visible, Some(&row.badge), lane_status_text(row.status));
+                }
+                // Outside Translation the first row shows the captions.
+                None if index == 0 && layout.targets.is_empty() => {
+                    lane.view
+                        .update_property(&[gtk::accessible::Property::Label("Captions")]);
+                    lane.configure(true, None, None);
+                }
+                None => lane.configure(false, None, None),
+            }
+        }
+        let first_visible = layout
+            .targets
+            .iter()
+            .filter(|(_, row)| row.visible)
+            .chain(&layout.targets)
+            .find_map(|(language, _)| bound.iter().position(|slot| *slot == Some(*language)))
+            .unwrap_or(0);
+        self.first_visible.set(first_visible);
+        let moved = self
+            .placeholder
+            .borrow()
+            .clone()
+            .filter(|(_, row)| *row != first_visible);
+        if let Some((text, row)) = moved {
+            self.targets[row].view.buffer().set_text("");
+            self.targets[first_visible].view.buffer().set_text(&text);
+            *self.placeholder.borrow_mut() = Some((text, first_visible));
+        }
+        before != (*bound, self.source.labeled.get())
     }
 
-    /// Updates each row's text. A row without new text keeps what it shows.
-    pub(crate) fn show(&self, text: &str, original: Option<&str>, second: Option<&str>) {
-        if let Some(original) = original {
-            self.source.set_text(original);
-        }
-        self.first.set_text(text);
-        if let Some(second) = second {
-            self.second.set_text(second);
+    /// Updates each row from `caption`. A translation's texts go to the rows
+    /// of their own languages; text for a language without a row is dropped.
+    pub(crate) fn show(&self, caption: &Caption) {
+        self.placeholder.borrow_mut().take();
+        let Some(lanes) = caption.translation_lanes() else {
+            self.targets[0].set_text(caption.text());
+            return;
+        };
+        self.source.set_text(&lanes.original);
+        let bound = self.bound.borrow();
+        for target in &lanes.targets {
+            if let Some(index) = bound.iter().position(|slot| *slot == Some(target.language)) {
+                self.targets[index].set_text(&target.text);
+            }
         }
     }
 
-    /// Clears every row, showing `placeholder` in the first.
+    /// Clears every row, showing `placeholder` in the first visible
+    /// target row; an empty placeholder leaves every row empty.
     pub(crate) fn reset(&self, placeholder: &str) {
         self.source.view.buffer().set_text("");
-        self.second.view.buffer().set_text("");
-        self.first.view.buffer().set_text(placeholder);
+        for lane in &self.targets {
+            lane.view.buffer().set_text("");
+        }
+        let row = self.first_visible.get();
+        self.targets[row].view.buffer().set_text(placeholder);
+        *self.placeholder.borrow_mut() =
+            (!placeholder.is_empty()).then(|| (placeholder.to_owned(), row));
     }
 
     pub(crate) fn views(&self) -> [gtk::TextView; 3] {
         [
             self.source.view.clone(),
-            self.first.view.clone(),
-            self.second.view.clone(),
+            self.targets[0].view.clone(),
+            self.targets[1].view.clone(),
         ]
     }
 }

@@ -214,67 +214,7 @@ fn general_page(
         .name("general")
         .icon_name("preferences-system-symbolic")
         .build();
-    let offline = adw::PreferencesGroup::builder()
-        .title("Offline Captions")
-        .description(
-            "Offline Captions run a local Whisper model. Audio never leaves this device. \
-             English-only models (*.en.bin) caption English speech.",
-        )
-        .build();
-    let model_row = adw::ActionRow::builder()
-        .title("Local Whisper model")
-        .subtitle_selectable(true)
-        .build();
-    let describe = |path: Option<&PathBuf>| {
-        path.map_or_else(
-            || "Not chosen".to_owned(),
-            |path| path.display().to_string(),
-        )
-    };
-    model_row.set_subtitle(&describe(
-        shared.preferences.borrow().general.model_path.as_ref(),
-    ));
-    if shared.model_overridden {
-        model_row.set_subtitle("Set by --model or LCRT_MODEL_PATH for this run");
-    }
-    let choose = gtk::Button::builder()
-        .label("Choose…")
-        .valign(gtk::Align::Center)
-        .sensitive(!shared.model_overridden)
-        .build();
-    model_row.add_suffix(&choose);
-    let shared_for_choose = Rc::clone(shared);
-    let row_for_choose = model_row.clone();
-    let parent = window.clone();
-    choose.connect_clicked(move |_| {
-        let filter = gtk::FileFilter::new();
-        filter.set_name(Some("Whisper models (*.bin)"));
-        filter.add_pattern("*.bin");
-        let filters = gio::ListStore::new::<gtk::FileFilter>();
-        filters.append(&filter);
-        let dialog = gtk::FileDialog::builder()
-            .title("Choose a local Whisper model")
-            .filters(&filters)
-            .modal(true)
-            .build();
-        let shared = Rc::clone(&shared_for_choose);
-        let row = row_for_choose.clone();
-        dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
-            let Ok(file) = result else {
-                return;
-            };
-            let Some(path) = file.path() else {
-                row.set_subtitle("Choose a model file stored on this computer.");
-                return;
-            };
-            // No file I/O here on the GTK thread: starting Offline Captions
-            // loads the model and reports a file that can't be read.
-            row.set_subtitle(&path.display().to_string());
-            shared.change(|preferences| preferences.general.model_path = Some(path));
-        });
-    });
-    offline.add(&model_row);
-    page.add(&offline);
+    page.add(&offline_group(window, shared));
 
     let translation = TranslationRows::new(shared);
     page.add(&translation.group);
@@ -290,120 +230,182 @@ fn general_page(
     (page, translation)
 }
 
-/// The translation-lane settings. They are re-read from the stored settings
-/// after every change, so a corrected choice shows at once.
+/// Offline Captions use the built-in model. A custom model is optional and
+/// kept under Advanced, so no one has to know what a model file is.
+fn offline_group(
+    window: &adw::PreferencesWindow,
+    shared: &Rc<PreferencesShared>,
+) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title("Offline Captions")
+        .description(
+            "Speech is recognized on this device and audio never leaves it. Choose the spoken \
+             language, or Auto, next to Start.",
+        )
+        .build();
+    let model = adw::ActionRow::builder().title("Offline model").build();
+    let custom = adw::SwitchRow::builder()
+        .title("Use a custom Whisper model")
+        .subtitle("Language support depends on the custom model.")
+        .build();
+    let file = adw::ActionRow::builder()
+        .title("Model file")
+        .subtitle_selectable(true)
+        .build();
+    let choose = gtk::Button::builder()
+        .label("Choose file…")
+        .valign(gtk::Align::Center)
+        .build();
+    file.add_suffix(&choose);
+    let advanced = adw::ExpanderRow::builder().title("Advanced").build();
+    advanced.add_row(&custom);
+    advanced.add_row(&file);
+    group.add(&model);
+    group.add(&advanced);
+
+    let show = {
+        let (model, custom, file) = (model.clone(), custom.clone(), file.clone());
+        let overridden = shared.model_overridden;
+        move |path: Option<&PathBuf>| {
+            model.set_subtitle(match (overridden, path) {
+                (true, _) => "Set by --model or LCRT_MODEL_PATH for this run",
+                (false, Some(_)) => "Custom Whisper model",
+                (false, None) => "Built-in multilingual model",
+            });
+            custom.set_active(path.is_some());
+            file.set_visible(path.is_some());
+            file.set_subtitle(&path.map_or_else(String::new, |path| path.display().to_string()));
+        }
+    };
+    show(shared.preferences.borrow().general.custom_model.as_ref());
+    custom.set_sensitive(!shared.model_overridden);
+    choose.set_sensitive(!shared.model_overridden);
+
+    let pick = {
+        let (shared, parent, custom) = (Rc::clone(shared), window.clone(), custom.clone());
+        let show = show.clone();
+        move || {
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some("Whisper models (*.bin)"));
+            filter.add_pattern("*.bin");
+            let filters = gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&filter);
+            let dialog = gtk::FileDialog::builder()
+                .title("Choose a Whisper model")
+                .filters(&filters)
+                .modal(true)
+                .build();
+            let (shared, custom, show) = (Rc::clone(&shared), custom.clone(), show.clone());
+            dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
+                // No file I/O here on the GTK thread: starting Offline
+                // Captions loads the model and reports one that can't be read.
+                match result.ok().and_then(|file| file.path()) {
+                    Some(path) => {
+                        shared.change(|preferences| {
+                            preferences.general.custom_model = Some(path);
+                        });
+                    }
+                    // Cancelled, or not a local file: keep what was there.
+                    None => custom
+                        .set_active(shared.preferences.borrow().general.custom_model.is_some()),
+                }
+                show(shared.preferences.borrow().general.custom_model.as_ref());
+            });
+        }
+    };
+    let pick_for_switch = pick.clone();
+    let shared_for_switch = Rc::clone(shared);
+    custom.connect_active_notify(move |custom| {
+        let chosen = shared_for_switch
+            .preferences
+            .borrow()
+            .general
+            .custom_model
+            .is_some();
+        if custom.is_active() && !chosen {
+            pick_for_switch();
+        } else if !custom.is_active() && chosen {
+            shared_for_switch.change(|preferences| preferences.general.custom_model = None);
+            show(None);
+        }
+    });
+    choose.connect_clicked(move |_| pick());
+    group
+}
+
+/// Translation's settings. The lanes themselves are chosen with the chips
+/// in the caption window, while captions run; only the spoken language,
+/// which labels the source lane, is set here.
 pub(crate) struct TranslationRows {
     group: adw::PreferencesGroup,
     spoken: adw::ComboRow,
-    show_source: adw::SwitchRow,
-    first: adw::ComboRow,
-    second: adw::ComboRow,
-    /// Set while the rows are being refreshed, so that doesn't count as a
+    /// Set while the row is being refreshed, so that doesn't count as a
     /// change by the user.
     syncing: Rc<Cell<bool>>,
 }
 
 impl TranslationRows {
     fn new(shared: &Rc<PreferencesShared>) -> Rc<Self> {
-        let languages = |first: &str| {
-            let labels: Vec<&str> = std::iter::once(first)
-                .chain(Language::ALL.iter().map(|language| language.label()))
-                .collect();
-            gtk::StringList::new(&labels)
-        };
+        let labels: Vec<&str> = std::iter::once("Detect automatically")
+            .chain(Language::ALL.iter().map(|language| language.label()))
+            .collect();
         let group = adw::PreferencesGroup::builder()
-            .title("Translation lanes")
+            .title("Translation")
             .description(
-                "Translation shows up to three lanes: the original speech and one or two \
-                 translations. Two targets can't be the same, and neither can repeat a spoken \
-                 language you named; such a choice is corrected.",
+                "Choose lanes with the language chips next to Start, also while captions run: \
+                 click a chip to show or hide its lane, open its menu to pause or remove a \
+                 language, and use + to add one. Up to two translation languages; each is its \
+                 own session, and API charges apply for each.",
             )
             .build();
         let spoken = adw::ComboRow::builder()
             .title("Spoken language")
-            .subtitle("Names the original lane. Translation detects the language itself.")
-            .model(&languages("Detect automatically"))
+            .subtitle(
+                "Names the original lane, and no lane translates into it. Translation detects \
+                 the language itself.",
+            )
+            .model(&gtk::StringList::new(&labels))
             .build();
-        let show_source = adw::SwitchRow::builder()
-            .title("Show the original speech")
-            .build();
-        let first = adw::ComboRow::builder()
-            .title("Translation target 1")
-            .model(&languages("Off"))
-            .build();
-        let second = adw::ComboRow::builder()
-            .title("Translation target 2")
-            .subtitle("Opens a second translation session. API charges apply for each.")
-            .model(&languages("Off"))
-            .build();
-        for row in [
-            spoken.upcast_ref::<gtk::Widget>(),
-            show_source.upcast_ref(),
-            first.upcast_ref(),
-            second.upcast_ref(),
-        ] {
-            group.add(row);
-        }
+        group.add(&spoken);
         let rows = Rc::new(Self {
             group,
             spoken,
-            show_source,
-            first,
-            second,
             syncing: Rc::new(Cell::new(false)),
         });
         rows.sync(&shared.preferences.borrow().general);
-
-        let changed = {
-            let (rows, shared) = (Rc::downgrade(&rows), Rc::clone(shared));
-            move || {
-                let Some(rows) = rows.upgrade() else {
-                    return;
-                };
-                if rows.syncing.get() {
-                    return;
-                }
-                let chosen = |row: &adw::ComboRow| {
-                    (row.selected() as usize)
-                        .checked_sub(1)
-                        .and_then(|index| Language::ALL.get(index).copied())
-                };
-                let spoken = chosen(&rows.spoken)
-                    .map_or(LanguageSelection::Auto, LanguageSelection::Language);
-                let show_original = rows.show_source.is_active();
-                let (first, second) = (chosen(&rows.first), chosen(&rows.second));
-                shared.change(|preferences| {
-                    preferences.general.spoken_language = spoken;
-                    preferences.general.show_original = show_original;
-                    preferences.general.set_translation_targets(first, second);
-                });
-                // Applying the change refreshes these rows from what was
-                // stored, which may be a corrected choice.
+        let (weak, shared) = (Rc::downgrade(&rows), Rc::clone(shared));
+        rows.spoken.connect_selected_notify(move |row| {
+            let Some(rows) = weak.upgrade() else {
+                return;
+            };
+            if rows.syncing.get() {
+                return;
             }
-        };
-        for row in [&rows.spoken, &rows.first, &rows.second] {
-            let changed = changed.clone();
-            row.connect_selected_notify(move |_| changed());
-        }
-        rows.show_source.connect_active_notify(move |_| changed());
+            let spoken = (row.selected() as usize)
+                .checked_sub(1)
+                .and_then(|index| Language::ALL.get(index).copied())
+                .map_or(LanguageSelection::Auto, LanguageSelection::Language);
+            shared.change(|preferences| {
+                preferences.general.spoken_language = spoken;
+                // A target that now repeats the spoken language is dropped.
+                let targets = preferences.general.translation_targets();
+                preferences
+                    .general
+                    .set_translation_targets(Some(targets.first()), targets.second());
+            });
+        });
         rows
     }
 
-    /// Makes the rows show `general`.
+    /// Makes the row show `general`.
     pub(crate) fn sync(&self, general: &GeneralPreferences) {
-        let index = |language: Option<Language>| {
-            language
-                .and_then(|language| Language::ALL.iter().position(|l| *l == language))
-                .map_or(0, |index| index as u32 + 1)
-        };
+        let index = general
+            .spoken_language
+            .language()
+            .and_then(|language| Language::ALL.iter().position(|l| *l == language))
+            .map_or(0, |index| index as u32 + 1);
         self.syncing.set(true);
-        self.spoken
-            .set_selected(index(general.spoken_language.language()));
-        self.show_source.set_active(general.show_original);
-        self.first
-            .set_selected(index(Some(general.translation_target)));
-        self.second
-            .set_selected(index(general.second_translation_target));
+        self.spoken.set_selected(index);
         self.syncing.set(false);
     }
 }

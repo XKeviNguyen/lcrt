@@ -2,8 +2,8 @@
 //! they can be tested directly.
 
 use lcrt_core::{
-    AppearancePreferences, AudioSourceDescriptor, AudioSourceKind, CaptionLane, Language,
-    ProcessingMode, SessionOptions,
+    AppearancePreferences, AudioSourceDescriptor, AudioSourceKind, CaptionLane, GeneralPreferences,
+    Language, LanguageSelection, ProcessingMode, TargetStatus, TranslationTargets,
 };
 
 /// Where the current caption session is in its lifecycle.
@@ -49,35 +49,25 @@ impl SessionPhase {
     }
 }
 
-/// Which language choice the control row shows for a mode.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LanguageControl {
-    /// Offline language follows the chosen model; nothing to choose here.
-    None,
-    /// Spoken-language hint for online transcription (Auto or a language).
-    Spoken,
-    /// Output language for translation; the source is detected automatically.
-    Target,
+/// One caption row of a translation session, and its control chip.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LaneRow {
+    /// The uppercase language code on its badge and chip.
+    pub(crate) badge: String,
+    /// Whether the row is shown. A hidden row keeps its text.
+    pub(crate) visible: bool,
+    /// What the target's session is doing; `None` for the source row and
+    /// before a session reports.
+    pub(crate) status: Option<TargetStatus>,
 }
 
-pub(crate) fn language_control(mode: ProcessingMode) -> LanguageControl {
-    match mode {
-        ProcessingMode::OfflineCaptions => LanguageControl::None,
-        ProcessingMode::OnlineCaptions => LanguageControl::Spoken,
-        ProcessingMode::Translation => LanguageControl::Target,
-    }
-}
-
-/// The badges of the three caption rows. A row without a badge is hidden,
-/// except the first: captions that are not translations use it unlabeled.
+/// The caption rows. Outside Translation there is one unlabeled row.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LaneLayout {
-    /// Badge of the original-speech row, shown above the translations.
-    pub(crate) source: Option<String>,
-    /// Badge of the first row of captions.
-    pub(crate) first: Option<String>,
-    /// Badge of the second translation's row.
-    pub(crate) second: Option<String>,
+    /// The original-speech row, above the translations.
+    pub(crate) source: Option<LaneRow>,
+    /// Target rows in lane order.
+    pub(crate) targets: Vec<(Language, LaneRow)>,
 }
 
 /// The short uppercase code shown in a language badge.
@@ -85,27 +75,72 @@ pub(crate) fn language_badge(language: Language) -> String {
     language.code().to_uppercase()
 }
 
-/// Rows for a session: the source when shown, then each target, always in
-/// that order. The source badge names the spoken language when the user
-/// chose one, and is a neutral "SRC" while it is detected automatically.
-pub(crate) fn lane_layout(options: &SessionOptions) -> LaneLayout {
-    let mut layout = LaneLayout::default();
-    for lane in options.translation_lanes() {
-        match lane {
-            CaptionLane::Source(spoken) => {
-                layout.source = Some(
-                    spoken
-                        .language()
-                        .map_or_else(|| "SRC".to_owned(), language_badge),
-                );
-            }
-            CaptionLane::Target(target) if layout.first.is_none() => {
-                layout.first = Some(language_badge(target));
-            }
-            CaptionLane::Target(target) => layout.second = Some(language_badge(target)),
-        }
+/// Rows for a translation session: the source, then each target, always in
+/// that order, each shown or hidden as `visibility` says. The source badge
+/// names the spoken language when the user chose one, and is a neutral
+/// "SRC" while it is detected automatically.
+pub(crate) fn lane_layout(
+    mode: ProcessingMode,
+    spoken: LanguageSelection,
+    targets: TranslationTargets,
+    visibility: &GeneralPreferences,
+    statuses: &[(Language, TargetStatus)],
+) -> LaneLayout {
+    if mode != ProcessingMode::Translation {
+        return LaneLayout::default();
     }
-    layout
+    LaneLayout {
+        source: Some(LaneRow {
+            badge: spoken
+                .language()
+                .map_or_else(|| "SRC".to_owned(), language_badge),
+            visible: visibility.lane_visible(CaptionLane::Source),
+            status: None,
+        }),
+        targets: targets
+            .iter()
+            .map(|target| {
+                let row = LaneRow {
+                    badge: language_badge(target),
+                    visible: visibility.lane_visible(CaptionLane::Target(target)),
+                    status: statuses
+                        .iter()
+                        .find(|(language, _)| *language == target)
+                        .map(|(_, status)| *status),
+                };
+                (target, row)
+            })
+            .collect(),
+    }
+}
+
+/// What a target's row says while it has no live translation to show.
+pub(crate) fn lane_status_text(status: Option<TargetStatus>) -> Option<&'static str> {
+    match status? {
+        TargetStatus::Connecting => Some("Connecting…"),
+        TargetStatus::Reconnecting => Some("Reconnecting…"),
+        TargetStatus::Paused => Some("Paused"),
+        TargetStatus::Failed => Some("Stopped"),
+        TargetStatus::Active => None,
+    }
+}
+
+/// The overall status of a translation session, from its targets' own:
+/// translating while any target is, so a target that is still connecting
+/// or reconnecting shows that on its own row only.
+pub(crate) fn translation_status(statuses: &[(Language, TargetStatus)]) -> Option<&'static str> {
+    let any = |wanted: TargetStatus| statuses.iter().any(|(_, status)| *status == wanted);
+    if statuses.is_empty() {
+        None
+    } else if any(TargetStatus::Active) {
+        Some("Translating…")
+    } else if any(TargetStatus::Reconnecting) {
+        Some("Reconnecting…")
+    } else if any(TargetStatus::Connecting) {
+        Some("Connecting…")
+    } else {
+        Some("Paused")
+    }
 }
 
 /// Status shown while a session is actively producing captions.
@@ -121,8 +156,8 @@ pub(crate) fn privacy_notice(mode: ProcessingMode, translation_sessions: usize) 
     match mode {
         ProcessingMode::OfflineCaptions => "Audio is processed on this device.",
         ProcessingMode::Translation if translation_sessions > 1 => {
-            "Audio is streamed to OpenAI in two translation sessions, one per target language. \
-             API charges apply for each."
+            "Audio is streamed to OpenAI for processing, in one session per translation \
+             language. API charges apply for each."
         }
         ProcessingMode::OnlineCaptions | ProcessingMode::Translation => {
             "Audio is streamed to OpenAI for processing. API charges may apply to your OpenAI account."
@@ -228,6 +263,7 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
          scrolledwindow.lane-badge-holder undershoot, \
          scrolledwindow.lane-badge-holder overshoot {{ \
              background: none; box-shadow: none; }}\n\
+         splitbutton.hidden-lane > button:first-child {{ opacity: 0.45; }}\n\
          .caption-notice {{ font-size: smaller; }}\n\
          .error {{ color: @error_color; padding: 6px; }}",
         r = background.red,
@@ -248,56 +284,111 @@ mod tests {
     };
 
     use super::{
-        LaneLayout, LanguageControl, SessionPhase, caption_css, css_font_family, lane_layout,
-        language_control, preferred_source_index, privacy_notice,
+        LaneLayout, SessionPhase, caption_css, css_font_family, lane_layout, lane_status_text,
+        preferred_source_index, privacy_notice, translation_status,
     };
-    use lcrt_core::{Language, LanguageSelection, SessionOptions, TranslationTargets};
+    use lcrt_core::{
+        CaptionLane, GeneralPreferences, Language, LanguageSelection, TargetStatus,
+        TranslationTargets,
+    };
 
-    fn translation(
-        show_original: bool,
-        spoken: LanguageSelection,
-        first: Language,
-        second: Option<Language>,
-    ) -> SessionOptions {
-        SessionOptions {
-            mode: ProcessingMode::Translation,
-            source_id: "monitor".to_owned(),
-            spoken_language: spoken,
-            translation_targets: TranslationTargets::resolve(
-                Some(first),
-                second,
-                SessionOptions::shown_source(show_original, spoken),
-            ),
-            show_original,
-        }
-    }
-
-    fn badges(layout: &LaneLayout) -> [Option<&str>; 3] {
-        [
-            layout.source.as_deref(),
-            layout.first.as_deref(),
-            layout.second.as_deref(),
-        ]
+    /// Every row's badge, with `-` marking a hidden one.
+    fn badges(layout: &LaneLayout) -> Vec<String> {
+        layout
+            .source
+            .iter()
+            .chain(layout.targets.iter().map(|(_, row)| row))
+            .map(|row| {
+                if row.visible {
+                    row.badge.clone()
+                } else {
+                    format!("-{}", row.badge)
+                }
+            })
+            .collect()
     }
 
     #[test]
     fn translation_rows_are_source_then_targets_with_uppercase_badges() {
         use Language::{English, Japanese, Vietnamese};
         let japanese = LanguageSelection::Language(Japanese);
-        let layout = lane_layout(&translation(true, japanese, English, Some(Vietnamese)));
-        assert_eq!(badges(&layout), [Some("JA"), Some("EN"), Some("VI")]);
-
-        let layout = lane_layout(&translation(
-            false,
-            LanguageSelection::Language(English),
-            Japanese,
-            None,
-        ));
-        assert_eq!(badges(&layout), [None, Some("JA"), None]);
-
+        let targets = TranslationTargets::resolve(Some(English), Some(Vietnamese), None);
+        let mut shown = GeneralPreferences::default();
+        shown.set_translation_targets(Some(English), Some(Vietnamese));
+        let layout = lane_layout(ProcessingMode::Translation, japanese, targets, &shown, &[]);
+        assert_eq!(badges(&layout), ["JA", "EN", "VI"]);
+        // Hidden rows stay in the layout, so showing them again is instant.
+        let mut hidden = shown.clone();
+        assert!(hidden.set_lane_visible(CaptionLane::Source, false));
+        assert!(hidden.set_lane_visible(CaptionLane::Target(English), false));
+        let layout = lane_layout(ProcessingMode::Translation, japanese, targets, &hidden, &[]);
+        assert_eq!(badges(&layout), ["-JA", "-EN", "VI"]);
         // A detected source has no language to name.
-        let layout = lane_layout(&translation(true, LanguageSelection::Auto, English, None));
-        assert_eq!(badges(&layout), [Some("SRC"), Some("EN"), None]);
+        let layout = lane_layout(
+            ProcessingMode::Translation,
+            LanguageSelection::Auto,
+            targets,
+            &shown,
+            &[],
+        );
+        assert_eq!(badges(&layout)[0], "SRC");
+        // Other modes have one unlabeled row.
+        let captions = lane_layout(
+            ProcessingMode::OnlineCaptions,
+            japanese,
+            targets,
+            &shown,
+            &[],
+        );
+        assert_eq!(captions, LaneLayout::default());
+    }
+
+    #[test]
+    fn each_target_row_carries_its_own_status() {
+        use Language::{English, Vietnamese};
+        let targets = TranslationTargets::resolve(Some(English), Some(Vietnamese), None);
+        let statuses = [
+            (English, TargetStatus::Active),
+            (Vietnamese, TargetStatus::Connecting),
+        ];
+        let layout = lane_layout(
+            ProcessingMode::Translation,
+            LanguageSelection::Auto,
+            targets,
+            &GeneralPreferences::default(),
+            &statuses,
+        );
+        assert_eq!(layout.targets[0].1.status, Some(TargetStatus::Active));
+        assert_eq!(
+            lane_status_text(layout.targets[1].1.status),
+            Some("Connecting…")
+        );
+        assert_eq!(lane_status_text(Some(TargetStatus::Active)), None);
+        assert_eq!(lane_status_text(Some(TargetStatus::Paused)), Some("Paused"));
+    }
+
+    #[test]
+    fn the_session_is_translating_while_any_target_is() {
+        use Language::{English, Vietnamese};
+        use TargetStatus::{Active, Connecting, Failed, Paused, Reconnecting};
+        assert_eq!(translation_status(&[]), None);
+        // A target added live connects on its own row only.
+        assert_eq!(
+            translation_status(&[(English, Active), (Vietnamese, Connecting)]),
+            Some("Translating…")
+        );
+        assert_eq!(
+            translation_status(&[(English, Reconnecting), (Vietnamese, Paused)]),
+            Some("Reconnecting…")
+        );
+        assert_eq!(
+            translation_status(&[(English, Connecting)]),
+            Some("Connecting…")
+        );
+        assert_eq!(
+            translation_status(&[(English, Paused), (Vietnamese, Failed)]),
+            Some("Paused")
+        );
     }
 
     #[test]
@@ -354,19 +445,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn other_modes_have_one_unlabeled_row() {
-        for mode in [
-            ProcessingMode::OfflineCaptions,
-            ProcessingMode::OnlineCaptions,
-        ] {
-            let mut options = translation(true, LanguageSelection::Auto, Language::English, None);
-            options.mode = mode;
-            let layout = lane_layout(&options);
-            assert_eq!(badges(&layout), [None, None, None]);
-        }
-    }
-
     fn sources() -> Vec<AudioSourceDescriptor> {
         vec![
             AudioSourceDescriptor::new("mic", "Built-in", AudioSourceKind::Microphone),
@@ -394,29 +472,22 @@ mod tests {
     }
 
     #[test]
-    fn each_mode_shows_the_right_language_choice_and_privacy_notice() {
-        assert_eq!(
-            language_control(ProcessingMode::OfflineCaptions),
-            LanguageControl::None
-        );
-        assert_eq!(
-            language_control(ProcessingMode::OnlineCaptions),
-            LanguageControl::Spoken
-        );
-        assert_eq!(
-            language_control(ProcessingMode::Translation),
-            LanguageControl::Target
-        );
+    fn each_mode_says_where_audio_is_processed() {
         assert_eq!(
             privacy_notice(ProcessingMode::OfflineCaptions, 0),
             "Audio is processed on this device."
         );
+        assert!(
+            privacy_notice(ProcessingMode::OnlineCaptions, 0)
+                .starts_with("Audio is streamed to OpenAI for processing.")
+        );
         assert!(privacy_notice(ProcessingMode::Translation, 1).contains("streamed to OpenAI"));
         // Two targets are two paid sessions, and the notice says so.
         assert!(
-            privacy_notice(ProcessingMode::Translation, 2).contains("two translation sessions")
+            privacy_notice(ProcessingMode::Translation, 2)
+                .contains("one session per translation language")
         );
-        assert!(!privacy_notice(ProcessingMode::OnlineCaptions, 2).contains("two"));
+        assert!(!privacy_notice(ProcessingMode::OnlineCaptions, 2).contains("session per"));
     }
 
     #[test]
@@ -446,5 +517,7 @@ mod tests {
         // The badge follows the text color and stays readable at any size.
         assert!(css.contains(".lane-badge { color: #ffff00;"));
         assert!(css.contains("font-size: 16.8pt"));
+        // A hidden lane's chip stays, muted, so one click restores it.
+        assert!(css.contains("splitbutton.hidden-lane > button:first-child { opacity: 0.45; }"));
     }
 }
