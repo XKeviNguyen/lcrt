@@ -214,6 +214,9 @@ pub struct MultiTargetTranslation {
     /// the same audio but transcribe it at their own pace, so the first one
     /// to say anything keeps the source lane until its session ends.
     source_lane: Option<u64>,
+    /// The source text last shown, kept when its lane is paused or removed
+    /// until another running lane has a transcript of its own.
+    source_text: String,
     reports: Arc<Reports>,
     on_lane_failure: LaneFailureCallback,
     abandoned: Arc<AtomicBool>,
@@ -245,6 +248,7 @@ impl MultiTargetTranslation {
             limits,
             next_id: 0,
             source_lane: None,
+            source_text: String::new(),
             reports: Arc::new(Reports {
                 live: Mutex::new(Vec::new()),
                 on_status,
@@ -363,10 +367,14 @@ impl MultiTargetTranslation {
         {
             self.source_lane = Some(lane.id);
         }
-        self.source_lane
+        if let Some(lane) = self
+            .source_lane
             .and_then(|id| self.lanes.iter().find(|lane| lane.id == id))
-            .map(|lane| lane.original.clone())
-            .unwrap_or_default()
+            .filter(|lane| !lane.original.is_empty())
+        {
+            lane.original.clone_into(&mut self.source_text);
+        }
+        self.source_text.clone()
     }
 
     /// The combined update, if any lane changed since the last one.
@@ -1118,6 +1126,30 @@ mod tests {
         release.send(()).unwrap();
         let update = started.pump(|update| original(update) == "one two");
         assert_eq!(text(&update, English), Some("Hello"));
+        assert_eq!(text(&update, Vietnamese), Some("Xin chào"));
+    }
+
+    #[test]
+    fn removing_the_source_lane_keeps_its_text_until_another_lane_has_one() {
+        let (release, held) = mpsc::channel();
+        let mut started = start(
+            &[English, Vietnamese],
+            vec![
+                (English, vec![serving("one", "Hello")]),
+                (
+                    Vietnamese,
+                    vec![Script::Hold(held, Box::new(serving("one two", "Xin chào")))],
+                ),
+            ],
+        );
+        let update = started.pump(has(English, "Hello"));
+        assert_eq!(original(&update), "one");
+        // English provided the source text; removing it must not blank it.
+        started.change(TargetChange::Remove(English));
+        let update = started.pump(|update| targets(update) == [Vietnamese]);
+        assert_eq!(original(&update), "one");
+        release.send(()).unwrap();
+        let update = started.pump(|update| original(update) == "one two");
         assert_eq!(text(&update, Vietnamese), Some("Xin chào"));
     }
 

@@ -21,8 +21,8 @@ use crate::{
     lane_controls::{LaneAction, LaneControls},
     preferences::{PreferencesShared, PreferencesWindow},
     presentation::{
-        SessionPhase, active_status, caption_css, lane_layout, preferred_source_index,
-        privacy_notice, source_label, translation_status,
+        SessionPhase, active_status, caption_css, lane_layout, merge_target_statuses,
+        preferred_source_index, privacy_notice, source_label, translation_status,
     },
 };
 
@@ -512,12 +512,16 @@ impl CaptionWindow {
             return;
         };
         if running {
+            let expected =
+                matches!(change, TargetChange::Add(_)).then_some(TargetStatus::Connecting);
+            // Unsent, the change is not shown or remembered: the window
+            // must not show a lane the session doesn't have.
+            if !self.send_target_change(change, expected) {
+                return;
+            }
             if let Some(session) = self.session.borrow_mut().as_mut() {
                 session.translation_targets = targets;
             }
-            let expected =
-                matches!(change, TargetChange::Add(_)).then_some(TargetStatus::Connecting);
-            self.send_target_change(change, expected);
         }
         self.shared.change(|preferences| {
             preferences
@@ -528,19 +532,25 @@ impl CaptionWindow {
 
     /// Sends a live target change and shows `expected` on its lane until
     /// the session reports otherwise; a removed lane has none.
-    fn send_target_change(self: &Rc<Self>, change: TargetChange, expected: Option<TargetStatus>) {
+    /// Returns false when the change could not be sent.
+    fn send_target_change(
+        self: &Rc<Self>,
+        change: TargetChange,
+        expected: Option<TargetStatus>,
+    ) -> bool {
         let (TargetChange::Add(language)
         | TargetChange::Remove(language)
         | TargetChange::Pause(language)
         | TargetChange::Resume(language)) = change;
         if !self.send(CaptionUiAction::ChangeTarget(change)) {
-            return;
+            return false;
         }
         let mut statuses = self.target_statuses.borrow_mut();
         statuses.retain(|(target, _)| *target != language);
         statuses.extend(expected.map(|status| (language, status)));
         drop(statuses);
         self.refresh_lanes();
+        true
     }
 
     fn refresh_start_button(&self) {
@@ -643,9 +653,15 @@ impl CaptionWindow {
             .as_ref()
             .is_none_or(|session| session.needs_restart_for(&options));
         if self.session_running() && needs_restart {
-            // The replacement keeps the targets the running session has.
+            // The replacement keeps the targets the running session has,
+            // less one the spoken language now names.
             if let Some(session) = self.session.borrow().as_ref() {
-                options.translation_targets = session.translation_targets;
+                let targets = session.translation_targets;
+                options.translation_targets = TranslationTargets::resolve(
+                    Some(targets.first()),
+                    targets.second(),
+                    options.spoken_language.language(),
+                );
             }
             if self.send(CaptionUiAction::Start(options.clone())) {
                 *self.session.borrow_mut() = Some(options);
@@ -815,11 +831,18 @@ impl CaptionWindow {
                     }
                 }
                 {
-                    let mut statuses = this.target_statuses.borrow_mut();
-                    for (language, status) in &presentation.targets {
-                        statuses.retain(|(target, _)| target != language);
-                        statuses.push((*language, *status));
-                    }
+                    // Only the session's current targets have a status: a
+                    // report from a removed target may still be on its way.
+                    let current = this
+                        .session
+                        .borrow()
+                        .as_ref()
+                        .map(|session| session.translation_targets);
+                    merge_target_statuses(
+                        &mut this.target_statuses.borrow_mut(),
+                        &presentation.targets,
+                        current,
+                    );
                 }
                 if lanes_changed {
                     this.refresh_lanes();

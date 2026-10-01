@@ -711,6 +711,14 @@ worker threads against a scripted service:
   when its last running target does;
 - the window's caption rows stay bound to their language, so adding or
   removing another lane never moves or clears a lane's text.
+- removing the lane that provided the source text keeps that text until
+  another running lane has a transcript (Codex review of `b33e126`);
+- a late status from a removed target is dropped, so the window can't keep
+  saying "Translating…" for it (same review);
+- naming a running target as the spoken language in Settings restarts the
+  session without that target, instead of leaving it translating into the
+  spoken language (same review); and a target change the controller's queue
+  refuses is neither shown nor saved.
 
 ### Offline Translation: blocked
 

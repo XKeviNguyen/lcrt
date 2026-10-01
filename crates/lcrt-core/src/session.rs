@@ -322,14 +322,20 @@ pub struct SessionOptions {
 impl SessionOptions {
     /// Whether moving from these options to `next` needs a new session.
     /// Only what the backend itself depends on does: the mode, the audio
-    /// source, and the spoken language where it is sent to the backend.
-    /// Translation targets change live, and which lanes are shown is
-    /// presentation only.
+    /// source, and the spoken language where it is sent to the backend or
+    /// becomes one of the running targets, which a target may not repeat.
+    /// Otherwise translation targets change live, and which lanes are shown
+    /// is presentation only.
     pub fn needs_restart_for(&self, next: &SessionOptions) -> bool {
+        let spoken_changed = self.spoken_language != next.spoken_language;
         self.mode != next.mode
             || self.source_id != next.source_id
-            || (self.mode != ProcessingMode::Translation
-                && self.spoken_language != next.spoken_language)
+            || (spoken_changed
+                && (self.mode != ProcessingMode::Translation
+                    || next
+                        .spoken_language
+                        .language()
+                        .is_some_and(|spoken| self.translation_targets.contains(spoken))))
     }
 }
 
@@ -464,8 +470,11 @@ mod tests {
             .with_added(Language::Vietnamese, None)
             .unwrap();
         assert!(!running.needs_restart_for(&more_targets));
-        // Translation detects the language; naming it only relabels a lane.
+        // Translation detects the language; naming it only relabels a lane,
+        // unless it names a running target, which must then be dropped.
         assert!(!running.needs_restart_for(&options(Translation, "monitor", japanese)));
+        let english = LanguageSelection::Language(Language::English);
+        assert!(running.needs_restart_for(&options(Translation, "monitor", english)));
         // Captions send the spoken language to the backend.
         for mode in [OfflineCaptions, OnlineCaptions] {
             assert!(

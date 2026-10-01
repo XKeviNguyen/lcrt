@@ -125,6 +125,21 @@ pub(crate) fn lane_status_text(status: Option<TargetStatus>) -> Option<&'static 
     }
 }
 
+/// Adds the `newer` target statuses to `statuses`, one per language, and
+/// keeps only those of `current` targets: a report from a removed target may
+/// still arrive after it was removed.
+pub(crate) fn merge_target_statuses(
+    statuses: &mut Vec<(Language, TargetStatus)>,
+    newer: &[(Language, TargetStatus)],
+    current: Option<TranslationTargets>,
+) {
+    for (language, status) in newer {
+        statuses.retain(|(target, _)| target != language);
+        statuses.push((*language, *status));
+    }
+    statuses.retain(|(language, _)| current.is_none_or(|targets| targets.contains(*language)));
+}
+
 /// The overall status of a translation session, from its targets' own:
 /// translating while any target is, so a target that is still connecting
 /// or reconnecting shows that on its own row only.
@@ -285,7 +300,7 @@ mod tests {
 
     use super::{
         LaneLayout, SessionPhase, caption_css, css_font_family, lane_layout, lane_status_text,
-        preferred_source_index, privacy_notice, translation_status,
+        merge_target_statuses, preferred_source_index, privacy_notice, translation_status,
     };
     use lcrt_core::{
         CaptionLane, GeneralPreferences, Language, LanguageSelection, TargetStatus,
@@ -365,6 +380,23 @@ mod tests {
         );
         assert_eq!(lane_status_text(Some(TargetStatus::Active)), None);
         assert_eq!(lane_status_text(Some(TargetStatus::Paused)), Some("Paused"));
+    }
+
+    #[test]
+    fn a_removed_target_s_late_status_is_dropped() {
+        use Language::{English, Vietnamese};
+        use TargetStatus::{Active, Paused};
+        let current = Some(TranslationTargets::resolve(Some(Vietnamese), None, None));
+        let mut statuses = vec![(Vietnamese, Active)];
+        // English was removed, but its last report arrives with Vietnamese's.
+        merge_target_statuses(
+            &mut statuses,
+            &[(English, Active), (Vietnamese, Paused)],
+            current,
+        );
+        assert_eq!(statuses, [(Vietnamese, Paused)]);
+        // So the session reads as paused, not translating.
+        assert_eq!(translation_status(&statuses), Some("Paused"));
     }
 
     #[test]
