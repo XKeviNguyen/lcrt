@@ -532,6 +532,220 @@ the live runs after the badge change used idle lanes only.
 (covered by tests only), pointer selection, and the layout on a real display
 (the screenshot is from the virtual display).
 
+## Built-in offline model and live language controls
+
+Added on `feature/offline-multilingual-live-languages` (PR #30), on top of
+`develop` `305ce42`.
+
+### What changed
+
+- **Offline Captions work without setup.** The package includes Whisper
+  base, multilingual. Offline Captions offer Auto and the same eight
+  languages as the online modes, and always transcribe in the spoken
+  language (`translate = false`). Settings shows **Offline model: Built-in
+  multilingual model**; a custom model is optional, under Advanced.
+- **Live language controls.** In Translation, a chip per lane next to Start
+  shows or hides its lane, and its menu pauses, resumes or removes that
+  target. **+** adds a target. None of these restart the session: each
+  target's session opens or closes on its own, and showing or hiding a lane
+  changes nothing but the window.
+- **Offline Translation is not included.** See
+  [Offline Translation: blocked](#offline-translation-blocked).
+
+### Bundled model
+
+| | |
+| --- | --- |
+| Artifact | `ggml-base.bin` from `huggingface.co/ggerganov/whisper.cpp`, revision `5359861c739e955e79d9a303bcbc70fb988958b1` |
+| Size | 147,951,465 bytes |
+| SHA-256 | `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe` (the repository's own SHA-1, `465707469ff3a37a2b9b8d8f89f2f99de7299dac`, also matches) |
+| License | MIT, OpenAI's Whisper weights (`openai/whisper` `LICENSE`, copied to `packaging/licenses/whisper-MIT.txt` and into the package's `copyright` file) |
+| Installed at | `/usr/share/lcrt/models/ggml-base.bin` |
+
+[packaging/models.json](../packaging/models.json) pins the artifact.
+`scripts/fetch-models.py` downloads it once into `target/share/lcrt/models`,
+reuses a cached file only if its SHA-256 matches, and discards a download of
+the wrong size or SHA-256 and fails. `scripts/build-deb.sh` runs it first.
+At runtime LCRT checks the model's size, not its hash, so Start never hashes
+148 MB; a missing or truncated model is reported as needing a reinstall, and
+LCRT never downloads one. A unit test keeps the size, file name and install
+path in the code equal to the manifest's. CI does not download the model.
+
+| Package | |
+| --- | --- |
+| `.deb` | 131,191,908 bytes (125 MiB) |
+| Installed size | 152,696 KiB (149 MiB), of which the model is 148 MB |
+
+### Changes found necessary by measurement
+
+Each of these was measured before and after; the numbers are below.
+
+1. **Auto detects the language among LCRT's eight.** Whisper's own
+   detection picked English or Hindi for Japanese speech on short windows
+   (Devanagari captions for Japanese audio). LCRT now takes the most likely
+   of the eight offered languages, and keeps it only once a pass of at least
+   3 s is at least 70% sure.
+2. **Auto keeps the language it detected.** Detection is a separate encoder
+   pass. Detecting on every pass made inference fall 8 s behind capture
+   within 45 s; once per utterance still failed on two CPUs, after 81 s. A
+   confident language is now kept and checked again every 30 s.
+3. **Whisper uses the CPUs it may run on**, at most four, instead of always
+   four. On two CPUs, four threads made explicit Japanese fail within 11 s.
+4. **The encoder is sized to the 8 s window** (`audio_ctx` 400 instead of
+   Whisper's 1,500 for 30 s). A pass on two CPUs took 3.5–4.6 s before and
+   about 1 s after, captions updated twice as often, and recall was equal
+   or better (table below).
+5. **An English-only custom model is refused** for any spoken language other
+   than English or Auto, using whisper.cpp's own `is_multilingual`, never the
+   file name.
+
+### Offline Captions through system audio
+
+Natural speech: FLEURS test utterances (CC BY 4.0), the same files as the V2
+online runs, played to the default sink and captured from its monitor. Each
+run played 90 s. The app ran inside `bwrap --unshare-net` under `strace`
+recording every `socket` and `connect` call.
+
+**Recall** is the share of the reference, in characters (Japanese) or words,
+that the captions recover in order. Offline captions repeat overlapping
+phrases (see [Known limitations](#known-limitations)), which pushes the error
+rate above 100% without reflecting recognition, so recall is the measure
+compared here.
+
+| Speech, language | First caption | Recall | Updates | Pass median / max | Stop | Peak RSS |
+| --- | --- | --- | --- | --- | --- | --- |
+| English, explicit | 2.3 s | 93.3% | 46 | 0.39 s / 3.28 s | 0.9 s | 343 MB |
+| Japanese, explicit | 3.5 s | 78.7% | 41 | 0.49 s / 3.32 s | 0.9 s | 353 MB |
+| Vietnamese, explicit | 2.3 s | 70.7% | 46 | 0.52 s / 2.98 s | 0.9 s | 351 MB |
+| English, Auto | 3.9 s | 95.0% | 47 | 0.38 s / 2.45 s | 0.9 s | 460 MB |
+| Japanese, Auto | 4.2 s | 79.1% | 41 | 0.62 s / 2.80 s | 0.8 s | 470 MB |
+| Vietnamese, Auto | 3.7 s | 69.3% | 47 | 0.56 s / 3.15 s | 0.8 s | 460 MB |
+
+All 16 CPUs, final build. "Updates" counts caption changes in 90 s; a pass
+is one Whisper inference, including Auto's detection when it runs. Peak RSS
+is the highest of the samples taken every 10 s. Recall with Whisper's full
+30 s encoder, measured the same way before change 4, was 94.4% (English),
+78.4% (Japanese) and 68.7% (Vietnamese), with about half as many updates.
+
+Every session reached Stopped without an error, and opened **no IPv4 or IPv6
+socket**: its only sockets were Unix sockets (D-Bus, PipeWire, X11,
+accessibility). The captions were in the spoken language's own script in
+every run; no run produced English for Japanese or Vietnamese speech.
+
+**Fresh install.** The `.deb` was unpacked into an empty directory and its
+`usr/bin/lcrt` started with an empty home and configuration directory, no
+network, and no settings changed: Offline Captions, Auto, system audio. It
+loaded its own `usr/share/lcrt/models/ggml-base.bin` and captioned 60 s of
+Japanese speech: first caption 3.7 s, recall 76.1%, Stop 0.8 s, no network
+socket (0 of 63 socket calls).
+
+### Low-resource check
+
+No 2 GB Pentium machine was available. The runs below are a simulation on
+the same laptop: the app was pinned to **two logical CPUs** (`taskset -c 2,3`
+of an i5-12500H) in a user scope with **`MemoryMax=2G`** and no swap. They
+are not hardware certification; a Pentium-class CPU is slower than two
+threads of this one.
+
+| Speech, language | First caption | Recall | Updates | Pass median / max | Stop | Peak RSS |
+| --- | --- | --- | --- | --- | --- | --- |
+| English, explicit | 2.9 s | 95.0% | 46 | 0.92 s / 2.83 s | 0.9 s | 342 MB |
+| Japanese, explicit | 4.4 s | 77.7% | 40 | 1.09 s / 4.04 s | 0.9 s | 354 MB |
+| Vietnamese, explicit | 2.8 s | 70.0% | 45 | 1.06 s / 4.68 s | 0.9 s | 348 MB |
+| English, Auto | 7.0 s | 94.4% | 45 | 0.93 s / 4.69 s | 0.9 s | 459 MB |
+| Japanese, Auto | 12.1 s | 59.8% | 36 | 1.18 s / 6.79 s | 0.8 s | 470 MB |
+| Vietnamese, Auto | 6.4 s | 69.3% | 44 | 1.13 s / 4.42 s | 0.9 s | 464 MB |
+
+Every run reached Stopped without an error. Inference kept pace: the
+median pass took about 1 s for 8 s of audio, and captions did not fall
+progressively behind. Auto Japanese started late because its first
+detections were unsure ("en" at 52%) until Japanese was detected at 99%;
+the captions were Japanese throughout. These runs used the build before
+the last, error-message-only edit.
+
+Before changes 3 and 4, the same setup failed: explicit Japanese after 11 s
+and Auto after 19–81 s, each with "Whisper input backlog reached 8s of
+audio". Peak resident memory stayed under 500 MB in every offline run.
+
+### Live language controls
+
+**Real pointer and keyboard input** on the virtual display (Xvfb, X11
+backend), through the XTEST extension (`target/acceptance/chips_pointer.py`
+and `chips_menus.py`); state was read back through AT-SPI and from the saved
+preferences. Translation with JA (spoken), EN and VI, idle:
+
+| Step | Result |
+| --- | --- |
+| Click the JA chip | the source lane hides, the chip dims, `show_original` is saved as false |
+| Click it again | the lane is back |
+| Hide EN and JA, then click VI | VI stays: the last visible lane can't be hidden |
+| EN's menu → Remove language | EN's lane and chip go; VI stays with its text |
+| **+** | lists English, Chinese, Korean, Spanish, French, German (not Japanese, the spoken language, nor Vietnamese, a target); choosing German adds its lane |
+| With two targets | **+** is disabled ("Maximum 2 translation languages.") |
+| The only target's menu | Remove language is disabled |
+| Tab | reaches the chips; Space toggles a chip; Space on its arrow opens the menu and Return runs its first item |
+
+The menus show **Pause translation**/**Resume translation** only while a
+session runs.
+
+**While a session runs:** the OpenAI account had no quota (a 12 s
+translation diagnostic failed with "the account's quota is exhausted"), so
+no live session could run, and **adding, pausing, resuming and removing a
+target in a live cloud session is not retested at runtime.** It is covered
+by deterministic tests that run the real per-target sessions and their
+worker threads against a scripted service:
+
+- an added target opens only its own session, from the live point, while
+  the other keeps its session and text;
+- a removed target closes only its session, and its late text never
+  reappears;
+- a paused target receives no audio while the other does; resuming opens
+  only its session again;
+- rapid add, remove and add opens at most one session per target, with one
+  connected once it settles;
+- a session closed while still connecting can't report over the lane that
+  replaced it;
+- Stop while a target is connecting ends in bounded time, and dropping the
+  session while a target resumes closes every connection;
+- a failed target is reported, can be resumed, and the session fails only
+  when its last running target does;
+- the window's caption rows stay bound to their language, so adding or
+  removing another lane never moves or clears a lane's text.
+
+### Offline Translation: blocked
+
+The task asked for offline translation with Tencent's Hy-MT2 1.8B, 1.25-bit
+GGUF, run in-process through llama.cpp. It is not included, because it
+cannot run usefully on x86.
+
+- **Artifact and license verified:** `tencent/Hy-MT2-1.8B-1.25Bit-GGUF`,
+  revision `9df5c824a00a744fb0512a29c640466f4d97dfb0`, `Hy-MT2-1.8B-1.25Bit.gguf`,
+  461,860,800 bytes, SHA-256
+  `cc497fe8f033b52b3b8b00a7669e9661435432f9d4cd43f7ed24400c01507a93`,
+  Apache-2.0 (the repository's `LICENSE.txt`). English, Japanese,
+  Vietnamese, Chinese, Korean, Spanish, French and German are all among its
+  33 languages. The license would allow bundling.
+- **No released llama.cpp loads it.** Its 224 weight tensors use the
+  "STQ1_0" format (1.3125 bits per weight) from llama.cpp PR #22836, which
+  is open and unmerged. The file numbers that format 42, which upstream now
+  uses for `Q2_0`; the PR numbers it 43. Unmodified, the file fails to load
+  ("tensor … has offset …, expected …").
+- **With the PR applied, it is too slow on x86.** Applied to llama.cpp
+  `b11074` (the version `llama-cpp-sys-2` 0.1.157 vendors) and with the type
+  number rewritten (weights unchanged), it loads and translates correctly:
+  「今日はとても良い天気ですね。散歩に行きましょう。」 → "It's a great day today.
+  Let's go for a walk." But the PR has only an ARM kernel; on x86 it runs a
+  scalar fallback. At **2 threads: 0.8 tokens/s** for both prompt and
+  output, **76 s for that one sentence**, peak RSS 540 MB. At 8 threads,
+  1.6–1.9 tokens/s. A live lane needs a sentence in a few seconds.
+- For comparison only, not adopted: the same model as the official Q4_K_M
+  GGUF loads in unmodified llama.cpp and translated the sentence in about
+  3 s on 2 threads, but needs 1.9 GB of resident memory, over the 2 GB
+  budget with Whisper beside it.
+
+The owner chose to stop here rather than write an x86 SIMD kernel or switch
+models. Offline Translation needs one of those before it can ship.
+
 ## Known limitations
 
 - **Offline repetition:** see above. A timestamp-based commit that removes
@@ -553,12 +767,25 @@ the live runs after the badge change used idle lanes only.
   until the spoken language is named in Settings, and only then can a target
   equal to it be prevented.
 - **Window height:** three lanes at a very large font in a short window are
-  each shorter than one line, and their text is cut off at the edges.
+  each shorter than one line, and their text is cut off at the edges. The
+  window keeps the size you chose and its controls stay visible; hiding a
+  lane with its chip gives the others its room.
+- **No Offline Translation:** see
+  [Offline Translation: blocked](#offline-translation-blocked).
+- **Offline accuracy:** the base model recovers about 95% of English, 75–80%
+  of Japanese and about 70% of Vietnamese (recall, above). Auto starts more
+  slowly than a named language and can miss the first seconds while it is
+  still unsure.
+- **Live target changes in a cloud session** are covered by tests only; see
+  [Live language controls](#live-language-controls).
+- **The source badge** stays `SRC` under Auto: the translation service does
+  not report the language it detects.
 - **Window size:** a width below the control row's minimum (510–683 px) has
   no further effect.
 - **Not tested:**
-  - pointer and keyboard input (controls and selections were driven through
-    accessibility);
+  - pointer selection of caption text (the lane chips were tested with real
+    pointer and keyboard input);
+  - a 2 GB Pentium-class machine (simulated, above);
   - live resize on X11;
   - layer-shell overlay (GNOME lacks it);
   - microphone input in the online modes;
