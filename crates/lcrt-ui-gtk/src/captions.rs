@@ -342,14 +342,14 @@ impl CaptionViews {
             .find_map(|(language, _)| bound.iter().position(|slot| *slot == Some(*language)))
             .unwrap_or(0);
         self.first_visible.set(first_visible);
-        let moved = self
-            .placeholder
-            .borrow()
-            .clone()
-            .filter(|(_, row)| *row != first_visible);
-        if let Some((text, row)) = moved {
-            self.targets[row].view.buffer().set_text("");
-            self.targets[first_visible].view.buffer().set_text(&text);
+        // Binding a row clears it, so the placeholder is written again
+        // wherever it now belongs.
+        let placeholder = self.placeholder.borrow().clone();
+        if let Some((text, row)) = placeholder {
+            if row != first_visible {
+                self.targets[row].view.buffer().set_text("");
+            }
+            replace_text(&self.targets[first_visible].view.buffer(), &text);
             *self.placeholder.borrow_mut() = Some((text, first_visible));
         }
         before != (*bound, self.source.labeled.get())

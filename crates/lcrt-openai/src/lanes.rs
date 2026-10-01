@@ -142,12 +142,14 @@ struct Lane {
 }
 
 impl Lane {
-    /// Keeps the newest texts. Updates are cumulative, so the last one wins.
+    /// Keeps the newest texts. Updates are cumulative, so the last one wins;
+    /// an empty text is a session that has said nothing yet, such as one
+    /// just resumed, and keeps the text the lane already shows.
     fn apply(&mut self, updates: &[TranscriptUpdate]) {
         let Some(lanes) = updates.last().and_then(TranscriptUpdate::translation_lanes) else {
             return;
         };
-        if let Some(translation) = lanes.target(self.target) {
+        if let Some(translation) = lanes.target(self.target).filter(|text| !text.is_empty()) {
             translation.clone_into(&mut self.translation);
         }
         if !lanes.original.is_empty() {
@@ -301,7 +303,7 @@ impl MultiTargetTranslation {
         self.revision = Some(desired.revision);
         let mut previous = std::mem::take(&mut self.lanes);
         let mut lanes = Vec::new();
-        let mut failure = None;
+        let mut failures = Vec::new();
         for target in desired.targets.iter() {
             let mut lane = match previous.iter().position(|lane| lane.target == target) {
                 Some(index) => previous.remove(index),
@@ -320,7 +322,7 @@ impl MultiTargetTranslation {
                     "opening a translation lane"
                 );
                 if let Err(error) = self.open(&mut lane) {
-                    failure.get_or_insert(error);
+                    failures.push((target, error));
                 }
             } else if !running && lane.session.take().is_some() {
                 // Dropping a session cancels it and closes its connection.
@@ -341,14 +343,16 @@ impl MultiTargetTranslation {
             self.reports.close(removed.id, removed.target, None);
         }
         self.lanes = lanes;
-        match failure {
-            Some(error) if !self.lanes.iter().any(|lane| lane.session.is_some()) => Err(error),
-            Some(error) => {
-                warn!(%error, "a translation lane could not open");
-                Ok(())
-            }
-            None => Ok(()),
+        if !failures.is_empty() && !self.lanes.iter().any(|lane| lane.session.is_some()) {
+            return Err(failures.swap_remove(0).1);
         }
+        // Another lane runs: report each failure, as a failure while running
+        // is, and keep translating.
+        for (target, error) in failures {
+            warn!(%error, target_language = target.code(), "a translation lane could not open");
+            (self.on_lane_failure)(target, &error);
+        }
+        Ok(())
     }
 
     /// The source text. A running lane keeps the source lane once it has it;
@@ -873,6 +877,28 @@ mod tests {
         );
         assert_eq!(started.record(English).connects.load(Ordering::SeqCst), 1);
         assert!(started.failures.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_resumed_lane_keeps_its_text_until_its_session_translates() {
+        let mut lane = super::Lane {
+            id: 1,
+            target: Vietnamese,
+            session: None,
+            translation: "Xin chào".to_owned(),
+            original: "こんにちは".to_owned(),
+        };
+        // A resumed session's first update often has the source but no
+        // translation yet.
+        let source_only =
+            TranscriptUpdate::translated(Vietnamese, "", "mới", CaptionStatus::Partial).unwrap();
+        lane.apply(&[source_only]);
+        assert_eq!(lane.translation, "Xin chào");
+        assert_eq!(lane.original, "mới");
+        let translated =
+            TranscriptUpdate::translated(Vietnamese, "lại", "mới", CaptionStatus::Partial).unwrap();
+        lane.apply(&[translated]);
+        assert_eq!(lane.translation, "lại");
     }
 
     #[test]

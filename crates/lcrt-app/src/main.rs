@@ -228,6 +228,8 @@ fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> Result<Pars
                 model_path = Some(PathBuf::from(next_value(&mut arguments, "--model")?));
             }
             "--language" => {
+                // Only a diagnostic run uses it; the window has its own.
+                smoke_option_set = true;
                 // A mistyped code must not quietly become Auto: a diagnostic
                 // would then pass for a language it never used.
                 let code = os_to_string(next_value(&mut arguments, "--language")?)?;
@@ -391,6 +393,8 @@ mod tests {
         );
         assert!(parse_arguments(arguments(&["--unknown"])).is_err());
         assert!(parse_arguments(arguments(&["--language", "jp"])).is_err());
+        // Outside a diagnostic run it would be ignored, so it is refused.
+        assert!(parse_arguments(arguments(&["--language", "ja"])).is_err());
         // A translation diagnostic can't translate a language into itself.
         let translation = |language: &str, target: &str| {
             parse_arguments(arguments(&[

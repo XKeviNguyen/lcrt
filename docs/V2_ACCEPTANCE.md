@@ -733,6 +733,12 @@ worker threads against a scripted service:
   a lane failure shown after its warning, and the privacy notice counts only
   targets that aren't paused, saying so when none is sending audio (Codex
   review of `c92fa32`).
+- a resumed lane keeps its text until its session translates something, a
+  target whose session can't open while another runs is reported in the
+  banner, a recovering lane gives the banner back to an unsaved-settings
+  warning, the idle placeholder survives the lanes being laid out, and
+  `--language` is refused outside a diagnostic run (Codex review of
+  `51c0423`).
 
 **English-only custom model, at runtime:** with `ggml-tiny.en.bin` chosen as
 the custom model and Japanese selected, Start showed "This speech model

@@ -214,6 +214,9 @@ struct FailedLanes {
     failures: Vec<(Language, String)>,
     /// The banner shows the newest of `failures`, not a later error.
     shown: bool,
+    /// What the banner shows once no lane failure is left: the controller's
+    /// warning that settings are not saved, while that is true.
+    fallback: Option<String>,
 }
 
 impl LaneFailures {
@@ -225,6 +228,13 @@ impl LaneFailures {
             lanes.shown = true;
         }
         notify_ui(sink.show_error(message));
+    }
+
+    /// Sets what the banner returns to once no lane failure is left.
+    fn set_fallback(&self, fallback: Option<String>) {
+        if let Ok(mut lanes) = self.0.lock() {
+            lanes.fallback = fallback;
+        }
     }
 
     /// Whether the banner shows a lane failure.
@@ -250,9 +260,10 @@ impl LaneFailures {
         }
     }
 
-    /// What the banner should show once `target` no longer failed; `None`
-    /// leaves the banner as it is: `target` had not failed, or the banner
-    /// shows another error.
+    /// What the banner should show once `target` no longer failed: the
+    /// newest failure left, else the fallback, else nothing. `None` leaves
+    /// the banner as it is: `target` had not failed, or the banner shows
+    /// another error.
     fn retired(&self, target: Language) -> Option<Option<String>> {
         let mut lanes = self.0.lock().ok()?;
         let before = lanes.failures.len();
@@ -262,7 +273,7 @@ impl LaneFailures {
         }
         let newest = lanes.failures.last().map(|(_, message)| message.clone());
         lanes.shown = newest.is_some();
-        Some(newest)
+        Some(newest.or_else(|| lanes.fallback.clone()))
     }
 }
 
@@ -545,6 +556,9 @@ impl Controller {
         );
         match start_pipeline(source, backend, session_sink) {
             Ok(session) => {
+                session
+                    .failures
+                    .set_fallback(self.preferences_save_error.clone());
                 self.state = ControllerState::Active(session);
                 true
             }
@@ -622,6 +636,15 @@ impl Controller {
     /// Writes the authoritative preferences. On failure they still apply
     /// until LCRT quits, and the user is told they were not saved.
     fn persist_preferences(&mut self) {
+        self.save_preferences_now();
+        if let ControllerState::Active(session) = &self.state {
+            session
+                .failures
+                .set_fallback(self.preferences_save_error.clone());
+        }
+    }
+
+    fn save_preferences_now(&mut self) {
         let Some(store) = &self.store else {
             return;
         };
@@ -1198,6 +1221,14 @@ mod tests {
         failures.banner_replaced();
         assert!(!failures.shown());
         assert_eq!(failures.retired(Language::English), None);
+        // A lane failure shown over an unsaved-settings warning gives the
+        // banner back to that warning when it recovers.
+        failures.set_fallback(Some("Couldn't save settings".to_owned()));
+        failures.failed(Language::English, "English stopped".to_owned(), &sink);
+        assert_eq!(
+            failures.retired(Language::English),
+            Some(Some("Couldn't save settings".to_owned()))
+        );
     }
 
     #[test]
