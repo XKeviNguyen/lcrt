@@ -728,6 +728,11 @@ worker threads against a scripted service:
 - a recovering lane clears only a banner that still shows a lane failure,
   never a later error such as unsaved settings, and an English-only custom
   model's refusal offers Open Settings (Codex review of `e77e607`).
+- targets can't be added or removed while a session starts (the
+  replacement takes its own targets), a save that succeeds no longer clears
+  a lane failure shown after its warning, and the privacy notice counts only
+  targets that aren't paused, saying so when none is sending audio (Codex
+  review of `c92fa32`).
 
 **English-only custom model, at runtime:** with `ggml-tiny.en.bin` chosen as
 the custom model and Japanese selected, Start showed "This speech model

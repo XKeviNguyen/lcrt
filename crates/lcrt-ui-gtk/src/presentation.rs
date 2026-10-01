@@ -125,6 +125,21 @@ pub(crate) fn lane_status_text(status: Option<TargetStatus>) -> Option<&'static 
     }
 }
 
+/// How many of `targets` have a session: those not paused or failed.
+pub(crate) fn open_sessions(
+    targets: TranslationTargets,
+    statuses: &[(Language, TargetStatus)],
+) -> usize {
+    targets
+        .iter()
+        .filter(|target| {
+            !statuses.iter().any(|(language, status)| {
+                language == target && matches!(status, TargetStatus::Paused | TargetStatus::Failed)
+            })
+        })
+        .count()
+}
+
 /// Adds the `newer` target statuses to `statuses`, one per language, and
 /// keeps only those of `current` targets: a report from a removed target may
 /// still arrive after it was removed.
@@ -166,10 +181,15 @@ pub(crate) fn active_status(mode: ProcessingMode) -> &'static str {
     }
 }
 
-/// Short inline notice about where audio is processed.
+/// Short inline notice about where audio is processed. For Translation,
+/// `translation_sessions` counts the targets that are not paused or failed:
+/// each is a session that audio is sent to.
 pub(crate) fn privacy_notice(mode: ProcessingMode, translation_sessions: usize) -> &'static str {
     match mode {
         ProcessingMode::OfflineCaptions => "Audio is processed on this device.",
+        ProcessingMode::Translation if translation_sessions == 0 => {
+            "Every translation language is paused: no audio is being sent."
+        }
         ProcessingMode::Translation if translation_sessions > 1 => {
             "Audio is streamed to OpenAI for processing, in one session per translation \
              language. API charges apply for each."
@@ -300,7 +320,8 @@ mod tests {
 
     use super::{
         LaneLayout, SessionPhase, caption_css, css_font_family, lane_layout, lane_status_text,
-        merge_target_statuses, preferred_source_index, privacy_notice, translation_status,
+        merge_target_statuses, open_sessions, preferred_source_index, privacy_notice,
+        translation_status,
     };
     use lcrt_core::{
         CaptionLane, GeneralPreferences, Language, LanguageSelection, TargetStatus,
@@ -380,6 +401,22 @@ mod tests {
         );
         assert_eq!(lane_status_text(Some(TargetStatus::Active)), None);
         assert_eq!(lane_status_text(Some(TargetStatus::Paused)), Some("Paused"));
+    }
+
+    #[test]
+    fn paused_and_failed_targets_have_no_session() {
+        use Language::{English, Vietnamese};
+        let targets = TranslationTargets::resolve(Some(English), Some(Vietnamese), None);
+        assert_eq!(open_sessions(targets, &[]), 2);
+        assert_eq!(
+            open_sessions(targets, &[(English, TargetStatus::Paused)]),
+            1
+        );
+        let both = [
+            (English, TargetStatus::Paused),
+            (Vietnamese, TargetStatus::Failed),
+        ];
+        assert_eq!(open_sessions(targets, &both), 0);
     }
 
     #[test]
@@ -520,6 +557,11 @@ mod tests {
                 .contains("one session per translation language")
         );
         assert!(!privacy_notice(ProcessingMode::OnlineCaptions, 2).contains("session per"));
+        // With every target paused, nothing is sent and the notice says so.
+        assert_eq!(
+            privacy_notice(ProcessingMode::Translation, 0),
+            "Every translation language is paused: no audio is being sent."
+        );
     }
 
     #[test]

@@ -111,8 +111,16 @@ impl LaneControls {
 
     /// Shows a chip for every lane of `layout`, in its order, then the add
     /// button with the languages that can be added. `running` enables
-    /// pausing and resuming, which only a running session can do.
-    pub(crate) fn update(&self, layout: &LaneLayout, addable: &[Language], running: bool) {
+    /// pausing and resuming, which only a running session can do; without
+    /// `editable` (while a session starts) targets can't be added or
+    /// removed either.
+    pub(crate) fn update(
+        &self,
+        layout: &LaneLayout,
+        addable: &[Language],
+        running: bool,
+        editable: bool,
+    ) {
         let lanes: Vec<(CaptionLane, &LaneRow)> = layout
             .source
             .iter()
@@ -135,7 +143,7 @@ impl LaneControls {
         });
         let visible = lanes.iter().filter(|(_, row)| row.visible).count();
         // A translation session always keeps one target.
-        let removable = layout.targets.len() > 1;
+        let removable = editable && layout.targets.len() > 1;
         let mut previous: Option<gtk::Widget> = None;
         for (lane, row) in &lanes {
             let index = match chips.iter().position(|chip| chip.lane == *lane) {
@@ -161,8 +169,10 @@ impl LaneControls {
         }
         self.add.set_menu_model(Some(&menu));
         let full = addable.is_empty();
-        self.add.set_sensitive(!full);
-        self.add.set_tooltip_text(Some(if full {
+        self.add.set_sensitive(editable && !full);
+        self.add.set_tooltip_text(Some(if !editable {
+            "Languages can be added once captions have started."
+        } else if full {
             "Maximum 2 translation languages."
         } else {
             "Add a translation language"

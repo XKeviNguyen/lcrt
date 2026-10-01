@@ -133,6 +133,10 @@ Next to Start, a **language chip** stands for each lane, such as
 | Open a chip's menu (its arrow) | **Pause translation** closes that language's session, so it stops costing anything, and keeps its text; **Resume translation** opens it again from the live audio. **Remove language** drops the lane. The other lanes keep running. |
 | Click **+** | Lists the languages you can add. The new lane shows **Connecting…** and then translates from the live audio. The other lanes are not restarted. With two translation languages, + is disabled. |
 
+While a session is still starting, the chips only show and hide lanes; the
+other changes are available once captions have started. When every language
+is paused, the notice under the controls says that no audio is being sent.
+
 Only changing the mode or the audio source restarts a session.
 
 - **One session per target.** The translation service takes one output

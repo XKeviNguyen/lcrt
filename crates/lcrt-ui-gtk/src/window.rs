@@ -22,7 +22,7 @@ use crate::{
     preferences::{PreferencesShared, PreferencesWindow},
     presentation::{
         SessionPhase, active_status, caption_css, lane_layout, merge_target_statuses,
-        preferred_source_index, privacy_notice, source_label, translation_status,
+        open_sessions, preferred_source_index, privacy_notice, source_label, translation_status,
     },
 };
 
@@ -441,10 +441,13 @@ impl CaptionWindow {
             &general,
             &statuses,
         );
-        self.notice.set_text(privacy_notice(
-            options.mode,
-            options.translation_targets.iter().count(),
-        ));
+        // A running session sends audio only to targets that aren't paused.
+        let sessions = if self.session_running() {
+            open_sessions(options.translation_targets, &statuses)
+        } else {
+            options.translation_targets.iter().count()
+        };
+        self.notice.set_text(privacy_notice(options.mode, sessions));
         // While idle, text left from the last session is cleared when the
         // rows now show other languages, or captions instead of lanes.
         if self.captions.configure(&layout) && self.phase.get() == SessionPhase::Idle {
@@ -459,6 +462,8 @@ impl CaptionWindow {
                 // Pausing reaches only a running session: a replacement that
                 // is still starting would open every target again.
                 self.phase.get() == SessionPhase::Running,
+                // A starting session takes its targets from its own options.
+                self.phase.get() != SessionPhase::Starting,
             );
         }
     }
@@ -498,6 +503,11 @@ impl CaptionWindow {
         let running = self.session_running();
         let spoken = self.preferences.borrow().general.spoken_language.language();
         let current = self.current_targets();
+        if self.phase.get() == SessionPhase::Starting
+            && matches!(action, LaneAction::Add(_) | LaneAction::Remove(_))
+        {
+            return;
+        }
         let change = match action {
             LaneAction::Toggle(lane) => {
                 let visible = self.preferences.borrow().general.lane_visible(lane);

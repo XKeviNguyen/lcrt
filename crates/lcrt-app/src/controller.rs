@@ -227,6 +227,11 @@ impl LaneFailures {
         notify_ui(sink.show_error(message));
     }
 
+    /// Whether the banner shows a lane failure.
+    fn shown(&self) -> bool {
+        self.0.lock().is_ok_and(|lanes| lanes.shown)
+    }
+
     /// Another error replaced the banner; retiring a failure leaves it.
     fn banner_replaced(&self) {
         if let Ok(mut lanes) = self.0.lock() {
@@ -456,20 +461,10 @@ impl Controller {
         });
     }
 
-    /// Applies a live target change to the running translation session,
-    /// and to the session that will replace it, if one is waiting.
+    /// Applies a live target change to the running translation session.
+    /// The window sends none while a replacement session starts, which takes
+    /// its targets from its own options.
     fn change_target(&mut self, change: TargetChange) {
-        if let Some(pending) = &mut self.pending_start {
-            let targets = pending.translation_targets;
-            let source = pending.spoken_language.language();
-            if let Some(changed) = match change {
-                TargetChange::Add(language) => targets.with_added(language, source),
-                TargetChange::Remove(language) => targets.without(language),
-                TargetChange::Pause(_) | TargetChange::Resume(_) => None,
-            } {
-                pending.translation_targets = changed;
-            }
-        }
         if let ControllerState::Active(PipelineSession {
             targets: Some(control),
             failures,
@@ -633,11 +628,17 @@ impl Controller {
         match store.save(&self.preferences) {
             Ok(()) => {
                 // Clear the banner only if it still shows the save warning,
-                // not an error that replaced it since.
-                if self.preferences_save_error.take().is_some() && self.save_warning_shown {
-                    self.save_warning_shown = false;
+                // not an error that replaced it since, such as a lane failure
+                // reported by a running session.
+                let lane_failure_shown = matches!(&self.state,
+                    ControllerState::Active(session) if session.failures.shown());
+                if self.preferences_save_error.take().is_some()
+                    && self.save_warning_shown
+                    && !lane_failure_shown
+                {
                     notify_ui(self.sink.clear_error());
                 }
+                self.save_warning_shown = false;
             }
             Err(error) => {
                 warn!(%error, "could not save preferences");
@@ -1193,7 +1194,9 @@ mod tests {
         // A later error, such as unsaved settings, is never cleared by a
         // lane that recovers.
         failures.failed(Language::English, "English stopped".to_owned(), &sink);
+        assert!(failures.shown());
         failures.banner_replaced();
+        assert!(!failures.shown());
         assert_eq!(failures.retired(Language::English), None);
     }
 
