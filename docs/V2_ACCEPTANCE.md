@@ -725,6 +725,15 @@ worker threads against a scripted service:
   review of `c5e49b9`);
 - `--language` rejects a code LCRT doesn't offer instead of running the
   diagnostic with Auto (same review).
+- a recovering lane clears only a banner that still shows a lane failure,
+  never a later error such as unsaved settings, and an English-only custom
+  model's refusal offers Open Settings (Codex review of `e77e607`).
+
+**English-only custom model, at runtime:** with `ggml-tiny.en.bin` chosen as
+the custom model and Japanese selected, Start showed "This speech model
+understands only English, not Japanese. Choose English or Auto, or turn off
+the custom model in Settings to use the built-in one." with **Open Settings**,
+and no captions were produced.
 
 ### Offline Translation: blocked
 

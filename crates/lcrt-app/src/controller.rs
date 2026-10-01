@@ -27,7 +27,7 @@ use lcrt_openai::{
     transport::WebSocketConnector,
     vocabulary::{self, VocabularyCache, VocabularyError, VocabularyRequest},
 };
-use lcrt_stt_whisper::{WhisperConfig, WhisperTranscriber};
+use lcrt_stt_whisper::{WhisperBackendError, WhisperConfig, WhisperTranscriber};
 use lcrt_ui_gtk::{
     CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey, GtkCaptionSink, VocabularyCard,
     VocabularyOutcome, VocabularyProblem,
@@ -157,7 +157,18 @@ impl SessionFailure {
         }
     }
 
-    fn from_pipeline(error: &(dyn std::error::Error + 'static)) -> Self {
+    /// `custom_model` says the offline model was chosen in Settings, which
+    /// can then fix a model that doesn't know the chosen language.
+    fn from_pipeline(error: &(dyn std::error::Error + 'static), custom_model: bool) -> Self {
+        if custom_model
+            && let Some(error @ WhisperBackendError::EnglishOnlyModel(_)) =
+                error.downcast_ref::<WhisperBackendError>()
+        {
+            return Self {
+                message: error.to_string(),
+                needs_settings: true,
+            };
+        }
         // Backend errors already carry user-facing text.
         let transcription = error.downcast_ref::<TranscriptionError>().or_else(|| {
             match error.downcast_ref::<PipelineError>() {
@@ -194,17 +205,33 @@ struct PipelineSession {
 /// The targets of a translation session whose own session failed, and what
 /// the error banner says about each. A target that recovers, or is removed,
 /// retires its failure, so the banner never reports a lane that works again.
+/// Only a banner that still shows a lane failure is changed by that.
 #[derive(Clone, Default)]
-struct LaneFailures(Arc<Mutex<Vec<(Language, String)>>>);
+struct LaneFailures(Arc<Mutex<FailedLanes>>);
+
+#[derive(Default)]
+struct FailedLanes {
+    failures: Vec<(Language, String)>,
+    /// The banner shows the newest of `failures`, not a later error.
+    shown: bool,
+}
 
 impl LaneFailures {
     /// Records that `target`'s session failed with `message`.
     fn failed(&self, target: Language, message: String, sink: &GtkCaptionSink) {
-        if let Ok(mut failures) = self.0.lock() {
-            failures.retain(|(language, _)| *language != target);
-            failures.push((target, message.clone()));
+        if let Ok(mut lanes) = self.0.lock() {
+            lanes.failures.retain(|(language, _)| *language != target);
+            lanes.failures.push((target, message.clone()));
+            lanes.shown = true;
         }
         notify_ui(sink.show_error(message));
+    }
+
+    /// Another error replaced the banner; retiring a failure leaves it.
+    fn banner_replaced(&self) {
+        if let Ok(mut lanes) = self.0.lock() {
+            lanes.shown = false;
+        }
     }
 
     /// `target` translates again or is gone: shows the newest failure left,
@@ -218,13 +245,19 @@ impl LaneFailures {
         }
     }
 
-    /// What the banner should show once `target` no longer failed: `None`
-    /// when `target` had not failed, so the banner stays as it is.
+    /// What the banner should show once `target` no longer failed; `None`
+    /// leaves the banner as it is: `target` had not failed, or the banner
+    /// shows another error.
     fn retired(&self, target: Language) -> Option<Option<String>> {
-        let mut failures = self.0.lock().ok()?;
-        let before = failures.len();
-        failures.retain(|(language, _)| *language != target);
-        (failures.len() != before).then(|| failures.last().map(|(_, message)| message.clone()))
+        let mut lanes = self.0.lock().ok()?;
+        let before = lanes.failures.len();
+        lanes.failures.retain(|(language, _)| *language != target);
+        if lanes.failures.len() == before || !lanes.shown {
+            return None;
+        }
+        let newest = lanes.failures.last().map(|(_, message)| message.clone());
+        lanes.shown = newest.is_some();
+        Some(newest)
     }
 }
 
@@ -253,6 +286,9 @@ enum Backend {
     Offline {
         model_path: PathBuf,
         language: Option<String>,
+        /// The model was chosen in Settings, not built in or given for
+        /// this run.
+        custom_model: bool,
     },
     Online {
         key: ApiKey,
@@ -409,6 +445,9 @@ impl Controller {
     /// Shows an error in the window's banner, replacing whatever it showed.
     fn show_error(&mut self, message: impl Into<String>, needs_settings: bool) {
         self.save_warning_shown = false;
+        if let ControllerState::Active(session) = &self.state {
+            session.failures.banner_replaced();
+        }
         let message = message.into();
         notify_ui(if needs_settings {
             self.sink.show_settings_error(message)
@@ -536,11 +575,13 @@ impl Controller {
                 .map_err(|problem| (problem.message(), problem.needs_settings()))?;
                 Ok(Backend::Offline {
                     model_path,
-                    // Auto lets Whisper detect the language on every pass.
+                    // Auto lets Whisper detect the language.
                     language: options
                         .spoken_language
                         .language()
                         .map(|language| language.code().to_owned()),
+                    custom_model: self.overrides.model_path.is_none()
+                        && self.preferences.general.custom_model.is_some(),
                 })
             }
             ProcessingMode::OnlineCaptions | ProcessingMode::Translation => {
@@ -806,6 +847,13 @@ fn start_pipeline(
         Backend::Online { targets, .. } => targets.clone(),
         Backend::Offline { .. } => None,
     };
+    let custom_model = matches!(
+        backend,
+        Backend::Offline {
+            custom_model: true,
+            ..
+        }
+    );
     let (result_sender, result) = sync_channel(1);
     let worker = thread::Builder::new()
         .name("lcrt-caption-pipeline".to_owned())
@@ -816,7 +864,7 @@ fn start_pipeline(
                 failures: worker_failures,
             };
             let result = run_pipeline(source, backend, sink, &worker_startup, flags)
-                .map_err(|error| SessionFailure::from_pipeline(error.as_ref()));
+                .map_err(|error| SessionFailure::from_pipeline(error.as_ref(), custom_model));
             let _ = result_sender.send(result);
         })
         .map_err(|error| format!("could not start the caption pipeline worker: {error}"))?;
@@ -860,6 +908,7 @@ fn open_backend(
         Backend::Offline {
             model_path,
             language,
+            ..
         } => {
             let mut config = WhisperConfig::new(model_path);
             config.language = language;
@@ -1024,20 +1073,21 @@ mod tests {
     };
     use lcrt_core::{Language, PipelineError, RunSummary, TranscriptionError};
     use lcrt_openai::credentials::{ApiKey, CredentialStatus};
+    use lcrt_stt_whisper::WhisperBackendError;
     use lcrt_ui_gtk::{CredentialTone, EnteredApiKey, GtkCaptionSink};
 
     #[test]
     fn only_a_rejected_credential_sends_the_user_to_settings() {
         let rejected = TranscriptionError::credential_rejected("Your OpenAI API key was rejected.");
-        let direct = SessionFailure::from_pipeline(&rejected);
+        let direct = SessionFailure::from_pipeline(&rejected, false);
         assert!(direct.needs_settings);
         assert_eq!(direct.message, "Your OpenAI API key was rejected.");
-        let wrapped = SessionFailure::from_pipeline(&PipelineError::Transcription(rejected));
+        let wrapped = SessionFailure::from_pipeline(&PipelineError::Transcription(rejected), false);
         assert!(wrapped.needs_settings);
         assert_eq!(wrapped.message, "Your OpenAI API key was rejected.");
         // Mentioning the key is not the same as the key being rejected.
         let other = TranscriptionError::new("API key accepted but the service is down");
-        assert!(!SessionFailure::from_pipeline(&other).needs_settings);
+        assert!(!SessionFailure::from_pipeline(&other, false).needs_settings);
     }
 
     #[test]
@@ -1140,6 +1190,21 @@ mod tests {
         assert_eq!(failures.retired(Language::German), None);
         // Vietnamese recovers or is removed: no failure is left to show.
         assert_eq!(failures.retired(Language::Vietnamese), Some(None));
+        // A later error, such as unsaved settings, is never cleared by a
+        // lane that recovers.
+        failures.failed(Language::English, "English stopped".to_owned(), &sink);
+        failures.banner_replaced();
+        assert_eq!(failures.retired(Language::English), None);
+    }
+
+    #[test]
+    fn an_english_only_custom_model_is_fixed_in_settings() {
+        let english_only = WhisperBackendError::EnglishOnlyModel("ja".to_owned());
+        let custom = SessionFailure::from_pipeline(&english_only, true);
+        assert!(custom.needs_settings);
+        assert!(custom.message.contains("Japanese"));
+        // A model given with --model is not a Settings matter.
+        assert!(!SessionFailure::from_pipeline(&english_only, false).needs_settings);
     }
 
     #[test]
