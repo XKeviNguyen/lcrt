@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Language, LanguageSelection, ProcessingMode, SessionOptions, TranslationTargets};
+use crate::{CaptionLane, Language, LanguageSelection, ProcessingMode, TranslationTargets};
 
 /// Current on-disk preferences schema version.
 pub const PREFERENCES_VERSION: u32 = 1;
@@ -61,16 +61,16 @@ impl Preferences {
     pub fn normalized(mut self) -> Self {
         self.version = PREFERENCES_VERSION;
         self.appearance = self.appearance.normalized();
-        self.general.model_path = self
+        self.general.custom_model = self
             .general
-            .model_path
+            .custom_model
             .filter(|path| !path.as_os_str().is_empty());
         self.general.default_source_id = self
             .general
             .default_source_id
             .filter(|id| !id.trim().is_empty());
         // A hand-edited or older file may hold targets that repeat each
-        // other or the shown source.
+        // other or the spoken language, or hide every lane.
         let (first, second) = (
             self.general.translation_target,
             self.general.second_translation_target,
@@ -88,8 +88,11 @@ pub struct GeneralPreferences {
     pub default_mode: ProcessingMode,
     /// Stable identifier of the preferred audio source, when one was chosen.
     pub default_source_id: Option<String>,
-    /// Local Whisper model file for Offline Captions.
-    pub model_path: Option<PathBuf>,
+    /// A Whisper model file the user chose in place of the built-in one.
+    /// Offline Captions use the built-in multilingual model when this is
+    /// `None`. (Earlier versions stored a required `model_path`; it is not
+    /// read, so those users move to the built-in model.)
+    pub custom_model: Option<PathBuf>,
     /// Spoken-language hint for transcription.
     pub spoken_language: LanguageSelection,
     /// First output language for Translation.
@@ -97,21 +100,75 @@ pub struct GeneralPreferences {
     /// Optional second output language for Translation. It opens a second
     /// translation session.
     pub second_translation_target: Option<Language>,
-    /// Whether Translation also shows the original speech.
+    /// Whether Translation shows the original speech. Hiding it changes
+    /// only what is shown: the source is still transcribed.
     pub show_original: bool,
+    /// Translation targets whose lane is hidden. Hiding a lane is not
+    /// pausing it: its session keeps translating.
+    pub hidden_targets: Vec<Language>,
 }
 
 impl GeneralPreferences {
+    /// The stored translation targets.
+    pub fn translation_targets(&self) -> TranslationTargets {
+        TranslationTargets::resolve(
+            Some(self.translation_target),
+            self.second_translation_target,
+            self.spoken_language.language(),
+        )
+    }
+
     /// Stores `first` and `second` as chosen by the user, corrected to a
     /// valid combination (see [`TranslationTargets::resolve`]).
     pub fn set_translation_targets(&mut self, first: Option<Language>, second: Option<Language>) {
-        let targets = TranslationTargets::resolve(
-            first,
-            second,
-            SessionOptions::shown_source(self.show_original, self.spoken_language),
-        );
+        let targets = TranslationTargets::resolve(first, second, self.spoken_language.language());
         self.translation_target = targets.first();
         self.second_translation_target = targets.second();
+        // Only current targets can be hidden, and at least one lane stays
+        // visible, so the captions never disappear altogether.
+        self.hidden_targets
+            .retain(|language| targets.contains(*language));
+        self.hidden_targets.dedup();
+        if !self.show_original
+            && targets
+                .iter()
+                .all(|target| self.hidden_targets.contains(&target))
+        {
+            self.hidden_targets.clear();
+        }
+    }
+
+    /// Whether `lane` is shown in Translation.
+    pub fn lane_visible(&self, lane: CaptionLane) -> bool {
+        match lane {
+            CaptionLane::Source => self.show_original,
+            CaptionLane::Target(language) => !self.hidden_targets.contains(&language),
+        }
+    }
+
+    /// Shows or hides `lane`. Returns false, changing nothing, when that
+    /// would hide the last visible lane or `lane` is not a current lane.
+    pub fn set_lane_visible(&mut self, lane: CaptionLane, visible: bool) -> bool {
+        let targets = self.translation_targets();
+        let visible_lanes = usize::from(self.show_original)
+            + targets
+                .iter()
+                .filter(|target| !self.hidden_targets.contains(target))
+                .count();
+        if !visible && self.lane_visible(lane) && visible_lanes == 1 {
+            return false;
+        }
+        match lane {
+            CaptionLane::Source => self.show_original = visible,
+            CaptionLane::Target(language) if targets.contains(language) => {
+                self.hidden_targets.retain(|hidden| *hidden != language);
+                if !visible {
+                    self.hidden_targets.push(language);
+                }
+            }
+            CaptionLane::Target(_) => return false,
+        }
+        true
     }
 }
 
@@ -120,11 +177,12 @@ impl Default for GeneralPreferences {
         Self {
             default_mode: ProcessingMode::OfflineCaptions,
             default_source_id: None,
-            model_path: None,
+            custom_model: None,
             spoken_language: LanguageSelection::Auto,
             translation_target: Language::English,
             second_translation_target: None,
             show_original: true,
+            hidden_targets: Vec::new(),
         }
     }
 }
@@ -210,17 +268,18 @@ impl Default for VocabularyPreferences {
 #[cfg(test)]
 mod tests {
     use super::{AppearancePreferences, PREFERENCES_VERSION, Preferences, Rgb};
-    use crate::{Language, LanguageSelection};
+    use crate::{CaptionLane, Language, LanguageSelection};
 
     #[test]
     fn stored_translation_targets_are_corrected_when_loaded() {
         let mut preferences = Preferences::default();
-        preferences.general.show_original = true;
+        // Hiding the source doesn't allow a target in its language.
+        preferences.general.show_original = false;
         preferences.general.spoken_language = LanguageSelection::Language(Language::Japanese);
         preferences.general.translation_target = Language::Japanese;
         preferences.general.second_translation_target = Some(Language::Vietnamese);
         let general = preferences.normalized().general;
-        // The first target repeated the shown source, so the second moved up.
+        // The first target repeated the spoken language, so the second moved up.
         assert_eq!(general.translation_target, Language::Vietnamese);
         assert_eq!(general.second_translation_target, None);
     }
@@ -239,6 +298,39 @@ mod tests {
         assert_eq!(general.second_translation_target, None);
         general.set_translation_targets(None, None);
         assert_eq!(general.translation_target, Language::English);
+    }
+
+    #[test]
+    fn hiding_a_lane_is_remembered_but_never_hides_the_last_one() {
+        let mut general = Preferences::default().general;
+        general.set_translation_targets(Some(Language::English), Some(Language::Vietnamese));
+        let english = CaptionLane::Target(Language::English);
+        let vietnamese = CaptionLane::Target(Language::Vietnamese);
+        assert!(general.set_lane_visible(english, false));
+        assert!(general.set_lane_visible(CaptionLane::Source, false));
+        assert!(!general.lane_visible(english));
+        // Vietnamese is the last visible lane.
+        assert!(!general.set_lane_visible(vietnamese, false));
+        assert!(general.lane_visible(vietnamese));
+        // Showing a lane again restores it.
+        assert!(general.set_lane_visible(english, true));
+        assert!(general.lane_visible(english));
+        // A language that is not a target has no lane to hide.
+        assert!(!general.set_lane_visible(CaptionLane::Target(Language::German), false));
+    }
+
+    #[test]
+    fn a_removed_target_forgets_that_it_was_hidden() {
+        let mut general = Preferences::default().general;
+        general.set_translation_targets(Some(Language::English), Some(Language::Vietnamese));
+        assert!(general.set_lane_visible(CaptionLane::Target(Language::Vietnamese), false));
+        general.set_translation_targets(Some(Language::English), None);
+        assert!(general.hidden_targets.is_empty());
+        // A stored file that hides every lane shows the targets again.
+        let mut preferences = Preferences::default();
+        preferences.general.show_original = false;
+        preferences.general.hidden_targets = vec![Language::English];
+        assert!(preferences.normalized().general.hidden_targets.is_empty());
     }
 
     #[test]

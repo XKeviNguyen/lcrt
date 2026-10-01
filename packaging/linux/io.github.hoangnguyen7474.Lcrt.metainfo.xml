@@ -14,7 +14,7 @@
       your microphone, in a small window that stays out of the way.
     </p>
     <ul>
-      <li>Offline Captions run a local Whisper model; audio never leaves the device.</li>
+      <li>Offline Captions work right after installation in eight languages, with the included speech model; audio never leaves the device.</li>
       <li>Online Captions and Translation use your own OpenAI API key for
         English, Japanese, Vietnamese and more.</li>
       <li>Select a word or phrase in the captions to see its meaning in context.</li>

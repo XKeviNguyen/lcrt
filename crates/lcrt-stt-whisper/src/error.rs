@@ -9,6 +9,8 @@ pub enum WhisperBackendError {
     ModelUnavailable(PathBuf),
     /// Model loading or speech inference failed.
     Whisper(String),
+    /// The model understands only English, but this language was chosen.
+    EnglishOnlyModel(String),
     /// Input audio changed format during a live session.
     AudioFormatChanged,
     /// Audio conversion or resampling failed.
@@ -33,10 +35,16 @@ impl fmt::Display for WhisperBackendError {
             }
             Self::ModelUnavailable(path) => write!(
                 formatter,
-                "Whisper model is unavailable at {}; download a compatible ggml model and configure its path",
+                "Whisper model is unavailable at {}",
                 path.display()
             ),
             Self::Whisper(message) => write!(formatter, "whisper.cpp failed: {message}"),
+            Self::EnglishOnlyModel(code) => write!(
+                formatter,
+                "This speech model understands only English, not {}. Choose English or Auto, or \
+                 turn off the custom model in Settings to use the built-in one.",
+                lcrt_core::Language::from_code(code).map_or(code.as_str(), |language| language.label())
+            ),
             Self::AudioFormatChanged => formatter.write_str(
                 "audio sample rate or channel count changed during transcription; restart captioning",
             ),

@@ -933,7 +933,7 @@ pub(crate) mod tests {
         )]);
         let (status, _) = statuses();
         let mut session = OnlineSession::start(
-            TranslationProtocol::new(Language::English, true),
+            TranslationProtocol::new(Language::English),
             key(),
             connector,
             status,
@@ -993,7 +993,7 @@ pub(crate) mod tests {
         )]);
         let (status, _) = statuses();
         let mut session = OnlineSession::start(
-            TranslationProtocol::new(Language::English, true),
+            TranslationProtocol::new(Language::English),
             key(),
             connector,
             status,
@@ -1047,7 +1047,7 @@ pub(crate) mod tests {
     fn start_translation(connector: Box<FakeConnector>) -> OnlineSession {
         let (status, _) = statuses();
         OnlineSession::start(
-            TranslationProtocol::new(Language::English, true),
+            TranslationProtocol::new(Language::English),
             key(),
             connector,
             status,
@@ -1136,7 +1136,7 @@ pub(crate) mod tests {
         )]);
         let (status, _) = statuses();
         let mut session = OnlineSession::start(
-            TranslationProtocol::new(Language::English, true),
+            TranslationProtocol::new(Language::English),
             key(),
             connector,
             status,
@@ -1241,7 +1241,7 @@ pub(crate) mod tests {
         }]);
         let (status, _) = statuses();
         let mut session = OnlineSession::start(
-            TranslationProtocol::new(Language::English, true),
+            TranslationProtocol::new(Language::English),
             key(),
             connector,
             status,
@@ -1254,7 +1254,7 @@ pub(crate) mod tests {
 
         let last = updates.last().unwrap();
         assert_eq!(last.status(), CaptionStatus::Final);
-        assert_eq!(last.original(), Some("今日は"));
+        assert_eq!(last.translation_lanes().unwrap().original, "今日は");
         assert!(last.text().starts_with("Today"));
         assert_eq!(record.max_open.load(Ordering::SeqCst), 1);
         assert!(
@@ -1276,7 +1276,7 @@ pub(crate) mod tests {
         }]);
         let (status, _) = statuses();
         let mut session = OnlineSession::start(
-            TranslationProtocol::new(Language::Japanese, false),
+            TranslationProtocol::new(Language::Japanese),
             key(),
             connector,
             status,

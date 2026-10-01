@@ -128,13 +128,32 @@ mod tests {
         let mut preferences = Preferences::default();
         preferences.general.default_mode = ProcessingMode::Translation;
         preferences.general.translation_target = Language::Vietnamese;
-        preferences.general.model_path = Some(PathBuf::from("/models/ggml-base.bin"));
+        preferences.general.custom_model = Some(PathBuf::from("/models/ggml-small.bin"));
         preferences.appearance.font_family = Some("Noto Sans CJK JP".to_owned());
         preferences.appearance.text_color = Rgb::new(250, 240, 10);
         preferences.appearance.background_opacity = 0.0;
         preferences.vocabulary.explanation_language = Language::Japanese;
         store.save(&preferences).unwrap();
         assert_eq!(store.load(), preferences.normalized());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_old_required_model_path_does_not_become_a_custom_model() {
+        // Before the built-in model, every user had to choose a file, often
+        // an English-only one. That choice is not a custom model.
+        let directory = scratch("old-model");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("preferences.json"),
+            r#"{"version": 1, "general": {"default_mode": "translation",
+                "model_path": "/models/ggml-tiny.en.bin"}}"#,
+        )
+        .unwrap();
+        let general = SettingsStore::at(directory.clone()).load().general;
+        // The rest of the file still loads.
+        assert_eq!(general.default_mode, ProcessingMode::Translation);
+        assert_eq!(general.custom_model, None);
         fs::remove_dir_all(directory).unwrap();
     }
 

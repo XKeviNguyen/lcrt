@@ -2,6 +2,7 @@
 
 mod bridge;
 mod captions;
+mod lane_controls;
 mod preferences;
 mod presentation;
 mod window;

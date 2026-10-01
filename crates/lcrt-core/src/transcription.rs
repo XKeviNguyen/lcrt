@@ -2,7 +2,7 @@
 
 use std::{error::Error, fmt};
 
-use crate::{AudioChunk, CaptionStatus};
+use crate::{AudioChunk, CaptionStatus, Language};
 
 /// An incremental or final speech-to-text result.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -10,19 +10,46 @@ pub struct TranscriptUpdate {
     text: String,
     status: CaptionStatus,
     stable_prefix_len: usize,
-    original: Option<String>,
-    second_translation: Option<String>,
+    lanes: Option<TranslationLanes>,
 }
 
 /// The texts of a translation session's caption lanes.
+///
+/// Each translation names its language, so a lane added or removed while
+/// the session runs can never show another language's text.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TranslationLanes {
-    /// The spoken-language text, when the source lane is shown.
-    pub original: Option<String>,
-    /// The first target's text.
-    pub first: String,
-    /// The second target's text, when there is a second target.
-    pub second: Option<String>,
+    /// The spoken-language text.
+    pub original: String,
+    /// Each target's text, in lane order.
+    pub targets: Vec<TargetText>,
+}
+
+/// One target language's translated text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TargetText {
+    /// The target language.
+    pub language: Language,
+    /// The translation so far.
+    pub text: String,
+}
+
+impl TranslationLanes {
+    /// The text translated into `language`, if it is one of the targets.
+    pub fn target(&self, language: Language) -> Option<&str> {
+        self.targets
+            .iter()
+            .find(|target| target.language == language)
+            .map(|target| target.text.as_str())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.original.trim().is_empty()
+            && self
+                .targets
+                .iter()
+                .all(|target| target.text.trim().is_empty())
+    }
 }
 
 impl TranscriptUpdate {
@@ -70,26 +97,28 @@ impl TranscriptUpdate {
             text,
             status,
             stable_prefix_len,
-            original: None,
-            second_translation: None,
+            lanes: None,
         })
     }
 
-    /// Creates a translation result: `translation` in the target language and
+    /// Creates a translation result: `translation` into `target` and
     /// `original` in the spoken language, from the same translation session.
     ///
     /// Either lane may still be empty, because the original usually arrives
     /// before its translation, but not both.
     pub fn translated(
+        target: Language,
         translation: impl Into<String>,
         original: impl Into<String>,
         status: CaptionStatus,
     ) -> Result<Self, TranscriptUpdateError> {
         Self::lanes(
             TranslationLanes {
-                original: Some(original.into()),
-                first: translation.into(),
-                second: None,
+                original: original.into(),
+                targets: vec![TargetText {
+                    language: target,
+                    text: translation.into(),
+                }],
             },
             status,
         )
@@ -103,16 +132,16 @@ impl TranscriptUpdate {
         lanes: TranslationLanes,
         status: CaptionStatus,
     ) -> Result<Self, TranscriptUpdateError> {
-        let TranslationLanes {
-            original,
-            first: text,
-            second,
-        } = lanes;
-        let is_empty =
-            |lane: &Option<String>| lane.as_deref().is_none_or(|text| text.trim().is_empty());
-        if text.trim().is_empty() && is_empty(&original) && is_empty(&second) {
+        if lanes.is_empty() {
             return Err(TranscriptUpdateError::EmptyText);
         }
+        // The first target's text stands for the whole update where one
+        // text is needed, such as logging its length.
+        let text = lanes
+            .targets
+            .first()
+            .map(|target| target.text.clone())
+            .unwrap_or_default();
         let stable_prefix_len = if status == CaptionStatus::Final {
             text.len()
         } else {
@@ -122,19 +151,13 @@ impl TranscriptUpdate {
             text,
             status,
             stable_prefix_len,
-            original,
-            second_translation: second,
+            lanes: Some(lanes),
         })
     }
 
-    /// Returns the spoken-language text for translation results.
-    pub fn original(&self) -> Option<&str> {
-        self.original.as_deref()
-    }
-
-    /// Returns the second target's text for two-target translation results.
-    pub fn second_translation(&self) -> Option<&str> {
-        self.second_translation.as_deref()
+    /// Returns every lane's text for translation results.
+    pub fn translation_lanes(&self) -> Option<&TranslationLanes> {
+        self.lanes.as_ref()
     }
 
     /// Returns the update text.
@@ -152,13 +175,9 @@ impl TranscriptUpdate {
         self.text[self.stable_prefix_len..].trim_start()
     }
 
-    /// Consumes the update and returns its lanes.
-    pub(crate) fn into_lanes(self) -> TranslationLanes {
-        TranslationLanes {
-            original: self.original,
-            first: self.text,
-            second: self.second_translation,
-        }
+    /// Consumes the update and returns its text and translation lanes.
+    pub(crate) fn into_parts(self) -> (String, Option<TranslationLanes>) {
+        (self.text, self.lanes)
     }
 
     /// Returns whether this update is partial or final.
@@ -248,15 +267,24 @@ impl<T: Transcriber + ?Sized> Transcriber for Box<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TranscriptUpdate, TranscriptUpdateError, TranslationLanes};
-    use crate::CaptionStatus;
+    use super::{TargetText, TranscriptUpdate, TranscriptUpdateError, TranslationLanes};
+    use crate::{CaptionStatus, Language};
+
+    fn target(language: Language, text: &str) -> TargetText {
+        TargetText {
+            language,
+            text: text.to_owned(),
+        }
+    }
 
     #[test]
     fn a_lane_update_needs_text_in_at_least_one_lane() {
         let empty = TranslationLanes {
-            original: Some("  ".to_owned()),
-            first: String::new(),
-            second: Some(String::new()),
+            original: "  ".to_owned(),
+            targets: vec![
+                target(Language::English, ""),
+                target(Language::Vietnamese, ""),
+            ],
         };
         assert_eq!(
             TranscriptUpdate::lanes(empty, CaptionStatus::Partial).unwrap_err(),
@@ -264,14 +292,18 @@ mod tests {
         );
         // The second target can be the only lane with text so far.
         let second_only = TranslationLanes {
-            original: None,
-            first: String::new(),
-            second: Some("Xin chào".to_owned()),
+            original: String::new(),
+            targets: vec![
+                target(Language::English, ""),
+                target(Language::Vietnamese, "Xin chào"),
+            ],
         };
         let update = TranscriptUpdate::lanes(second_only, CaptionStatus::Partial).unwrap();
-        assert_eq!(update.text(), "");
-        assert_eq!(update.original(), None);
-        assert_eq!(update.second_translation(), Some("Xin chào"));
+        let lanes = update.translation_lanes().unwrap();
+        assert_eq!(lanes.target(Language::Vietnamese), Some("Xin chào"));
+        assert_eq!(lanes.target(Language::English), Some(""));
+        // A language that is not a target has no lane.
+        assert_eq!(lanes.target(Language::German), None);
     }
 
     #[test]
@@ -279,6 +311,12 @@ mod tests {
         assert_eq!(
             TranscriptUpdate::partial("   ").unwrap_err(),
             TranscriptUpdateError::EmptyText
+        );
+        assert_eq!(
+            TranscriptUpdate::partial("words")
+                .unwrap()
+                .translation_lanes(),
+            None
         );
     }
 
@@ -293,11 +331,15 @@ mod tests {
 
     #[test]
     fn translated_update_allows_one_empty_lane_but_not_both() {
-        let pending = TranscriptUpdate::translated("", "今日は", CaptionStatus::Partial).unwrap();
-        assert_eq!(pending.text(), "");
-        assert_eq!(pending.original(), Some("今日は"));
+        let pending =
+            TranscriptUpdate::translated(Language::English, "", "今日は", CaptionStatus::Partial)
+                .unwrap();
+        let lanes = pending.translation_lanes().unwrap();
+        assert_eq!(lanes.original, "今日は");
+        assert_eq!(lanes.target(Language::English), Some(""));
         assert_eq!(
-            TranscriptUpdate::translated(" ", "", CaptionStatus::Partial).unwrap_err(),
+            TranscriptUpdate::translated(Language::English, " ", "", CaptionStatus::Partial)
+                .unwrap_err(),
             TranscriptUpdateError::EmptyText
         );
     }

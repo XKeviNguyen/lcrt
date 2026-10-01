@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::transcription::TranscriptUpdate;
+use crate::transcription::{TranscriptUpdate, TranslationLanes};
 
 /// Whether a caption may still change or has been finalized by transcription.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,8 +22,7 @@ pub enum CaptionStatus {
 pub struct Caption {
     text: String,
     status: CaptionStatus,
-    original: Option<String>,
-    second_translation: Option<String>,
+    lanes: Option<TranslationLanes>,
 }
 
 impl Caption {
@@ -32,20 +31,13 @@ impl Caption {
         Self {
             text: text.into(),
             status: CaptionStatus::Partial,
-            original: None,
-            second_translation: None,
+            lanes: None,
         }
     }
 
-    /// Returns the spoken-language text when this caption is a translation.
-    pub fn original(&self) -> Option<&str> {
-        self.original.as_deref()
-    }
-
-    /// Returns the second target's text when this caption is a two-target
-    /// translation.
-    pub fn second_translation(&self) -> Option<&str> {
-        self.second_translation.as_deref()
+    /// Returns every lane's text when this caption is a translation.
+    pub fn translation_lanes(&self) -> Option<&TranslationLanes> {
+        self.lanes.as_ref()
     }
 
     /// Returns the caption text.
@@ -120,12 +112,11 @@ impl CaptionState {
             .checked_add(1)
             .ok_or(CaptionStateError::RevisionOverflow)?;
         let status = update.status();
-        let lanes = update.into_lanes();
+        let (text, lanes) = update.into_parts();
         let caption = Caption {
-            text: lanes.first,
+            text,
             status,
-            original: lanes.original,
-            second_translation: lanes.second,
+            lanes,
         };
         self.current = Some(caption.clone());
         Ok(CaptionSnapshot {
@@ -163,27 +154,33 @@ impl Error for CaptionStateError {}
 #[cfg(test)]
 mod tests {
     use super::{Caption, CaptionState, CaptionStatus};
-    use crate::{TranscriptUpdate, TranslationLanes};
+    use crate::{Language, TargetText, TranscriptUpdate, TranslationLanes};
 
     #[test]
     fn every_translation_lane_reaches_the_caption() {
         let mut state = CaptionState::new();
         let lanes = TranslationLanes {
-            original: Some("こんにちは".to_owned()),
-            first: "Hello".to_owned(),
-            second: Some("Xin chào".to_owned()),
+            original: "こんにちは".to_owned(),
+            targets: vec![
+                TargetText {
+                    language: Language::English,
+                    text: "Hello".to_owned(),
+                },
+                TargetText {
+                    language: Language::Vietnamese,
+                    text: "Xin chào".to_owned(),
+                },
+            ],
         };
-        let update = TranscriptUpdate::lanes(lanes, CaptionStatus::Partial).unwrap();
+        let update = TranscriptUpdate::lanes(lanes.clone(), CaptionStatus::Partial).unwrap();
         let snapshot = state.apply(update).unwrap();
-        let caption = snapshot.caption();
-        assert_eq!(caption.original(), Some("こんにちは"));
-        assert_eq!(caption.text(), "Hello");
-        assert_eq!(caption.second_translation(), Some("Xin chào"));
-        // A single-lane caption has no second translation.
+        assert_eq!(snapshot.caption().translation_lanes(), Some(&lanes));
+        // A caption that is not a translation has no lanes.
         let plain = state
             .apply(TranscriptUpdate::partial("captions").unwrap())
             .unwrap();
-        assert_eq!(plain.caption().second_translation(), None);
+        assert_eq!(plain.caption().translation_lanes(), None);
+        assert_eq!(plain.caption().text(), "captions");
     }
 
     #[test]

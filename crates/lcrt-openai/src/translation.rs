@@ -25,7 +25,6 @@ const MAX_LANE_BYTES: usize = 360;
 /// Client state for one translation session.
 pub struct TranslationProtocol {
     target: Language,
-    show_original: bool,
     outgoing: Vec<f32>,
     source: String,
     translation: String,
@@ -34,11 +33,11 @@ pub struct TranslationProtocol {
 
 impl TranslationProtocol {
     /// Creates the protocol for one output language. The source language is
-    /// detected by the service and cannot be specified.
-    pub fn new(target: Language, show_original: bool) -> Self {
+    /// detected by the service and cannot be specified. The source is always
+    /// transcribed, so its lane can be shown or hidden without a restart.
+    pub fn new(target: Language) -> Self {
         Self {
             target,
-            show_original,
             outgoing: Vec::with_capacity(APPEND_SAMPLES),
             source: String::new(),
             translation: String::new(),
@@ -54,8 +53,13 @@ impl TranslationProtocol {
     }
 
     fn caption(&self, status: CaptionStatus) -> EventOutcome {
-        TranscriptUpdate::translated(self.translation.trim(), self.source.trim(), status)
-            .map_or(EventOutcome::Ignored, EventOutcome::Update)
+        TranscriptUpdate::translated(
+            self.target,
+            self.translation.trim(),
+            self.source.trim(),
+            status,
+        )
+        .map_or(EventOutcome::Ignored, EventOutcome::Update)
     }
 
     fn append_messages(&mut self, messages: &mut Vec<String>, flush: bool) {
@@ -93,10 +97,10 @@ impl Protocol for TranslationProtocol {
     }
 
     fn configure(&self) -> Vec<String> {
-        let mut audio = json!({"output": {"language": self.target.code()}});
-        if self.show_original {
-            audio["input"] = json!({"transcription": {"model": SOURCE_TRANSCRIPTION_MODEL}});
-        }
+        let audio = json!({
+            "output": {"language": self.target.code()},
+            "input": {"transcription": {"model": SOURCE_TRANSCRIPTION_MODEL}},
+        });
         vec![json!({"type": "session.update", "session": {"audio": audio}}).to_string()]
     }
 
@@ -126,9 +130,6 @@ impl Protocol for TranslationProtocol {
         };
         match event.kind.as_str() {
             "session.input_transcript.delta" => {
-                if !self.show_original {
-                    return EventOutcome::Ignored;
-                }
                 Self::append_lane(&mut self.source, event.delta.as_deref().unwrap_or_default());
                 self.caption(CaptionStatus::Partial)
             }
@@ -185,23 +186,27 @@ mod tests {
         json!({"type": kind, "delta": delta}).to_string()
     }
 
-    fn lanes(outcome: EventOutcome) -> (String, Option<String>, CaptionStatus) {
+    /// The translation and original text of an update, and its status.
+    fn lanes(outcome: EventOutcome) -> (String, String, CaptionStatus) {
         match outcome {
-            EventOutcome::Update(update) => (
-                update.text().to_owned(),
-                update.original().map(str::to_owned),
-                update.status(),
-            ),
+            EventOutcome::Update(update) => {
+                let lanes = update.translation_lanes().unwrap();
+                assert_eq!(lanes.targets.len(), 1);
+                (
+                    lanes.targets[0].text.clone(),
+                    lanes.original.clone(),
+                    update.status(),
+                )
+            }
             other => panic!("expected an update, got {other:?}"),
         }
     }
 
     #[test]
     fn session_update_sets_the_target_and_requests_the_source_transcript() {
-        let config: Value = serde_json::from_str(
-            &TranslationProtocol::new(Language::Vietnamese, true).configure()[0],
-        )
-        .unwrap();
+        let config: Value =
+            serde_json::from_str(&TranslationProtocol::new(Language::Vietnamese).configure()[0])
+                .unwrap();
         assert_eq!(config["type"], "session.update");
         assert_eq!(config["session"]["audio"]["output"]["language"], "vi");
         assert_eq!(
@@ -211,17 +216,8 @@ mod tests {
     }
 
     #[test]
-    fn original_off_requests_no_source_transcript() {
-        let config: Value = serde_json::from_str(
-            &TranslationProtocol::new(Language::English, false).configure()[0],
-        )
-        .unwrap();
-        assert!(config["session"]["audio"].get("input").is_none());
-    }
-
-    #[test]
     fn audio_streams_continuously_in_200_ms_appends_including_silence() {
-        let mut protocol = TranslationProtocol::new(Language::English, true);
+        let mut protocol = TranslationProtocol::new(Language::English);
         let messages = protocol.on_audio(&vec![0.0; 24_000]);
         assert_eq!(messages.len(), 5);
         let first: Value = serde_json::from_str(&messages[0]).unwrap();
@@ -231,21 +227,21 @@ mod tests {
 
     #[test]
     fn source_and_translated_deltas_fill_separate_lanes() {
-        let mut protocol = TranslationProtocol::new(Language::Vietnamese, true);
+        let mut protocol = TranslationProtocol::new(Language::Vietnamese);
         let (text, original, _) =
             lanes(protocol.on_event(&event("session.input_transcript.delta", "今日は")));
-        assert_eq!((text.as_str(), original.as_deref()), ("", Some("今日は")));
+        assert_eq!((text.as_str(), original.as_str()), ("", "今日は"));
         protocol.on_event(&event("session.input_transcript.delta", "新しい"));
         let (text, original, status) =
             lanes(protocol.on_event(&event("session.output_transcript.delta", "Hôm nay")));
         assert_eq!(text, "Hôm nay");
-        assert_eq!(original.as_deref(), Some("今日は新しい"));
+        assert_eq!(original, "今日は新しい");
         assert_eq!(status, CaptionStatus::Partial);
     }
 
     #[test]
     fn a_transcript_that_names_the_audio_event_is_not_mistaken_for_audio() {
-        let mut protocol = TranslationProtocol::new(Language::English, true);
+        let mut protocol = TranslationProtocol::new(Language::English);
         let delta = json!({
             "type": "session.output_transcript.delta",
             "delta": "\"session.output_audio.delta\"",
@@ -253,7 +249,13 @@ mod tests {
         .to_string();
         match protocol.on_event(&delta) {
             EventOutcome::Update(update) => {
-                assert_eq!(update.text(), "\"session.output_audio.delta\"");
+                assert_eq!(
+                    update
+                        .translation_lanes()
+                        .unwrap()
+                        .target(Language::English),
+                    Some("\"session.output_audio.delta\"")
+                );
             }
             other => panic!("the transcript was dropped: {other:?}"),
         }
@@ -261,7 +263,7 @@ mod tests {
 
     #[test]
     fn output_audio_and_unknown_events_are_ignored_and_errors_surface() {
-        let mut protocol = TranslationProtocol::new(Language::English, true);
+        let mut protocol = TranslationProtocol::new(Language::English);
         let audio = json!({"type": "session.output_audio.delta", "delta": "AAAA"}).to_string();
         assert!(matches!(protocol.on_event(&audio), EventOutcome::Ignored));
         assert!(matches!(
@@ -276,7 +278,7 @@ mod tests {
 
     #[test]
     fn close_flushes_audio_then_waits_for_session_closed() {
-        let mut protocol = TranslationProtocol::new(Language::English, false);
+        let mut protocol = TranslationProtocol::new(Language::English);
         protocol.on_audio(&vec![0.1; 1_000]);
         let messages = protocol.finish();
         let kinds: Vec<String> = messages
@@ -301,7 +303,7 @@ mod tests {
 
     #[test]
     fn lanes_stay_bounded_on_long_sessions() {
-        let mut protocol = TranslationProtocol::new(Language::Japanese, true);
+        let mut protocol = TranslationProtocol::new(Language::Japanese);
         for _ in 0..500 {
             protocol.on_event(&event(
                 "session.output_transcript.delta",
