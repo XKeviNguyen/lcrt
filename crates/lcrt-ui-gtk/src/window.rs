@@ -456,8 +456,25 @@ impl CaptionWindow {
                 &options
                     .translation_targets
                     .addable(options.spoken_language.language()),
-                self.session_running(),
+                // Pausing reaches only a running session: a replacement that
+                // is still starting would open every target again.
+                self.phase.get() == SessionPhase::Running,
             );
+        }
+    }
+
+    /// Shows a running translation's status, derived from its targets'.
+    fn refresh_translation_status(&self) {
+        let translating = self
+            .session
+            .borrow()
+            .as_ref()
+            .is_some_and(|session| session.mode == ProcessingMode::Translation);
+        if translating
+            && self.phase.get() == SessionPhase::Running
+            && let Some(status) = translation_status(&self.target_statuses.borrow())
+        {
+            self.status.set_text(status);
         }
     }
 
@@ -495,11 +512,11 @@ impl CaptionWindow {
             LaneAction::Remove(language) => current
                 .without(language)
                 .map(|targets| (targets, TargetChange::Remove(language))),
-            LaneAction::Pause(language) if running => {
+            LaneAction::Pause(language) if self.phase.get() == SessionPhase::Running => {
                 self.send_target_change(TargetChange::Pause(language), Some(TargetStatus::Paused));
                 return;
             }
-            LaneAction::Resume(language) if running => {
+            LaneAction::Resume(language) if self.phase.get() == SessionPhase::Running => {
                 self.send_target_change(
                     TargetChange::Resume(language),
                     Some(TargetStatus::Connecting),
@@ -550,6 +567,7 @@ impl CaptionWindow {
         statuses.extend(expected.map(|status| (language, status)));
         drop(statuses);
         self.refresh_lanes();
+        self.refresh_translation_status();
         true
     }
 
@@ -864,11 +882,8 @@ impl CaptionWindow {
                     this.status.set_text(&status);
                 }
                 // A translation's status follows its targets' own.
-                if this.phase.get() == SessionPhase::Running
-                    && !presentation.targets.is_empty()
-                    && let Some(status) = translation_status(&this.target_statuses.borrow())
-                {
-                    this.status.set_text(status);
+                if lanes_changed {
+                    this.refresh_translation_status();
                 }
             }
             if let Some(error) = update.error {

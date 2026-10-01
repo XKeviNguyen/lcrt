@@ -187,6 +187,45 @@ struct PipelineSession {
     abandoned: Arc<AtomicBool>,
     /// A translation session's targets, changed live without a restart.
     targets: Option<TargetControl>,
+    /// Its targets whose session failed, shown in the error banner.
+    failures: LaneFailures,
+}
+
+/// The targets of a translation session whose own session failed, and what
+/// the error banner says about each. A target that recovers, or is removed,
+/// retires its failure, so the banner never reports a lane that works again.
+#[derive(Clone, Default)]
+struct LaneFailures(Arc<Mutex<Vec<(Language, String)>>>);
+
+impl LaneFailures {
+    /// Records that `target`'s session failed with `message`.
+    fn failed(&self, target: Language, message: String, sink: &GtkCaptionSink) {
+        if let Ok(mut failures) = self.0.lock() {
+            failures.retain(|(language, _)| *language != target);
+            failures.push((target, message.clone()));
+        }
+        notify_ui(sink.show_error(message));
+    }
+
+    /// `target` translates again or is gone: shows the newest failure left,
+    /// or clears the banner.
+    fn retire(&self, target: Language, sink: &GtkCaptionSink) {
+        if let Some(banner) = self.retired(target) {
+            notify_ui(match banner {
+                Some(message) => sink.show_error(message),
+                None => sink.clear_error(),
+            });
+        }
+    }
+
+    /// What the banner should show once `target` no longer failed: `None`
+    /// when `target` had not failed, so the banner stays as it is.
+    fn retired(&self, target: Language) -> Option<Option<String>> {
+        let mut failures = self.0.lock().ok()?;
+        let before = failures.len();
+        failures.retain(|(language, _)| *language != target);
+        (failures.len() != before).then(|| failures.last().map(|(_, message)| message.clone()))
+    }
 }
 
 /// The controller is the authoritative owner of application termination.
@@ -394,11 +433,14 @@ impl Controller {
         }
         if let ControllerState::Active(PipelineSession {
             targets: Some(control),
+            failures,
             ..
         }) = &self.state
         {
             if !control.apply(change) {
                 warn!(?change, "a translation target change was refused");
+            } else if let TargetChange::Remove(language) = change {
+                failures.retire(language, &self.sink);
             }
             // The window shows the session's targets as this reports them,
             // whatever it showed while the change was on its way.
@@ -758,6 +800,8 @@ fn start_pipeline(
     let worker_ready = Arc::clone(&backend_ready);
     let abandoned = Arc::new(AtomicBool::new(false));
     let worker_abandoned = Arc::clone(&abandoned);
+    let failures = LaneFailures::default();
+    let worker_failures = failures.clone();
     let targets = match &backend {
         Backend::Online { targets, .. } => targets.clone(),
         Backend::Offline { .. } => None,
@@ -769,6 +813,7 @@ fn start_pipeline(
             let flags = BackendFlags {
                 ready: worker_ready,
                 abandoned: worker_abandoned,
+                failures: worker_failures,
             };
             let result = run_pipeline(source, backend, sink, &worker_startup, flags)
                 .map_err(|error| SessionFailure::from_pipeline(error.as_ref()));
@@ -782,6 +827,7 @@ fn start_pipeline(
         backend_ready,
         abandoned,
         targets,
+        failures,
     })
 }
 
@@ -791,6 +837,8 @@ struct BackendFlags {
     ready: Arc<AtomicBool>,
     /// Set by the controller when the session is being replaced.
     abandoned: Arc<AtomicBool>,
+    /// Translation targets whose session failed.
+    failures: LaneFailures,
 }
 
 /// How long Translation waits after Stop for the service to deliver the rest
@@ -803,7 +851,11 @@ fn open_backend(
     sink: &GtkCaptionSink,
     flags: BackendFlags,
 ) -> Result<Box<dyn Transcriber>, Box<dyn std::error::Error + Send + Sync>> {
-    let BackendFlags { ready, abandoned } = flags;
+    let BackendFlags {
+        ready,
+        abandoned,
+        failures,
+    } = flags;
     match backend {
         Backend::Offline {
             model_path,
@@ -824,18 +876,18 @@ fn open_backend(
             // status; a target that fails is reported while the others
             // keep translating. The window derives the overall status.
             let status_sink = sink.clone();
+            let recovered = failures.clone();
             let on_status = Arc::new(move |target: Language, status: TargetStatus| {
                 if status == TargetStatus::Active {
                     ready.store(true, Ordering::Release);
+                    recovered.retire(target, &status_sink);
                 }
                 notify_ui(status_sink.set_target_status(target, status));
             });
             let failure_sink = sink.clone();
             let on_lane_failure = Arc::new(move |target: Language, error: &TranscriptionError| {
-                notify_ui(
-                    failure_sink
-                        .show_error(format!("{} translation stopped: {error}", target.label())),
-                );
+                let message = format!("{} translation stopped: {error}", target.label());
+                failures.failed(target, message, &failure_sink);
             });
             debug_assert_eq!(options.mode, ProcessingMode::Translation);
             Ok(Box::new(MultiTargetTranslation::start(
@@ -966,13 +1018,13 @@ mod tests {
     };
 
     use super::{
-        ControllerState, CredentialActions, PipelineSession, SessionFailure, StartupGate,
-        StartupPhase, credential_view, key_to_test, request_controller_shutdown,
+        ControllerState, CredentialActions, LaneFailures, PipelineSession, SessionFailure,
+        StartupGate, StartupPhase, credential_view, key_to_test, request_controller_shutdown,
         start_audio_after_stt, take_completed_session,
     };
-    use lcrt_core::{PipelineError, RunSummary, TranscriptionError};
+    use lcrt_core::{Language, PipelineError, RunSummary, TranscriptionError};
     use lcrt_openai::credentials::{ApiKey, CredentialStatus};
-    use lcrt_ui_gtk::{CredentialTone, EnteredApiKey};
+    use lcrt_ui_gtk::{CredentialTone, EnteredApiKey, GtkCaptionSink};
 
     #[test]
     fn only_a_rejected_credential_sends_the_user_to_settings() {
@@ -1042,6 +1094,7 @@ mod tests {
             backend_ready: Arc::new(AtomicBool::new(false)),
             abandoned: Arc::new(AtomicBool::new(false)),
             targets: None,
+            failures: LaneFailures::default(),
         });
 
         request_controller_shutdown(&mut state);
@@ -1064,11 +1117,29 @@ mod tests {
                 backend_ready: Arc::new(AtomicBool::new(ready)),
                 abandoned: Arc::new(AtomicBool::new(false)),
                 targets: None,
+                failures: LaneFailures::default(),
             });
             let (completed, backend_ready) = take_completed_session(&mut state).unwrap();
             assert!(completed.is_ok());
             assert_eq!(backend_ready, ready);
         }
+    }
+
+    #[test]
+    fn a_lane_failure_is_retired_when_the_lane_recovers_or_goes() {
+        let (sink, _receiver) = GtkCaptionSink::bridge();
+        let failures = LaneFailures::default();
+        failures.failed(Language::Vietnamese, "Vietnamese stopped".to_owned(), &sink);
+        failures.failed(Language::English, "English stopped".to_owned(), &sink);
+        // English recovers: the banner goes back to Vietnamese's failure.
+        assert_eq!(
+            failures.retired(Language::English),
+            Some(Some("Vietnamese stopped".to_owned()))
+        );
+        // A target that never failed leaves the banner alone.
+        assert_eq!(failures.retired(Language::German), None);
+        // Vietnamese recovers or is removed: no failure is left to show.
+        assert_eq!(failures.retired(Language::Vietnamese), Some(None));
     }
 
     #[test]

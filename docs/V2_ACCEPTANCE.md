@@ -718,7 +718,13 @@ worker threads against a scripted service:
 - naming a running target as the spoken language in Settings restarts the
   session without that target, instead of leaving it translating into the
   spoken language (same review); and a target change the controller's queue
-  refuses is neither shown nor saved.
+  refuses is neither shown nor saved;
+- a lane's failure banner is retired when the lane recovers or is removed,
+  the overall status is recomputed whenever the targets change, and Pause is
+  offered only once a session runs, not while a replacement starts (Codex
+  review of `c5e49b9`);
+- `--language` rejects a code LCRT doesn't offer instead of running the
+  diagnostic with Auto (same review).
 
 ### Offline Translation: blocked
 
