@@ -1,8 +1,12 @@
 <div align="center">
 
-<img src="docs/assets/lcrt-banner.svg" alt="LCRT: live captions, real-time translation and words in context. One sentence shown in English, Japanese and Vietnamese." width="100%">
+<img src="docs/assets/lcrt-banner.svg" alt="LILOPOP: live captions, real-time translation and words in context. One sentence shown in English, Japanese and Vietnamese." width="100%">
 
 <br>
+
+# LILOPOP
+
+**Translate and caption, live — no connection needed**
 
 [![CI](https://github.com/XKeviNguyen/lcrt/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/XKeviNguyen/lcrt/actions/workflows/ci.yml)
 ![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-1a5fb4)
@@ -14,7 +18,7 @@
 
 **[Install](#-install-on-ubuntu)** ·
 **[Use](#-use)** ·
-**[Modes](#-three-modes-one-window)** ·
+**[Modes](#-four-modes-one-window)** ·
 **[Measured](#-measured-not-promised)** ·
 **[Privacy](#-privacy-at-a-glance)** ·
 **[How it works](#-how-it-works)** ·
@@ -24,7 +28,7 @@
 
 ---
 
-LCRT is a native desktop app for live captions and real-time translation. It
+LILOPOP is a native desktop app for live captions and real-time translation. It
 captions whatever your computer is playing, or your microphone, in a small
 window that stays out of the way.
 
@@ -61,8 +65,8 @@ used in that sentence.
 ### 🔒 Private by default
 
 **Offline Captions** work right after installing, in eight languages, with
-the speech model that comes with LCRT. Audio never leaves the device, and
-LCRT has no telemetry.
+the speech model that comes with LILOPOP. Audio never leaves the device, and
+LILOPOP has no telemetry.
 
 </td>
 <td valign="top">
@@ -87,33 +91,37 @@ remembered.
 Primary platform: **Ubuntu AMD64** (PipeWire, GTK4, libadwaita, Wayland or
 X11). Ubuntu ARM64 and Windows 10/11 are portability targets.
 
-## 🧭 Three modes, one window
+## 🧭 Four modes, one window
 
 <div align="center">
 <img src="docs/assets/lcrt-flow.svg" alt="Audio from the system or the microphone is captured with PipeWire and goes to exactly one backend: Whisper on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context." width="100%">
 </div>
 
-| | Offline Captions | Online Captions | Translation |
+| Mode | Engine | Languages | Needs |
 | --- | --- | --- | --- |
-| **Engine** | Whisper base (multilingual), included with LCRT, on this device | OpenAI realtime transcription | OpenAI realtime translation |
-| **Audio goes to** | nowhere | OpenAI, while a session runs | OpenAI, while a session runs |
-| **Languages** | English, Japanese, Vietnamese, Chinese, Korean, Spanish, French, German, or Auto | the same eight, or Auto | the spoken language is detected automatically; translated into one or two of those eight |
-| **You choose** | the spoken language, or Auto | the spoken language, or Auto | one or two target languages, with the language chips; show or hide each lane |
-| **Needs** | nothing: the model is installed with LCRT | your OpenAI API key and a network | your OpenAI API key and a network |
-| **Cost** | none | charged to your OpenAI account | charged to your OpenAI account, once per target language |
+| Offline Captions | Bundled Whisper Tiny multilingual (Fast) | Auto, EN, JA, VI, ZH, KO, ES, FR, DE | Nothing after installation |
+| Offline Translation | Whisper Tiny + local CTranslate2 / OPUS-MT int8 | Japanese↔English and Vietnamese↔English | Explicit spoken language and a supported target; no API key or internet |
+| Online Captions | OpenAI realtime transcription | The same eight languages, or Auto | Your OpenAI key and internet |
+| Online Translation | OpenAI realtime translation | One or two targets from the eight languages | Your OpenAI key and internet; charged per target |
 
-Each session uses exactly one backend. LCRT never switches to another backend
+Offline translation shows the source immediately and translates the current
+speech window in a separate CPU worker. It never downloads at runtime or silently
+falls back online. Japanese↔Vietnamese pivot is not included.
+
+Each session uses exactly one backend. LILOPOP never switches to another backend
 or to a paid service on its own.
+
+Measured results for the new offline path are in [the focused acceptance report](docs/SHIP_FAST_ACCEPTANCE.md).
 
 ### Multi-language lanes
 
 <div align="center">
-<img src="docs/assets/lcrt-lanes.png" alt="The LCRT window during a translation session: three stacked caption lanes labeled JA, EN and VI, showing Japanese speech with its English and Vietnamese translations." width="640">
+<img src="docs/assets/lcrt-lanes.png" alt="The LILOPOP window during a translation session: three stacked caption lanes labeled JA, EN and VI, showing Japanese speech with its English and Vietnamese translations." width="640">
 <br>
-<sub>A real session. The speech is a FLEURS test utterance (CC BY 4.0).</sub>
+<sub>A PR #30 session before the LILOPOP rebrand. The speech is a FLEURS test utterance (CC BY 4.0).</sub>
 </div>
 
-In Translation mode the caption area becomes a stack of lanes. Each lane has a
+In either translation mode the caption area becomes a stack of lanes. Each lane has a
 language badge on the left and its own selectable text:
 
 1. the **original speech**;
@@ -121,7 +129,7 @@ language badge on the left and its own selectable text:
 3. an optional **second translation**.
 
 The order never changes, and there are at most three lanes: the original and
-two translations. For example, Japanese speech can be shown with English and
+two translations. In Online Translation, Japanese speech can be shown with English and
 Vietnamese below it.
 
 Next to Start, a **language chip** stands for each lane, such as
@@ -137,18 +145,18 @@ While a session is still starting, the chips only show and hide lanes; the
 other changes are available once captions have started. When every language
 is paused, the notice under the controls says that no audio is being sent.
 
-Only changing the mode or the audio source restarts a session.
+Changing mode or audio source restarts a session. In offline modes, changing the spoken language also restarts it.
 
-- **One session per target.** The translation service takes one output
+- **Online: one session per target.** The translation service takes one output
   language per session, so a second target opens a second session and is
   charged separately. There are never more sessions than running targets.
 - **Targets are kept valid.** Two targets can't be the same, and a target
   can't repeat a spoken language you named in Settings. There is always at
   least one target.
-- **Lanes fail independently.** If one target's session fails, LCRT says so
+- **Online lanes fail independently.** If one target's session fails, LILOPOP says so
   and the other lane keeps translating. **Resume translation** in the failed
   lane's menu tries again.
-- **Words in context work in every lane.** Select text in any lane to have it
+- **In online modes, words in context work in every lane.** Select text in any lane to have it
   explained from that lane's own text.
 - **Lanes fit the window you chose.** The lanes share the window's height and
   never enlarge it. A lane with room for two lines wraps its text, as in the
@@ -170,13 +178,13 @@ every result are in [docs/V2_ACCEPTANCE.md](docs/V2_ACCEPTANCE.md).
 | Online Captions, Vietnamese | 2.1 s | 7.5% of words | 1.4 s |
 | Translation, English → Japanese | 1.7 s | not scored | 6.5 s |
 | Translation, Vietnamese → English | 2.0 s | original lane 7.7% of words | 7.1 s |
-| Offline Captions, English (base model) | 2.3 s | recovers 93% of words* | 0.9 s |
-| Offline Captions, Japanese (base model) | 3.5 s | recovers 79% of characters* | 0.9 s |
-| Offline Captions, Vietnamese (base model) | 2.3 s | recovers 71% of words* | 0.9 s |
+| PR #30 Offline Captions, English (base model) | 2.3 s | recovers 93% of words* | 0.9 s |
+| PR #30 Offline Captions, Japanese (base model) | 3.5 s | recovers 79% of characters* | 0.9 s |
+| PR #30 Offline Captions, Vietnamese (base model) | 2.3 s | recovers 71% of words* | 0.9 s |
 
 - **Network drops:** after a 2 s cut in the middle of a session, captions
   were back 3.8 s later without an error.
-- **Translation takes a few seconds to stop** because the service delivers
+- **Online Translation takes a few seconds to stop** because the service delivers
   the last words of the translation after you press Stop.
 - **Offline Captions repeat phrases** on continuous speech, so their error
   rate isn't comparable with the online rows. *Their rows give the share of
@@ -197,14 +205,15 @@ scripts/build-deb.sh            # prints target/debian/lcrt_2.0.0_amd64.deb
 sudo apt install ./target/debian/lcrt_2.0.0_amd64.deb
 ```
 
-Then open **LCRT Live Captions** from the app grid, or run `lcrt`. Offline
+Then open **LILOPOP Live Captions** from the app grid, or run `lcrt`. Offline
 Captions work at once, with no download and no setup.
 
-The package includes the speech model (Whisper base, multilingual,
-148 MB), so it is larger than a typical desktop app: 125 MiB to download and
-149 MiB installed. The build script downloads the model once, from a
-pinned source, and refuses it unless its SHA-256 matches
-[packaging/models.json](packaging/models.json).
+The package includes Whisper Tiny multilingual (78 MB), four int8 OPUS-MT
+models, and the local CTranslate2 runtime. No model setup is required.
+Build-time downloads are pinned and verified with SHA-256; mismatches fail
+packaging. See [speech model pins](packaging/models.json),
+[translation model pins](packaging/translation-models.json), and
+[runtime wheel pins](packaging/translation-runtime.json).
 
 ## 🚀 Use
 
@@ -213,25 +222,27 @@ pinned source, and refuses it unless its SHA-256 matches
    - Offline and Online Captions: the spoken language, or **Auto** to have it
      detected. Captions are always in the spoken language; they are never
      translated.
-   - Translation: the language chips (see
+   - Offline Translation: choose Japanese, English, or Vietnamese as the spoken
+     language, then a supported target with the language chips.
+   - Online Translation: the language chips (see
      [Multi-language lanes](#multi-language-lanes)). The spoken language is
      detected automatically.
 2. **Press Start.** Captions update as speech is recognized. **Stop** finishes
    the last sentence and keeps the text on screen.
-3. **Select a word or phrase** in the captions to see what it means in that
+3. **In online modes, select a word or phrase** in the captions to see what it means in that
    sentence.
 4. **Open Settings** to enter your OpenAI API key and adjust appearance and
    vocabulary.
 
-LCRT remembers the last mode, source, languages and which lanes you hid.
+LILOPOP remembers the last mode, source, languages and which lanes you hid.
 
 <details>
 <summary><b>Offline model</b>: built in, with an optional custom one</summary>
 
 <br>
 
-Offline Captions use the model installed with LCRT: Whisper base,
-multilingual, at `/usr/share/lcrt/models/ggml-base.bin`. Settings shows it as
+Offline Captions use the model installed with LILOPOP: Whisper Tiny
+multilingual (Fast), at `/usr/share/lcrt/models/ggml-tiny.bin`. Settings shows it as
 **Offline model: Built-in multilingual model**; there is nothing to choose.
 
 Under **Settings → General → Advanced**, **Use a custom Whisper model** lets
@@ -251,8 +262,8 @@ Enter the key in **Settings → Online** and choose **Save securely** to store
 it in the desktop keyring (GNOME Keyring or another Secret Service provider).
 **Test connection** checks the key.
 
-- If no keyring is available, the key is kept only until LCRT quits.
-- As a fallback, LCRT reads `OPENAI_API_KEY` from its environment and never
+- If no keyring is available, the key is kept only until LILOPOP quits.
+- As a fallback, LILOPOP reads `OPENAI_API_KEY` from its environment and never
   displays it.
 - The key is never written to a file or log.
 
@@ -266,7 +277,7 @@ it in the desktop keyring (GNOME Keyring or another Secret Service provider).
 On Wayland compositors that support layer-shell protocol v4 or newer, the
 caption window is pinned near the bottom of the screen above other windows.
 GNOME Wayland, X11 and older compositors use a standard window: transparency
-still works, but LCRT cannot keep it on top.
+still works, but LILOPOP cannot keep it on top.
 
 </details>
 
@@ -274,14 +285,15 @@ still works, but LCRT cannot keep it on top.
 
 | What you do | What leaves your computer |
 | --- | --- |
-| Offline Captions | Nothing. LCRT opens no network connection in this mode. |
+| Offline Captions | Nothing. LILOPOP opens no network connection in this mode. |
 | Online Captions | Audio from the selected source, only while speech is detected, plus the language hint. |
-| Translation | All audio from the selected source while the session runs, plus the target language. With two targets, the same audio goes to two sessions, one per target. |
+| Offline Translation | Nothing. Speech and translation run on this device. |
+| Online Translation | All audio from the selected source while the session runs, plus the target language. With two targets, the same audio goes to two sessions, one per target. |
 | Select text, with Vocabulary on | The selection (at most 200 characters) and up to 160 characters of caption on each side. |
 | Select text, with Vocabulary off | Nothing. |
 | Test connection | One request that lists models. No audio or text. |
 
-LCRT has no telemetry, analytics or crash reporting, and it saves neither
+LILOPOP has no telemetry, analytics or crash reporting, and it saves neither
 audio nor transcripts to disk. Everything it sends goes from your computer
 directly to OpenAI. [docs/PRIVACY.md](docs/PRIVACY.md) has the full details.
 
@@ -315,7 +327,7 @@ A few rules shape the design:
 - **One backend per session.** Starting a new session replaces the running
   one only after it has fully stopped.
 - **Bounded everywhere.** Audio queues, caption history and reconnects all
-  have limits. When the network falls behind, LCRT skips stale audio to stay
+  have limits. When the network falls behind, LILOPOP skips stale audio to stay
   with live speech.
 - **The window never waits.** Network, keyring and file work happen off the
   GTK thread.
@@ -329,23 +341,24 @@ The portable core and its adapter boundaries are described in
 
 - **Offline Captions repeat overlapping phrases** on continuous speech. V1
   chose a visible repeat over silently losing words. A better fix is planned.
-- Offline accuracy and speed depend on the CPU. The built-in base model is
+- Offline accuracy and speed depend on the CPU. The built-in Tiny model is
   small enough for modest hardware, so its Japanese and Vietnamese captions
   contain more mistakes than the online service's.
-- **There is no offline translation yet.** Translation uses OpenAI. The
-  planned local translation model (Tencent Hy-MT2, 1.25-bit) runs about 30
-  times too slowly on x86 CPUs with today's llama.cpp; see
-  [docs/V2_ACCEPTANCE.md](docs/V2_ACCEPTANCE.md).
+- **Offline Translation supports only Japanese↔English and Vietnamese↔English.**
+  It translates the current speech window, not a saved transcript. Short or
+  incomplete phrases may produce no translation until more speech arrives.
+  Japanese↔Vietnamese pivot is not included. A local worker error ends the
+  session with a clear message; Stop/Start retries it.
 - Audio sources are discovered at launch.
-- Online modes need a network connection. LCRT reconnects a few times after a
+- Online modes need a network connection. LILOPOP reconnects a few times after a
   brief drop, then reports the problem.
-- Translation shows at most three lanes: the original and two targets. Each
-  target is a separate paid session.
+- Both translation modes show at most three lanes: the original and two targets. Each
+  online target is a separate paid session.
 - The original lane's badge shows `SRC` until you name the spoken language in
-  Settings, because Translation detects the language without reporting it.
+  Settings, because Online Translation detects the language without reporting it.
   For the same reason, a target that equals the spoken language can only be
   prevented once you have named it.
-- Translation takes 5–8 s to stop, and up to about 14 s when the service is
+- Online Translation takes 5–8 s to stop, and up to about 14 s when the service is
   slow, because the service delivers the last words after you press Stop.
   Changing the mode or source during a session does not wait for them.
 - Always-on-top needs a compositor with layer shell. GNOME does not provide
@@ -474,11 +487,11 @@ diagnostic utility:
 
 ```sh
 cargo run -p lcrt-stt-whisper --bin lcrt-whisper-transcribe -- \
-  target/share/lcrt/models/ggml-base.bin path/to/audio.wav ja
+  target/share/lcrt/models/ggml-tiny.bin path/to/audio.wav ja
 ```
 
 A missing or invalid model produces an actionable error in the window. In
-Offline Captions mode, LCRT does not download models and sends no audio to any
+Offline Captions mode, LILOPOP does not download models and sends no audio to any
 remote service.
 
 </details>

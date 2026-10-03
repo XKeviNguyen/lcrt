@@ -1,6 +1,6 @@
 # Application Architecture
 
-LCRT keeps portable application behavior in `lcrt-core` and implements host
+LILOPOP keeps portable application behavior in `lcrt-core` and implements host
 technology behind small adapter boundaries.
 
 The V1 data path is:
@@ -66,3 +66,19 @@ safely; cancellable model loading is a later STT lifecycle milestone.
 
 Also deferred: PipeWire source refresh, capture-error final transcript
 flushing, V2 translation, and packaging.
+
+### Local translation
+
+Offline Translation wraps the Whisper adapter with an independent CPU worker
+using CTranslate2 and int8 Helsinki OPUS-MT models. Source updates return
+immediately. One replaceable pending speech window and one in-flight window
+bound work; the worker does not retranslate accumulated history. Live target
+changes use the existing target control and revision numbers to discard results
+from before a pause, removal, or resume. Stop kills and reaps the local child.
+The Rust adapter bounds requests to 2 KiB, responses to 8 KiB, and inference to
+10 seconds. Final translation drain is limited to one second.
+
+The package contains the worker, verified runtime wheels, and four converted
+models. Conversion and external retrieval happen only at build time. Offline
+paths never construct an online transcriber, and vocabulary cloud lookups are
+disabled while an offline session is active.

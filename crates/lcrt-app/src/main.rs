@@ -1,5 +1,6 @@
 mod controller;
 mod models;
+mod offline_translation;
 mod settings;
 
 use std::{
@@ -258,17 +259,19 @@ fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> Result<Pars
             }
             "--smoke-mode" => {
                 smoke_option_set = true;
-                smoke_mode =
-                    match os_to_string(next_value(&mut arguments, "--smoke-mode")?)?.as_str() {
-                        "offline" => ProcessingMode::OfflineCaptions,
-                        "online" => ProcessingMode::OnlineCaptions,
-                        "translation" => ProcessingMode::Translation,
-                        _ => {
-                            return Err(
-                                "--smoke-mode must be offline, online, or translation".to_owned()
+                smoke_mode = match os_to_string(next_value(&mut arguments, "--smoke-mode")?)?
+                    .as_str()
+                {
+                    "offline" => ProcessingMode::OfflineCaptions,
+                    "offline-translation" => ProcessingMode::OfflineTranslation,
+                    "online" => ProcessingMode::OnlineCaptions,
+                    "translation" => ProcessingMode::Translation,
+                    _ => {
+                        return Err(
+                                "--smoke-mode must be offline, offline-translation, online, or translation".to_owned()
                             );
-                        }
-                    };
+                    }
+                };
             }
             "--smoke-target" => {
                 smoke_option_set = true;
@@ -283,7 +286,7 @@ fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> Result<Pars
         return Err("smoke options require --smoke-source".to_owned());
     }
     // The diagnostic shows the source lane, and a target can't repeat it.
-    if smoke_mode == ProcessingMode::Translation && language == Some(smoke_target) {
+    if smoke_mode.translates() && language == Some(smoke_target) {
         return Err("--smoke-target must differ from --language".to_owned());
     }
     Ok(ParsedCommand::Run(AppConfig {
@@ -316,13 +319,13 @@ fn os_to_string(value: OsString) -> Result<String, String> {
 
 fn usage() -> &'static str {
     concat!(
-        "LCRT live captions\n\n",
+        "LILOPOP live captions\n\n",
         "Usage:\n",
         "  lcrt\n",
         "  lcrt --list-sources\n",
         "  lcrt --version\n",
         "  lcrt --smoke-source ID [--smoke-seconds 1..3600]\n",
-        "       [--smoke-mode offline|online|translation] [--smoke-target CODE]\n\n",
+        "       [--smoke-mode offline|offline-translation|online|translation] [--smoke-target CODE]\n\n",
         "Everyday settings, including languages and the OpenAI API key, are in\n",
         "Settings inside the app. Offline Captions use the built-in model.\n\n",
         "Developer options:\n",

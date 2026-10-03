@@ -199,6 +199,17 @@ mod tests {
     }
 
     #[test]
+    fn fast_defaults_decode_at_one_second_then_every_half_second() {
+        let config = WhisperConfig::new("unused");
+        let mut window = StreamingWindow::new(&config).unwrap();
+        assert_eq!(window.push(&vec![0.1; 15_680]), None);
+        assert_eq!(window.push(&vec![0.1; 320]), Some(InferenceKind::Partial));
+        window.mark_inferred(InferenceKind::Partial);
+        assert_eq!(window.push(&vec![0.1; 7_680]), None);
+        assert_eq!(window.push(&vec![0.1; 320]), Some(InferenceKind::Partial));
+    }
+
+    #[test]
     fn emits_partial_then_final_after_bounded_silence() {
         let mut window = StreamingWindow::new(&test_config()).unwrap();
 

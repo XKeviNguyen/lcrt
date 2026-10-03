@@ -1,6 +1,6 @@
 //! Which Whisper model file Offline Captions load.
 //!
-//! LCRT is installed with a multilingual model, so Offline Captions work
+//! LILOPOP is installed with a multilingual model, so Offline Captions work
 //! without any setup. A custom model is optional and chosen in Settings.
 
 use std::{
@@ -8,16 +8,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// File name of the built-in model: Whisper base, multilingual.
-const BUILT_IN_FILE: &str = "ggml-base.bin";
+/// File name of the built-in model: Whisper Tiny, multilingual.
+const BUILT_IN_FILE: &str = "ggml-tiny.bin";
 /// The built-in model's exact size. Comparing it catches a truncated or
-/// replaced file without hashing 148 MB on every Start; the package build
+/// replaced file without hashing 78 MB on every Start; the package build
 /// verifies the pinned SHA-256 (see `packaging/models.json`).
-const BUILT_IN_BYTES: u64 = 147_951_465;
+const BUILT_IN_BYTES: u64 = 77_691_713;
 
 /// Where the package installs the built-in model, found from the executable
 /// so that an unpacked or relocated installation works too:
-/// `<prefix>/bin/lcrt` uses `<prefix>/share/lcrt/models/ggml-base.bin`.
+/// `<prefix>/bin/lcrt` uses `<prefix>/share/lcrt/models/ggml-tiny.bin`.
 pub(crate) fn built_in_model(executable: &Path) -> Option<PathBuf> {
     Some(
         executable
@@ -42,10 +42,10 @@ impl ModelProblem {
     pub(crate) fn message(&self) -> &'static str {
         match self {
             Self::BuiltInMissing => {
-                "LCRT's built-in speech model is missing. Reinstall LCRT to use Offline Captions."
+                "LILOPOP's built-in speech model is missing. Reinstall LILOPOP to use Offline Captions."
             }
             Self::BuiltInDamaged => {
-                "LCRT's built-in speech model is damaged. Reinstall LCRT to use Offline Captions."
+                "LILOPOP's built-in speech model is damaged. Reinstall LILOPOP to use Offline Captions."
             }
             Self::CustomMissing => {
                 "The custom speech model can't be found. Choose it again in Settings, or turn off \
@@ -113,11 +113,11 @@ mod tests {
     fn the_built_in_model_is_found_beside_the_installed_executable() {
         assert_eq!(
             built_in_model(Path::new("/usr/bin/lcrt")),
-            Some(PathBuf::from("/usr/share/lcrt/models/ggml-base.bin"))
+            Some(PathBuf::from("/usr/share/lcrt/models/ggml-tiny.bin"))
         );
         assert_eq!(
             built_in_model(Path::new("/opt/lcrt/bin/lcrt")),
-            Some(PathBuf::from("/opt/lcrt/share/lcrt/models/ggml-base.bin"))
+            Some(PathBuf::from("/opt/lcrt/share/lcrt/models/ggml-tiny.bin"))
         );
         assert_eq!(built_in_model(Path::new("lcrt")), None);
     }
@@ -188,7 +188,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|model| model["id"] == "whisper-base-multilingual")
+            .find(|model| model["id"] == "whisper-tiny-multilingual")
             .unwrap();
         assert_eq!(whisper["file"], BUILT_IN_FILE);
         assert_eq!(whisper["size"], BUILT_IN_BYTES);

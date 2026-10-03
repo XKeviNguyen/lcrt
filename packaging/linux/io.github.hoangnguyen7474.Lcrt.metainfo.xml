@@ -3,26 +3,27 @@
   <id>io.github.hoangnguyen7474.Lcrt</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <name>LCRT Live Captions</name>
-  <summary>Real-time captions and translation for system audio</summary>
+  <name>LILOPOP Live Captions</name>
+  <summary>Translate and caption, live — no connection needed</summary>
   <developer id="io.github.hoangnguyen7474">
-    <name>LCRT contributors</name>
+    <name>LILOPOP contributors</name>
   </developer>
   <description>
     <p>
-      LCRT shows live captions for whatever your computer is playing or for
+      LILOPOP shows live captions for whatever your computer is playing or for
       your microphone, in a small window that stays out of the way.
     </p>
     <ul>
       <li>Offline Captions work right after installation in eight languages, with the included speech model; audio never leaves the device.</li>
-      <li>Online Captions and Translation use your own OpenAI API key for
+      <li>Offline Translation supports Japanese↔English and Vietnamese↔English with bundled local models.</li>
+      <li>Online Captions and Online Translation use your own OpenAI API key for
         English, Japanese, Vietnamese and more.</li>
       <li>Select a word or phrase in the captions to see its meaning in context.</li>
       <li>Adjustable font, colors, transparency and window size.</li>
     </ul>
     <p>
       Online features stream audio or selected text to OpenAI only while you use
-      them, and API charges may apply to your OpenAI account. LCRT has no
+      them, and API charges may apply to your OpenAI account. LILOPOP has no
       telemetry.
     </p>
   </description>
