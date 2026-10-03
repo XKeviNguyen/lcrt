@@ -114,7 +114,7 @@ conversion, then passed in isolation and in the full workspace rerun.
 The rebuilt package completed all seven GTK/PipeWire offline runs, each with
 zero AF_INET/AF_INET6 socket calls including children. Recheck first useful
 observations: EN 2.12 s, JA 3.19 s, VI 3.44 s (recognizable but misspelled).
-Caption Stop was 0.31–0.47 s; translation Stop 0.38–1.08 s.
+Caption Stop was 0.31–0.82 s; translation Stop 0.38–1.08 s.
 The initial measurements above are retained to show single-run variation.
 Live GTK additionally rejected Chinese, restored the saved Japanese target,
 and successfully stopped and restarted before adding/removing supported lanes.
