@@ -1,12 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3584e4"/>
-      <stop offset="1" stop-color="#1a5fb4"/>
-    </linearGradient>
-  </defs>
-  <rect x="8" y="12" width="112" height="104" rx="24" fill="url(#background)"/>
-  <path d="M28 34h72a8 8 0 0 1 8 8v36a8 8 0 0 1-8 8H58l-16 14v-14H28a8 8 0 0 1-8-8V42a8 8 0 0 1 8-8z" fill="#ffffff"/>
-  <rect x="32" y="48" width="64" height="8" rx="4" fill="#1a5fb4"/>
-  <rect x="32" y="64" width="42" height="8" rx="4" fill="#62a0ea"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>LILOPOP — Lollipop Wave</title>
+  <rect width="512" height="512" rx="120" fill="#FFD23F"/>
+  <path d="M256 338v95" stroke="#2A1E5C" stroke-width="30" stroke-linecap="round"/>
+  <circle cx="256" cy="210" r="138" fill="#FF5C8A" stroke="#2A1E5C" stroke-width="10"/>
+  <path d="M158 200v20m33-50v80m33-105v130m33-147v164m33-137v110m33-85v60m33-35v10" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round"/>
 </svg>

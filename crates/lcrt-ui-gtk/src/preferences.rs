@@ -222,7 +222,7 @@ fn general_page(
     let remembered = adw::PreferencesGroup::builder()
         .title("Session")
         .description(
-            "LCRT remembers the mode, audio source, and languages you last used in the \
+            "LILOPOP remembers the mode, audio source, and languages you last used in the \
              caption window. System audio is preferred when no source was chosen.",
         )
         .build();
@@ -270,7 +270,7 @@ fn offline_group(
             model.set_subtitle(match (overridden, path) {
                 (true, _) => "Set by --model or LCRT_MODEL_PATH for this run",
                 (false, Some(_)) => "Custom Whisper model",
-                (false, None) => "Built-in multilingual model",
+                (false, None) => "Fast — built-in multilingual model",
             });
             custom.set_active(path.is_some());
             file.set_visible(path.is_some());
@@ -440,7 +440,7 @@ fn online_page(
     buttons.append(&clear);
     buttons.append(&save);
 
-    const BUSY: &str = "⚠ LCRT is busy. Try again.";
+    const BUSY: &str = "⚠ LILOPOP is busy. Try again.";
     let actions = shared.actions.clone();
     let entry = key_row.clone();
     let row = status.clone();
@@ -709,15 +709,16 @@ fn about_page() -> adw::PreferencesPage {
         .icon_name("security-high-symbolic")
         .build();
     let group = adw::PreferencesGroup::builder()
-        .title(format!("LCRT {}", env!("CARGO_PKG_VERSION")))
+        .title(format!("LILOPOP {}", env!("CARGO_PKG_VERSION")))
         .description(
-            "Offline Captions: audio is processed on this device.\n\
-             Online Captions and Translation: audio is streamed to OpenAI for processing, \
+            "Translate and caption, live — no connection needed.\n\
+             Offline Captions and Offline Translation: audio is processed on this device.\n\
+             Online Captions and Online Translation: audio is streamed to OpenAI for processing, \
              only while such a session is running. API charges may apply to your OpenAI \
              account.\n\
-             Vocabulary: the selected text and a little surrounding caption text are sent to \
+             Vocabulary (online modes only): the selected text and a little surrounding caption text are sent to \
              OpenAI when you select text.\n\
-             LCRT has no telemetry or analytics and never stores recordings or transcripts.",
+             LILOPOP has no telemetry or analytics and never stores recordings or transcripts.",
         )
         .build();
     page.add(&group);

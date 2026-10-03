@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc" font-family="Inter, 'Noto Sans', 'Segoe UI', Roboto, sans-serif">
-  <title id="title">How audio becomes captions in LCRT</title>
+  <title id="title">How audio becomes captions in LILOPOP</title>
   <desc id="desc">System audio or the microphone is captured with PipeWire and sent to exactly one backend: Whisper on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context.</desc>
   <rect width="1200" height="360" rx="24" fill="#0b1220"/>
   <text x="175" y="46" font-size="15" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="1.5">CAPTURE · PIPEWIRE</text>
