@@ -7,7 +7,7 @@
       "size": 280569863,
       "sha256": "64cba8697989961ff02bda5834b978345f72635b172f03b55eb4b9464004ced9",
       "revision": "opus-2019-12-18",
-      "license": "Apache-2.0",
+      "license": "CC-BY-4.0",
       "source": "https://github.com/Helsinki-NLP/OPUS-MT-train",
       "copyright": "Helsinki-NLP and OPUS-MT contributors"
     },
@@ -18,7 +18,7 @@
       "size": 289140267,
       "sha256": "921cbab703a5ed7b2df1c35b72c0e260aefca698ce2bd6c077833f8dd2af8fce",
       "revision": "opus-2021-02-18",
-      "license": "Apache-2.0",
+      "license": "CC-BY-4.0",
       "source": "https://github.com/Helsinki-NLP/Tatoeba-Challenge",
       "copyright": "Helsinki-NLP and OPUS-MT contributors"
     },
@@ -29,7 +29,7 @@
       "size": 267115485,
       "sha256": "0eed404b98f5f67d332c580b8e97feadf3a1ca386a2e96419e278843a26dc693",
       "revision": "opus-2020-09-10",
-      "license": "Apache-2.0",
+      "license": "CC-BY-4.0",
       "source": "https://github.com/Helsinki-NLP/Tatoeba-Challenge",
       "copyright": "Helsinki-NLP and OPUS-MT contributors"
     },
@@ -40,7 +40,7 @@
       "size": 266934904,
       "sha256": "d252f37da39af44229a15f24f9f4040e6ce96d6ac574c980df54d886773e82f6",
       "revision": "opus-2020-09-10",
-      "license": "Apache-2.0",
+      "license": "CC-BY-4.0",
       "source": "https://github.com/Helsinki-NLP/Tatoeba-Challenge",
       "copyright": "Helsinki-NLP and OPUS-MT contributors"
     }

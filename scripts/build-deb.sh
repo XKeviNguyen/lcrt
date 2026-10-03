@@ -67,7 +67,7 @@ for model in json.load(open('packaging/models.json'))['models']:
 MODELS
 cp -a target/share/lcrt/translation "${stage}/usr/share/lcrt/translation"
 find "${stage}/usr/share/lcrt/translation" -type d -name __pycache__ -prune -exec rm -rf {} +
-install -Dm644 packaging/licenses/opus-Apache-2.0.txt "${doc_dir}/opus-Apache-2.0.txt"
+install -Dm644 packaging/licenses/opus-CC-BY-4.0.txt "${doc_dir}/opus-CC-BY-4.0.txt"
 install -Dm644 packaging/translation-models.json "${doc_dir}/translation-models.json"
 install -Dm644 packaging/translation-runtime.json "${doc_dir}/translation-runtime.json"
 install -Dm644 README.md "${doc_dir}/README.md"
@@ -102,7 +102,7 @@ for model in json.load(open('packaging/translation-models.json'))['models']:
     print(f"Copyright: {model['copyright']}")
     print(f"License: {model['license']}")
     print(f"Comment: {model['url']}; SHA-256: {model['sha256']}")
-    for line in open('packaging/licenses/opus-Apache-2.0.txt').read().rstrip().splitlines():
+    for line in open('packaging/licenses/opus-CC-BY-4.0.txt').read().rstrip().splitlines():
         print(' ' + (line or '.'))
 print("\nComment: Runtime wheel pins are recorded in translation-runtime.json.")
 print(" Runtime copyrights and licenses are included under usr/share/lcrt/translation/runtime.")

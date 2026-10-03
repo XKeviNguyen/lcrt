@@ -70,7 +70,7 @@ def main():
         destination = output / item['pair']
         ctranslate2.converters.OpusMTConverter(str(source)).convert(
             str(destination), quantization='int8', force=True)
-        for name in ['source.spm', 'target.spm']:
+        for name in ['source.spm', 'target.spm', 'LICENSE', 'README.md']:
             shutil.copyfile(source / name, destination / name)
         print(f"{item['pair']}: verified and converted to int8", flush=True)
         shutil.rmtree(source)

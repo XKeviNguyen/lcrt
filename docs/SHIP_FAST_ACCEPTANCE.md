@@ -71,8 +71,10 @@ observed in the final translation runs. This is a short sanity check, not a soak
 ## Packaging and verification
 
 External source archives and Python wheels have exact size and SHA-256 pins.
+The original model archives carry CC BY 4.0 licenses; their LICENSE and README
+files are preserved beside each converted model, with source/author attribution.
 The build rejects mismatches and converts weights to int8 before packaging.
-The package includes OPUS Apache 2.0, Whisper MIT, and bundled runtime notices.
+The package includes OPUS CC BY 4.0, Whisper MIT, and bundled runtime notices.
 The tested host package requires Python 3.14. Building on Ubuntu 24.04 selects
 pinned Python 3.12 wheels. Unsupported packaging ABIs fail explicitly.
 Ubuntu 24.04 package runtime, ARM64 runtime, Windows runtime, microphone input,
@@ -82,8 +84,8 @@ Local gates passed: formatting, Clippy with warnings denied, locked workspace
 all-feature tests (262 Rust tests), rustdoc with warnings denied, and diff
 whitespace checks. Two Python packaging integrity tests also passed (264 total).
 
-Final host package: 354,157,492 bytes (337.75 MiB); installed-size metadata:
-601,785 KiB (587.68 MiB). Sizes vary with platform/toolchain and Python ABI.
+Final host package: 354,204,604 bytes (337.80 MiB); installed-size metadata:
+601,898 KiB (587.79 MiB). Sizes vary with platform/toolchain and Python ABI.
 The package was extracted into an isolated prefix and run without user model
 selection or an OpenAI key. No model or audio binaries were added to Git.
 
