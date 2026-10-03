@@ -840,11 +840,17 @@ impl CaptionWindow {
                     // The controller says what actually started.
                     *this.session.borrow_mut() = Some(options);
                 }
-                if let Some(targets) = presentation.session_targets
-                    && let Some(session) = this.session.borrow_mut().as_mut()
-                {
-                    // ...and which targets it has after a live change.
-                    session.translation_targets = targets;
+                if let Some(targets) = presentation.session_targets {
+                    if let Some(session) = this.session.borrow_mut().as_mut() {
+                        session.translation_targets = targets;
+                    }
+                    // Persist the controller's accepted set, including rejections.
+                    let mut languages = targets.iter();
+                    let first = languages.next();
+                    let second = languages.next();
+                    this.shared.change(|prefs| {
+                        prefs.general.set_translation_targets(first, second);
+                    });
                 }
                 if let Some(running) = presentation.running {
                     if running {

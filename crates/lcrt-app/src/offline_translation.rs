@@ -32,11 +32,13 @@ pub(crate) fn supports(source: Language, target: Language) -> bool {
 }
 
 struct Request {
+    id: u64,
     revision: u64,
     targets: Vec<Language>,
     text: String,
 }
 struct Response {
+    id: u64,
     revision: u64,
     targets: Vec<TargetText>,
     error: Option<String>,
@@ -52,17 +54,35 @@ struct Pending {
 /// retiring Rust work. The pipe reader has a byte cap and a bounded mailbox.
 struct Worker {
     pending: Arc<Pending>,
-    child: Arc<Mutex<Child>>,
+    child: Arc<Mutex<Option<Child>>>,
     results: Arc<Mutex<Option<Response>>>,
     thread: Option<JoinHandle<()>>,
 }
 
-impl Worker {
-    fn start(root: &Path, source: Language) -> Result<Self, TranscriptionError> {
+struct Process {
+    input: std::process::ChildStdin,
+    lines: Option<std::sync::mpsc::Receiver<Vec<u8>>>,
+    reader: Option<JoinHandle<()>>,
+    child: Arc<Mutex<Option<Child>>>,
+}
+impl Process {
+    fn start(
+        root: &Path,
+        source: Language,
+        targets: &[Language],
+        child_slot: &Arc<Mutex<Option<Child>>>,
+        pending: &Pending,
+    ) -> Result<Self, TranscriptionError> {
         let mut child = Command::new("/usr/bin/python3")
             .args(["-I", "-u"])
             .arg(root.join("worker.py"))
             .arg(root)
+            .arg(std::process::id().to_string())
+            .args(
+                targets
+                    .iter()
+                    .map(|target| format!("{}-{}", source.code(), target.code())),
+            )
             .env("HF_HUB_OFFLINE", "1")
             .env("TRANSFORMERS_OFFLINE", "1")
             .stdin(Stdio::piped())
@@ -72,9 +92,16 @@ impl Worker {
             .map_err(|_| {
                 TranscriptionError::new("Couldn't start local translation. Reinstall LILOPOP.")
             })?;
-        let mut input = child.stdin.take().expect("piped stdin");
+        let input = child.stdin.take().expect("piped stdin");
         let output = child.stdout.take().expect("piped stdout");
-        let child = Arc::new(Mutex::new(child));
+        let mut slot = child_slot.lock().expect("MT child mutex");
+        if pending.stopped.load(Ordering::Acquire) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(TranscriptionError::new("Translation cancelled."));
+        }
+        *slot = Some(child);
+        drop(slot);
         let (lines_tx, lines) = sync_channel(1);
         let reader = thread::spawn(move || {
             let mut reader = BufReader::new(output);
@@ -98,20 +125,50 @@ impl Worker {
             .ok()
             .and_then(|line| serde_json::from_slice::<serde_json::Value>(&line).ok())
             .is_some_and(|message| message["ready"] == true);
+        let process = Self {
+            input,
+            lines: Some(lines),
+            reader: Some(reader),
+            child: child_slot.clone(),
+        };
         if !ready {
-            if let Ok(mut process) = child.lock() {
-                let _ = process.kill();
-                let _ = process.wait();
-            }
-            drop(lines);
-            let _ = reader.join();
             return Err(TranscriptionError::new(
-                "Local translation runtime is missing or damaged. Reinstall LILOPOP.",
+                "Local translation runtime or selected model is missing or damaged. Reinstall LILOPOP.",
             ));
         }
+        Ok(process)
+    }
+}
+impl Drop for Process {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.lock().expect("MT child mutex").take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.lines.take();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
+
+impl Worker {
+    fn start(
+        root: &Path,
+        source: Language,
+        control: TargetControl,
+    ) -> Result<Self, TranscriptionError> {
         let pending = Arc::new(Pending::default());
+        let child = Arc::new(Mutex::new(None));
+        let targets: Vec<_> = control
+            .targets()
+            .ok_or_else(|| TranscriptionError::new("Translation controls unavailable."))?
+            .iter()
+            .collect();
+        let mut process = Process::start(root, source, &targets, &child, &pending)?;
         let work = pending.clone();
-        let process = child.clone();
+        let child_slot = child.clone();
+        let root = root.to_owned();
         let results = Arc::new(Mutex::new(None));
         let delivered = results.clone();
         let worker = thread::spawn(move || {
@@ -125,6 +182,7 @@ impl Worker {
                 };
                 let Some(request) = request else { break };
                 let mut response = Response {
+                    id: request.id,
                     revision: request.revision,
                     targets: Vec::new(),
                     error: None,
@@ -135,10 +193,13 @@ impl Worker {
                     }
                     let message = serde_json::json!({"pair": format!("{}-{}", source.code(), target.code()), "text": request.text});
                     let result = (|| {
-                        writeln!(input, "{message}")
-                            .and_then(|()| input.flush())
+                        writeln!(process.input, "{message}")
+                            .and_then(|()| process.input.flush())
                             .map_err(|_| "Local translation worker stopped.")?;
-                        let line = lines
+                        let line = process
+                            .lines
+                            .as_ref()
+                            .expect("MT reader")
                             .recv_timeout(DECODE_TIMEOUT)
                             .map_err(|_| "Local translation timed out. Stop and start again.")?;
                         let value: serde_json::Value = serde_json::from_slice(&line)
@@ -164,15 +225,47 @@ impl Worker {
                 // Never block Stop behind a full result mailbox.
                 *delivered.lock().expect("MT result mutex") = Some(response);
                 if failed {
-                    break;
+                    // Wait for replacement work before deciding whether the
+                    // failed configuration is still authoritative. A control
+                    // change can race with delivery of this failure.
+                    {
+                        let mut slot = work.request.lock().expect("MT request mutex");
+                        while slot.is_none() && !work.stopped.load(Ordering::Acquire) {
+                            slot = work.changed.wait(slot).expect("MT request mutex");
+                        }
+                        if work.stopped.load(Ordering::Acquire)
+                            || slot
+                                .as_ref()
+                                .is_none_or(|next| next.revision == request.revision)
+                        {
+                            break;
+                        }
+                    }
+                    // An obsolete decode may have broken the pipe. Recreate it
+                    // on this worker thread, never on the source caption path.
+                    drop(process);
+                    let targets: Vec<_> = control
+                        .targets()
+                        .map(|set| set.iter().collect())
+                        .unwrap_or_default();
+                    match Process::start(&root, source, &targets, &child_slot, &work) {
+                        Ok(replacement) => process = replacement,
+                        Err(error) => {
+                            let revision = control
+                                .snapshot()
+                                .map(|state| state.0)
+                                .unwrap_or(request.revision);
+                            *delivered.lock().expect("MT result mutex") = Some(Response {
+                                id: request.id,
+                                revision,
+                                targets: Vec::new(),
+                                error: Some(error.to_string()),
+                            });
+                            return;
+                        }
+                    }
                 }
             }
-            if let Ok(mut process) = process.lock() {
-                let _ = process.kill();
-                let _ = process.wait();
-            }
-            drop(lines);
-            let _ = reader.join();
         });
         Ok(Self {
             pending,
@@ -194,7 +287,9 @@ impl Drop for Worker {
         slot.take();
         drop(slot);
         self.pending.changed.notify_one();
-        if let Ok(mut child) = self.child.lock() {
+        if let Ok(mut child) = self.child.lock()
+            && let Some(child) = child.as_mut()
+        {
             let _ = child.kill();
         }
         if let Some(worker) = self.thread.take() {
@@ -216,6 +311,8 @@ pub(crate) struct LocalTranslation {
     /// exclude an already committed prefix; history is never retranslated.
     stable: String,
     last_request: String,
+    submitted: u64,
+    completed: u64,
 }
 
 impl LocalTranslation {
@@ -245,7 +342,7 @@ impl LocalTranslation {
                 }
             }
         }
-        let worker = Worker::start(root, source)?;
+        let worker = Worker::start(root, source, control.clone())?;
         for target in targets.iter() {
             status(target, TargetStatus::Active);
         }
@@ -260,6 +357,8 @@ impl LocalTranslation {
             revision: 0,
             stable: String::new(),
             last_request: String::new(),
+            submitted: 0,
+            completed: 0,
         })
     }
 
@@ -293,11 +392,17 @@ impl LocalTranslation {
         if let Some(worker) = &self.worker
             && let Some(response) = worker.results.lock().expect("MT result mutex").take()
         {
+            if response.revision != self.revision
+                || self
+                    .control
+                    .snapshot()
+                    .is_none_or(|state| state.0 != response.revision)
+            {
+                return Ok(false);
+            }
+            self.completed = response.id;
             if let Some(error) = response.error {
                 return Err(TranscriptionError::new(error));
-            }
-            if response.revision != self.revision {
-                return Ok(false);
             }
             for target in response.targets {
                 self.targets
@@ -361,7 +466,9 @@ impl LocalTranslation {
             self.original = update.text().to_owned();
             if !text.is_empty() && text != self.last_request && !active.is_empty() {
                 if let Some(worker) = &self.worker {
+                    self.submitted += 1;
                     worker.submit(Request {
+                        id: self.submitted,
                         revision: self.revision,
                         targets: active.clone(),
                         text: text.clone(),
@@ -410,6 +517,8 @@ impl Transcriber for LocalTranslation {
         while Instant::now() < deadline {
             if self.collect()? {
                 result.extend(self.update(CaptionStatus::Partial));
+            }
+            if self.completed >= self.submitted {
                 break;
             }
             // A bounded final drain; normal caption delivery never waits.
@@ -476,16 +585,26 @@ mod tests {
         let began = Instant::now();
         drop(adapter);
         assert!(began.elapsed() < Duration::from_secs(1));
-        assert!(process.lock().unwrap().try_wait().unwrap().is_some());
+        assert!(process.lock().unwrap().is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn an_empty_hypothesis_keeps_the_worker_ready_for_more_speech() {
         let root = fixture("empty");
         std::fs::write(root.join("worker.py"), "import sys\nprint('{\"ready\":true}', flush=True)\nfor i,line in enumerate(sys.stdin):\n print('{\"text\":\"\"}' if i == 0 else '{\"text\":\"Hello\"}', flush=True)\n").unwrap();
-        let worker = Worker::start(&root, Language::Japanese).unwrap();
+        let worker = Worker::start(
+            &root,
+            Language::Japanese,
+            TargetControl::new(lcrt_core::TranslationTargets::resolve(
+                Some(Language::English),
+                None,
+                Some(Language::Japanese),
+            )),
+        )
+        .unwrap();
         for expected in ["", "Hello"] {
             worker.submit(Request {
+                id: 1,
                 revision: 0,
                 targets: vec![Language::English],
                 text: "speech".into(),
@@ -528,6 +647,7 @@ mod tests {
         assert!(control.apply(TargetChange::Pause(Language::English)));
         assert!(adapter.reconcile().is_empty());
         *adapter.worker.as_ref().unwrap().results.lock().unwrap() = Some(Response {
+            id: 1,
             revision: 0,
             targets: vec![TargetText {
                 language: Language::English,
@@ -542,6 +662,178 @@ mod tests {
         drop(adapter);
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn a_superseded_worker_failure_restarts_only_the_local_worker() {
+        use lcrt_core::{TargetChange, TranslationTargets};
+        let root = fixture("worker-recovery");
+        std::fs::write(
+            root.join("worker.py"),
+            r#"import sys,json,time
+from pathlib import Path
+root=Path(sys.argv[1])
+print('{"ready":true}',flush=True)
+for line in sys.stdin:
+ if not (root/'entered').exists():
+  (root/'entered').touch()
+  while not (root/'release').exists(): time.sleep(.001)
+  print('{"error":"obsolete failure"}',flush=True)
+ else: print('{"text":"recovered"}',flush=True)
+"#,
+        )
+        .unwrap();
+        let control = TargetControl::new(TranslationTargets::resolve(
+            Some(Language::English),
+            None,
+            Some(Language::Japanese),
+        ));
+        let worker = Worker::start(&root, Language::Japanese, control.clone()).unwrap();
+        worker.submit(Request {
+            id: 1,
+            revision: 0,
+            targets: vec![Language::English],
+            text: "partial".into(),
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !root.join("entered").exists() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        control.apply(TargetChange::Pause(Language::English));
+        control.apply(TargetChange::Resume(Language::English));
+        let revision = control.snapshot().unwrap().0;
+        worker.submit(Request {
+            id: 2,
+            revision,
+            targets: vec![Language::English],
+            text: "new speech".into(),
+        });
+        std::fs::write(root.join("release"), "").unwrap();
+        loop {
+            if let Some(response) = worker.results.lock().unwrap().take()
+                && response.revision == revision
+            {
+                assert!(response.error.is_none());
+                assert_eq!(response.targets[0].text, "recovered");
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        drop(worker);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn obsolete_failure_does_not_end_source_captions() {
+        use lcrt_core::{TargetChange, TranslationTargets};
+        let root = fixture("obsolete-error");
+        let control = TargetControl::new(TranslationTargets::resolve(
+            Some(Language::English),
+            None,
+            Some(Language::Japanese),
+        ));
+        let mut adapter = LocalTranslation::new(
+            Box::new(Speech),
+            Language::Japanese,
+            control.clone(),
+            &root,
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        control.apply(TargetChange::Pause(Language::English));
+        adapter.reconcile();
+        *adapter.worker.as_ref().unwrap().results.lock().unwrap() = Some(Response {
+            id: 1,
+            revision: 0,
+            targets: Vec::new(),
+            error: Some("obsolete failure".into()),
+        });
+        assert!(!adapter.collect().unwrap());
+        assert_eq!(
+            adapter
+                .push_audio(AudioChunk::new(vec![0.0; 320], 16000, 1).unwrap())
+                .unwrap()[0]
+                .translation_lanes()
+                .unwrap()
+                .original,
+            "source speech"
+        );
+        drop(adapter);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn final_drain_waits_for_the_final_request_after_a_partial_result() {
+        use lcrt_core::TranslationTargets;
+        struct FinalSpeech;
+        impl Transcriber for FinalSpeech {
+            fn push_audio(
+                &mut self,
+                _: AudioChunk,
+            ) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+                Ok(Vec::new())
+            }
+            fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+                Ok(vec![TranscriptUpdate::finalized("final speech").unwrap()])
+            }
+        }
+        let root = fixture("final-drain");
+        std::fs::write(
+            root.join("worker.py"),
+            r#"import sys,json,time
+from pathlib import Path
+root=Path(sys.argv[1])
+print('{"ready":true}',flush=True)
+for line in sys.stdin:
+ while not (root/'release').exists(): time.sleep(.001)
+ print(json.dumps({'text':json.loads(line)['text']}),flush=True)
+"#,
+        )
+        .unwrap();
+        let control = TargetControl::new(TranslationTargets::resolve(
+            Some(Language::English),
+            None,
+            Some(Language::Japanese),
+        ));
+        let mut adapter = LocalTranslation::new(
+            Box::new(FinalSpeech),
+            Language::Japanese,
+            control,
+            &root,
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        adapter.submitted = 1;
+        *adapter.worker.as_ref().unwrap().results.lock().unwrap() = Some(Response {
+            id: 1,
+            revision: 0,
+            targets: vec![TargetText {
+                language: Language::English,
+                text: "partial".into(),
+            }],
+            error: None,
+        });
+        let results = adapter.worker.as_ref().unwrap().results.clone();
+        let release = root.join("release");
+        let observer = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while results.lock().unwrap().is_some() {
+                assert!(Instant::now() < deadline);
+                thread::yield_now();
+            }
+            // The final decode may complete only after Stop collects partial.
+            std::fs::write(release, "").unwrap();
+        });
+        let updates = adapter.finish().unwrap();
+        assert_eq!(
+            updates.last().unwrap().translation_lanes().unwrap().targets[0].text,
+            "final speech"
+        );
+        observer.join().unwrap();
+        assert_eq!(adapter.completed, 2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn only_the_four_shipped_pairs_are_supported() {
         for source in Language::ALL {
@@ -568,6 +860,7 @@ mod tests {
         let pending = Pending::default();
         for revision in 0..100 {
             *pending.request.lock().unwrap() = Some(Request {
+                id: revision,
                 revision,
                 targets: vec![Language::English],
                 text: "latest".into(),

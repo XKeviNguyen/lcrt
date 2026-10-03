@@ -81,13 +81,14 @@ Ubuntu 24.04 package runtime, ARM64 runtime, Windows runtime, microphone input,
 and constrained-CPU targets were not verified by this task.
 
 Local gates passed: formatting, Clippy with warnings denied, locked workspace
-all-feature tests (262 Rust tests), rustdoc with warnings denied, and diff
-whitespace checks. Two Python packaging integrity tests also passed (264 total).
+all-feature tests (266 Rust tests), rustdoc with warnings denied, and diff
+whitespace checks. Five Python worker/packaging tests also passed (271 total).
 
-Final host package: 354,204,604 bytes (337.80 MiB); installed-size metadata:
-601,898 KiB (587.79 MiB). Sizes vary with platform/toolchain and Python ABI.
+Final host package: 354,172,216 bytes (337.76 MiB); installed-size metadata:
+601,911 KiB (587.80 MiB). Sizes vary with platform/toolchain and Python ABI.
 The package was extracted into an isolated prefix and run without user model
-selection or an OpenAI key. No model or audio binaries were added to Git.
+selection or an environment OpenAI key. Existing keyring state was not inspected;
+offline backends do not resolve a key. No model or audio binaries were added to Git.
 
 Live controls passed on an isolated X11 display: target hide/show, source
 hide/show, pause/resume, add Vietnamese while running, and remove Japanese.
@@ -97,3 +98,25 @@ the real-desktop audio playback checks above.
 
 CI and exact-head automated review are separate merge gates, checked on GitHub
 before merging. Main remains outside this task's scope.
+
+## Review corrections and focused recheck
+
+All seven initial Codex findings were addressed: pending offline replacements
+block vocabulary requests, rejected targets restore persisted preferences,
+manifest-only staging excludes obsolete assets, selected models load before
+readiness, Linux parent-death signaling prevents orphan inference, stale errors
+are discarded with worker recovery, and Stop drains the latest request ID.
+Deterministic regressions cover configuration supersession and final drain;
+Python checks cover parent death, corrupt-model startup and obsolete staging.
+The unchanged OpenAI backlog timing test failed once during concurrent package
+conversion, then passed in isolation and in the full workspace rerun.
+
+The rebuilt package completed all seven GTK/PipeWire offline runs, each with
+zero AF_INET/AF_INET6 socket calls including children. Recheck first useful
+observations: EN 2.12 s, JA 3.19 s, VI 3.44 s (recognizable but misspelled).
+Caption Stop was 0.31–0.47 s; translation Stop 0.38–1.08 s.
+The initial measurements above are retained to show single-run variation.
+Live GTK additionally rejected Chinese, restored the saved Japanese target,
+and successfully stopped and restarted before adding/removing supported lanes.
+During that repeated-control run, app RSS was about 341 MiB and worker RSS
+134 MiB; these are short-run observations, not memory/latency guarantees.

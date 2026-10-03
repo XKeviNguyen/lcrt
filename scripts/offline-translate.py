@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """Local-only bounded JSON-lines worker; never downloads or calls a service."""
+import ctypes
+import signal
 import json
 import os
 from pathlib import Path
 import sys
 import unicodedata
+
+# Linux adapter: terminate native inference even when GTK exits before cleanup.
+expected_parent = int(sys.argv[2]) if len(sys.argv) > 2 else os.getppid()
+if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
+    raise RuntimeError('Cannot bind translation worker lifetime')
+if os.getppid() != expected_parent:
+    sys.exit(1)
 
 ROOT = Path(sys.argv[1])
 sys.path.insert(0, str(ROOT / 'runtime'))
@@ -15,11 +24,9 @@ PAIRS = {'ja-en', 'en-ja', 'vi-en', 'en-vi'}
 models = {}
 
 
-def translate(pair, text):
+def load(pair):
     if pair not in PAIRS:
         raise ValueError('Unsupported offline translation pair')
-    if not text.strip() or len(text.encode('utf-8')) > 2048:
-        raise ValueError('Invalid translation chunk')
     if pair not in models:
         # Only active pairs remain resident. Two targets is the session limit.
         if len(models) >= 2:
@@ -31,7 +38,13 @@ def translate(pair, text):
             sentencepiece.SentencePieceProcessor(model_file=str(path / 'source.spm')),
             sentencepiece.SentencePieceProcessor(model_file=str(path / 'target.spm')),
         )
-    translator, source, target = models[pair]
+    return models[pair]
+
+
+def translate(pair, text):
+    if not text.strip() or len(text.encode('utf-8')) > 2048:
+        raise ValueError('Invalid translation chunk')
+    translator, source, target = load(pair)
     tokens = source.encode(unicodedata.normalize('NFKC', text), out_type=str)
     if pair == 'en-vi':
         tokens.insert(0, '>>vie<<')
@@ -42,6 +55,8 @@ def translate(pair, text):
 
 
 if __name__ == '__main__':
+    for pair in sys.argv[3:]:
+        load(pair)
     print(json.dumps({'ready': True}), flush=True)
     while True:
         line = sys.stdin.buffer.readline(8193)

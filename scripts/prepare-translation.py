@@ -42,6 +42,15 @@ def extract(path, destination):
         archive.extractall(destination)
 
 
+def stage_bundle(output, destination):
+    """Copy only manifest-owned assets; old cache entries cannot enter a package."""
+    destination.mkdir(parents=True)
+    models = json.loads((REPO / 'packaging/translation-models.json').read_text())['models']
+    for name in ['runtime', *(item['pair'] for item in models)]:
+        shutil.copytree(output / name, destination / name)
+    shutil.copyfile(output / 'worker.py', destination / 'worker.py')
+
+
 def main():
     output = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / 'target/share/lcrt/translation'
     cache = Path(sys.argv[2]) if len(sys.argv) > 2 else REPO / 'target/translation-artifacts'

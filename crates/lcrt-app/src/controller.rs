@@ -757,6 +757,16 @@ impl Controller {
         }
     }
 
+    fn vocabulary_is_offline(&self) -> bool {
+        self.pending_start
+            .as_ref()
+            .is_some_and(|options| !options.mode.streams_audio_online())
+            || match &self.state {
+                ControllerState::Active(session) => session.offline,
+                _ => !self.preferences.general.default_mode.streams_audio_online(),
+            }
+    }
+
     fn explain(
         &self,
         request_id: u64,
@@ -765,11 +775,7 @@ impl Controller {
         end: usize,
         language: Language,
     ) {
-        let offline = match &self.state {
-            ControllerState::Active(session) => session.offline,
-            _ => !self.preferences.general.default_mode.streams_audio_online(),
-        };
-        if offline {
+        if self.vocabulary_is_offline() {
             notify_ui(self.sink.set_vocabulary(VocabularyOutcome {
                 request_id,
                 result: Err(problem(
@@ -1002,7 +1008,6 @@ fn open_backend(
             let mut config = WhisperConfig::new(model_path);
             config.language = language;
             let transcriber = WhisperTranscriber::new(config)?;
-            ready.store(true, Ordering::Release);
             if let Some((source, control)) = translation {
                 let executable = std::env::current_exe()?;
                 let root = executable
@@ -1014,14 +1019,12 @@ fn open_backend(
                 let status = Arc::new(move |language, status| {
                     notify_ui(status_sink.set_target_status(language, status));
                 });
-                Ok(Box::new(LocalTranslation::new(
-                    Box::new(transcriber),
-                    source,
-                    control,
-                    &root,
-                    status,
-                )?))
+                let translation =
+                    LocalTranslation::new(Box::new(transcriber), source, control, &root, status)?;
+                ready.store(true, Ordering::Release);
+                Ok(Box::new(translation))
             } else {
+                ready.store(true, Ordering::Release);
                 Ok(Box::new(transcriber))
             }
         }
@@ -1184,6 +1187,49 @@ mod tests {
     use lcrt_openai::credentials::{ApiKey, CredentialStatus};
     use lcrt_stt_whisper::WhisperBackendError;
     use lcrt_ui_gtk::{CredentialTone, EnteredApiKey, GtkCaptionSink};
+
+    #[test]
+    fn pending_offline_replacement_blocks_vocabulary_before_online_session_retires() {
+        use super::{Controller, RunOverrides};
+        use lcrt_core::{
+            LanguageSelection, Preferences, ProcessingMode, SessionOptions, TranslationTargets,
+        };
+        let (sink, _receiver) = GtkCaptionSink::bridge();
+        let mut controller = Controller::new(
+            RunOverrides::default(),
+            Vec::new(),
+            sink,
+            Preferences::default(),
+            None,
+            None,
+        );
+        let (_sender, result) = sync_channel(1);
+        controller.state = ControllerState::Active(PipelineSession {
+            startup: Arc::new(StartupGate::new()),
+            result,
+            worker: thread::spawn(|| {}),
+            backend_ready: Arc::new(AtomicBool::new(true)),
+            abandoned: Arc::new(AtomicBool::new(false)),
+            targets: None,
+            offline_source: None,
+            offline: false,
+            failures: LaneFailures::default(),
+        });
+        assert!(!controller.vocabulary_is_offline());
+        controller.pending_start = Some(SessionOptions {
+            mode: ProcessingMode::OfflineTranslation,
+            source_id: "fixture".into(),
+            spoken_language: LanguageSelection::Auto,
+            translation_targets: TranslationTargets::resolve(Some(Language::English), None, None),
+        });
+        assert!(controller.vocabulary_is_offline());
+        controller.pending_start.as_mut().unwrap().mode = ProcessingMode::Translation;
+        if let ControllerState::Active(session) = &mut controller.state {
+            session.offline = true;
+        }
+        assert!(controller.vocabulary_is_offline());
+        request_controller_shutdown(&mut controller.state);
+    }
 
     #[test]
     fn only_a_rejected_credential_sends_the_user_to_settings() {

@@ -65,7 +65,15 @@ for model in json.load(open('packaging/models.json'))['models']:
     shutil.copyfile(os.path.join(cache, model['file']), target)
     os.chmod(target, 0o644)
 MODELS
-cp -a target/share/lcrt/translation "${stage}/usr/share/lcrt/translation"
+python3 - "${stage}/usr/share/lcrt/translation" <<'PYTHON'
+import importlib.util
+from pathlib import Path
+import sys
+spec = importlib.util.spec_from_file_location('prepare', 'scripts/prepare-translation.py')
+prepare = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(prepare)
+prepare.stage_bundle(Path('target/share/lcrt/translation'), Path(sys.argv[1]))
+PYTHON
 find "${stage}/usr/share/lcrt/translation" -type d -name __pycache__ -prune -exec rm -rf {} +
 install -Dm644 packaging/licenses/opus-CC-BY-4.0.txt "${doc_dir}/opus-CC-BY-4.0.txt"
 install -Dm644 packaging/translation-models.json "${doc_dir}/translation-models.json"
