@@ -111,6 +111,14 @@ impl TargetControl {
         self.0.lock().ok().map(|desired| desired.targets)
     }
 
+    /// A consistent revision, target list, and stopped list for local adapters.
+    pub fn snapshot(&self) -> Option<(u64, TranslationTargets, Vec<Language>)> {
+        self.0
+            .lock()
+            .ok()
+            .map(|desired| (desired.revision, desired.targets, desired.stopped.clone()))
+    }
+
     /// Records that `language`'s session ended by itself, so the desired
     /// state says what is true and Resume can open it again.
     fn mark_stopped(&self, language: Language) {

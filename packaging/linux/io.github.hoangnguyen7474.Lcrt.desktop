@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=LCRT Live Captions
+Name=LILOPOP Live Captions
 GenericName=Live Captions
-Comment=Real-time captions and translation for system audio and microphone
+Comment=Translate and caption, live — no connection needed
 Exec=lcrt
 Icon=io.github.hoangnguyen7474.Lcrt
 Terminal=false

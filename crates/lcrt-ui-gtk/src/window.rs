@@ -51,9 +51,9 @@ pub struct CaptionUiOptions {
 /// GTK application identity for the current process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CaptionUiMode {
-    /// The normal interactive LCRT application.
+    /// The normal interactive LILOPOP application.
     Normal,
-    /// A bounded diagnostic run that must not activate a normal LCRT process.
+    /// A bounded diagnostic run that must not activate a normal LILOPOP process.
     Diagnostic,
 }
 
@@ -271,7 +271,7 @@ impl CaptionWindow {
         let appearance = preferences.borrow().appearance.clone();
         let window = adw::ApplicationWindow::builder()
             .application(application)
-            .title("LCRT Live Captions")
+            .title("LILOPOP Live Captions")
             .default_width(appearance.width)
             .default_height(appearance.height)
             .content(&toolbar)
@@ -393,8 +393,9 @@ impl CaptionWindow {
     /// Shows the language choice of the selected mode: the spoken language
     /// for captions, the lane chips for Translation.
     fn refresh_mode_controls(&self) {
-        let translation = self.selected_mode() == ProcessingMode::Translation;
-        self.language.set_visible(!translation);
+        let translation = self.selected_mode().translates();
+        self.language
+            .set_visible(self.selected_mode() != ProcessingMode::Translation);
         if let Some(lanes) = self.lanes.get() {
             lanes.root.set_visible(translation);
         }
@@ -474,7 +475,7 @@ impl CaptionWindow {
             .session
             .borrow()
             .as_ref()
-            .is_some_and(|session| session.mode == ProcessingMode::Translation);
+            .is_some_and(|session| session.mode.translates());
         if translating
             && self.phase.get() == SessionPhase::Running
             && let Some(status) = translation_status(&self.target_statuses.borrow())
@@ -641,13 +642,13 @@ impl CaptionWindow {
         // The controller must see pending preference changes (such as a
         // newly chosen model) before the action that depends on them.
         if !self.shared.flush() {
-            self.show_error("LCRT is busy. Try again.", false);
+            self.show_error("LILOPOP is busy. Try again.", false);
             return false;
         }
         match self.actions.try_send(action) {
             Ok(()) => true,
             Err(_) => {
-                self.show_error("LCRT is busy. Try again.", false);
+                self.show_error("LILOPOP is busy. Try again.", false);
                 false
             }
         }

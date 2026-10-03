@@ -34,7 +34,11 @@ use lcrt_ui_gtk::{
 };
 use tracing::{error, info, warn};
 
-use crate::{models::offline_model, settings::SettingsStore};
+use crate::{
+    models::offline_model,
+    offline_translation::{LocalTranslation, UNSUPPORTED, supports},
+    settings::SettingsStore,
+};
 
 const CONTROLLER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_VOCABULARY_LOOKUPS: usize = 3;
@@ -48,7 +52,7 @@ const MISSING_VOCABULARY_KEY: &str = "Vocabulary explanations need an OpenAI API
 pub(crate) struct RunOverrides {
     /// `--model` or `LCRT_MODEL_PATH`.
     pub(crate) model_path: Option<PathBuf>,
-    /// The built-in model installed with LCRT, found from the executable.
+    /// The built-in model installed with LILOPOP, found from the executable.
     pub(crate) built_in_model: Option<PathBuf>,
     /// A bounded diagnostic run that quits after its session.
     pub(crate) smoke: bool,
@@ -198,6 +202,10 @@ struct PipelineSession {
     abandoned: Arc<AtomicBool>,
     /// A translation session's targets, changed live without a restart.
     targets: Option<TargetControl>,
+    /// Whether this active session processes audio locally.
+    offline: bool,
+    /// A fixed spoken language restricts local live additions to shipped pairs.
+    offline_source: Option<Language>,
     /// Its targets whose session failed, shown in the error banner.
     failures: LaneFailures,
 }
@@ -305,6 +313,7 @@ enum Backend {
         /// The model was chosen in Settings, not built in or given for
         /// this run.
         custom_model: bool,
+        translation: Option<(Language, TargetControl)>,
     },
     Online {
         key: ApiKey,
@@ -479,9 +488,19 @@ impl Controller {
         if let ControllerState::Active(PipelineSession {
             targets: Some(control),
             failures,
+            offline_source,
             ..
         }) = &self.state
         {
+            if let (Some(source), TargetChange::Add(target)) = (offline_source, change)
+                && !supports(*source, target)
+            {
+                notify_ui(self.sink.show_error(UNSUPPORTED));
+                if let Some(targets) = control.targets() {
+                    notify_ui(self.sink.set_session_targets(targets));
+                }
+                return;
+            }
             if !control.apply(change) {
                 warn!(?change, "a translation target change was refused");
             } else if let TargetChange::Remove(language) = change {
@@ -545,7 +564,9 @@ impl Controller {
             }
         };
         let starting = match options.mode {
-            ProcessingMode::OfflineCaptions => "Loading model…",
+            ProcessingMode::OfflineCaptions | ProcessingMode::OfflineTranslation => {
+                "Loading model…"
+            }
             ProcessingMode::OnlineCaptions | ProcessingMode::Translation => "Connecting…",
         };
         notify_ui(session_sink.set_status(starting));
@@ -575,13 +596,29 @@ impl Controller {
     /// Settings can fix it.
     fn resolve_backend(&self, options: &SessionOptions) -> Result<Backend, (&'static str, bool)> {
         match options.mode {
-            ProcessingMode::OfflineCaptions => {
+            ProcessingMode::OfflineCaptions | ProcessingMode::OfflineTranslation => {
                 let model_path = offline_model(
                     self.overrides.model_path.as_deref(),
                     self.preferences.general.custom_model.as_deref(),
                     self.overrides.built_in_model.as_deref(),
                 )
                 .map_err(|problem| (problem.message(), problem.needs_settings()))?;
+                let translation = if options.mode == ProcessingMode::OfflineTranslation {
+                    let source = options
+                        .spoken_language
+                        .language()
+                        .ok_or((UNSUPPORTED, false))?;
+                    if options
+                        .translation_targets
+                        .iter()
+                        .any(|target| !supports(source, target))
+                    {
+                        return Err((UNSUPPORTED, false));
+                    }
+                    Some((source, TargetControl::new(options.translation_targets)))
+                } else {
+                    None
+                };
                 Ok(Backend::Offline {
                     model_path,
                     // Auto lets Whisper detect the language.
@@ -589,6 +626,7 @@ impl Controller {
                         .spoken_language
                         .language()
                         .map(|language| language.code().to_owned()),
+                    translation,
                     custom_model: self.overrides.model_path.is_none()
                         && self.preferences.general.custom_model.is_some(),
                 })
@@ -634,7 +672,7 @@ impl Controller {
     }
 
     /// Writes the authoritative preferences. On failure they still apply
-    /// until LCRT quits, and the user is told they were not saved.
+    /// until LILOPOP quits, and the user is told they were not saved.
     fn persist_preferences(&mut self) {
         self.save_preferences_now();
         if let ControllerState::Active(session) = &self.state {
@@ -666,7 +704,7 @@ impl Controller {
             Err(error) => {
                 warn!(%error, "could not save preferences");
                 let message =
-                    format!("Couldn't save settings ({error}). Changes apply until LCRT quits.");
+                    format!("Couldn't save settings ({error}). Changes apply until LILOPOP quits.");
                 self.show_error(message.clone(), false);
                 self.save_warning_shown = true;
                 self.preferences_save_error = Some(message);
@@ -727,6 +765,20 @@ impl Controller {
         end: usize,
         language: Language,
     ) {
+        let offline = match &self.state {
+            ControllerState::Active(session) => session.offline,
+            _ => !self.preferences.general.default_mode.streams_audio_online(),
+        };
+        if offline {
+            notify_ui(self.sink.set_vocabulary(VocabularyOutcome {
+                request_id,
+                result: Err(problem(
+                    "Vocabulary explanations are available in online modes only.",
+                    false,
+                )),
+            }));
+            return;
+        }
         if !self.preferences.vocabulary.enabled {
             return;
         }
@@ -869,7 +921,17 @@ fn start_pipeline(
     let worker_failures = failures.clone();
     let targets = match &backend {
         Backend::Online { targets, .. } => targets.clone(),
-        Backend::Offline { .. } => None,
+        Backend::Offline { translation, .. } => {
+            translation.as_ref().map(|(_, control)| control.clone())
+        }
+    };
+    let offline = matches!(backend, Backend::Offline { .. });
+    let offline_source = match &backend {
+        Backend::Offline {
+            translation: Some((source, _)),
+            ..
+        } => Some(*source),
+        _ => None,
     };
     let custom_model = matches!(
         backend,
@@ -897,6 +959,8 @@ fn start_pipeline(
         result,
         worker,
         backend_ready,
+        offline_source,
+        offline,
         abandoned,
         targets,
         failures,
@@ -932,13 +996,34 @@ fn open_backend(
         Backend::Offline {
             model_path,
             language,
+            translation,
             ..
         } => {
             let mut config = WhisperConfig::new(model_path);
             config.language = language;
             let transcriber = WhisperTranscriber::new(config)?;
             ready.store(true, Ordering::Release);
-            Ok(Box::new(transcriber))
+            if let Some((source, control)) = translation {
+                let executable = std::env::current_exe()?;
+                let root = executable
+                    .parent()
+                    .and_then(|path| path.parent())
+                    .ok_or("Cannot locate offline translation installation")?
+                    .join("share/lcrt/translation");
+                let status_sink = sink.clone();
+                let status = Arc::new(move |language, status| {
+                    notify_ui(status_sink.set_target_status(language, status));
+                });
+                Ok(Box::new(LocalTranslation::new(
+                    Box::new(transcriber),
+                    source,
+                    control,
+                    &root,
+                    status,
+                )?))
+            } else {
+                Ok(Box::new(transcriber))
+            }
         }
         Backend::Online {
             key,
@@ -1168,6 +1253,8 @@ mod tests {
             backend_ready: Arc::new(AtomicBool::new(false)),
             abandoned: Arc::new(AtomicBool::new(false)),
             targets: None,
+            offline_source: None,
+            offline: false,
             failures: LaneFailures::default(),
         });
 
@@ -1191,6 +1278,8 @@ mod tests {
                 backend_ready: Arc::new(AtomicBool::new(ready)),
                 abandoned: Arc::new(AtomicBool::new(false)),
                 targets: None,
+                offline_source: None,
+                offline: false,
                 failures: LaneFailures::default(),
             });
             let (completed, backend_ready) = take_completed_session(&mut state).unwrap();

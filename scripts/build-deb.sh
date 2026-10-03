@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the LCRT Debian package for the host architecture from a release build.
+# Builds the LILOPOP Debian package for the host architecture from a release build.
 #
 # Usage: scripts/build-deb.sh [output-directory]
 #
@@ -36,6 +36,8 @@ export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}"
 cargo build --locked --release -p lcrt-app
 model_cache="$(realpath -m -- "${LCRT_MODEL_CACHE:-${repo_root}/target/share/lcrt/models}")"
 python3 scripts/fetch-models.py "${model_cache}"
+python3 scripts/prepare-translation.py
+python_abi="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 
 work_dir="$(mktemp -d)"
 trap 'rm -rf -- "${work_dir}"' EXIT
@@ -51,6 +53,8 @@ install -Dm644 "packaging/linux/${APP_ID}.metainfo.xml" \
   "${stage}/usr/share/metainfo/${APP_ID}.metainfo.xml"
 install -Dm644 "packaging/linux/${APP_ID}.svg" \
   "${stage}/usr/share/icons/hicolor/scalable/apps/${APP_ID}.svg"
+install -Dm644 "packaging/linux/${APP_ID}.png" \
+  "${stage}/usr/share/icons/hicolor/256x256/apps/${APP_ID}.png"
 # Models, each at its manifest destination: file, destination, license file.
 python3 - "${model_cache}" "${stage}" <<'MODELS'
 import json, os, shutil, sys
@@ -61,14 +65,19 @@ for model in json.load(open('packaging/models.json'))['models']:
     shutil.copyfile(os.path.join(cache, model['file']), target)
     os.chmod(target, 0o644)
 MODELS
+cp -a target/share/lcrt/translation "${stage}/usr/share/lcrt/translation"
+find "${stage}/usr/share/lcrt/translation" -type d -name __pycache__ -prune -exec rm -rf {} +
+install -Dm644 packaging/licenses/opus-Apache-2.0.txt "${doc_dir}/opus-Apache-2.0.txt"
+install -Dm644 packaging/translation-models.json "${doc_dir}/translation-models.json"
+install -Dm644 packaging/translation-runtime.json "${doc_dir}/translation-runtime.json"
 install -Dm644 README.md "${doc_dir}/README.md"
 install -Dm644 docs/PRIVACY.md "${doc_dir}/PRIVACY.md"
 
-# Debian copyright: LCRT itself plus every Rust crate linked into the binary
+# Debian copyright: LILOPOP itself plus every Rust crate linked into the binary
 # (including the vendored whisper.cpp) with its declared license.
 {
   printf 'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n'
-  printf 'Upstream-Name: LCRT\nSource: https://github.com/hoangnguyen7474/lcrt\n'
+  printf 'Upstream-Name: LILOPOP\nSource: https://github.com/hoangnguyen7474/lcrt\n'
   printf 'Comment: Statically linked third-party crates and their licenses:\n'
   cargo tree --locked -e normal -p lcrt-app --prefix none --format ' {p}: {l}' \
     --target "$(rustc -vV | sed -n 's/^host: //p')" |
@@ -88,6 +97,15 @@ for model in json.load(open('packaging/models.json'))['models']:
     print(f" SHA-256: {model['sha256']}")
     for line in open(model['license_file']).read().rstrip().splitlines():
         print(' ' + (line or '.'))
+for model in json.load(open('packaging/translation-models.json'))['models']:
+    print(f"\nFiles: usr/share/lcrt/translation/{model['pair']}/*")
+    print(f"Copyright: {model['copyright']}")
+    print(f"License: {model['license']}")
+    print(f"Comment: {model['url']}; SHA-256: {model['sha256']}")
+    for line in open('packaging/licenses/opus-Apache-2.0.txt').read().rstrip().splitlines():
+        print(' ' + (line or '.'))
+print("\nComment: Runtime wheel pins are recorded in translation-runtime.json.")
+print(" Runtime copyrights and licenses are included under usr/share/lcrt/translation/runtime.")
 MODELS
 } >"${doc_dir}/copyright"
 chmod 644 "${doc_dir}/copyright"
@@ -107,21 +125,22 @@ cat >"${stage}/DEBIAN/control" <<CONTROL
 Package: ${PACKAGE}
 Version: ${version}
 Architecture: ${architecture}
-Maintainer: LCRT contributors <lcrt@users.noreply.github.com>
+Maintainer: LILOPOP contributors <lcrt@users.noreply.github.com>
 Installed-Size: ${installed_size}
-Depends: ${depends}
+Depends: ${depends}, python${python_abi}
 Recommends: pipewire, gnome-keyring
 Section: sound
 Priority: optional
 Homepage: https://github.com/hoangnguyen7474/lcrt
-Description: Live captions and translation for system audio
- LCRT shows real-time captions for system audio or a microphone.
+Description: LILOPOP live captions and offline translation
+ LILOPOP shows real-time captions for system audio or a microphone.
  Offline Captions work right after installation with the included
- multilingual speech model (Whisper base); audio stays on the device.
- Online Captions, Translation and vocabulary explanations use
+ multilingual speech model (Whisper Tiny); audio stays on the device.
+ Online Captions, Online Translation and vocabulary explanations use
  the user's own OpenAI API key, stored in the desktop keyring, and stream
  audio or selected text to OpenAI only while in use. API charges may apply.
- LCRT has no telemetry.
+ Offline Translation runs locally for Japanese↔English and Vietnamese↔English.
+ LILOPOP has no telemetry.
 CONTROL
 
 find "${stage}" -exec touch --no-dereference --date="@${SOURCE_DATE_EPOCH}" {} +
