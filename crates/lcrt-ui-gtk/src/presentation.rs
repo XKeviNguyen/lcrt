@@ -86,7 +86,7 @@ pub(crate) fn lane_layout(
     visibility: &GeneralPreferences,
     statuses: &[(Language, TargetStatus)],
 ) -> LaneLayout {
-    if mode != ProcessingMode::Translation {
+    if !mode.translates() {
         return LaneLayout::default();
     }
     LaneLayout {
@@ -176,7 +176,7 @@ pub(crate) fn translation_status(statuses: &[(Language, TargetStatus)]) -> Optio
 /// Status shown while a session is actively producing captions.
 pub(crate) fn active_status(mode: ProcessingMode) -> &'static str {
     match mode {
-        ProcessingMode::Translation => "Translating…",
+        ProcessingMode::Translation | ProcessingMode::OfflineTranslation => "Translating…",
         ProcessingMode::OfflineCaptions | ProcessingMode::OnlineCaptions => "Listening…",
     }
 }
@@ -186,7 +186,9 @@ pub(crate) fn active_status(mode: ProcessingMode) -> &'static str {
 /// each is a session that audio is sent to.
 pub(crate) fn privacy_notice(mode: ProcessingMode, translation_sessions: usize) -> &'static str {
     match mode {
-        ProcessingMode::OfflineCaptions => "Audio is processed on this device.",
+        ProcessingMode::OfflineCaptions | ProcessingMode::OfflineTranslation => {
+            "Audio is processed on this device."
+        }
         ProcessingMode::Translation if translation_sessions == 0 => {
             "Every translation language is paused: no audio is being sent."
         }
@@ -209,7 +211,7 @@ pub(crate) fn source_label(source: &AudioSourceDescriptor) -> String {
 }
 
 /// The source to select initially: the remembered one when still present,
-/// otherwise system audio, which is LCRT's primary input.
+/// otherwise system audio, which is LILOPOP's primary input.
 pub(crate) fn preferred_source_index(
     sources: &[AudioSourceDescriptor],
     remembered: Option<&str>,

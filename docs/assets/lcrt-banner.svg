@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc" font-family="Inter, 'Noto Sans', 'Noto Sans CJK JP', 'Segoe UI', Roboto, sans-serif">
-  <title id="title">LCRT — live captions and real-time translation</title>
+  <title id="title">LILOPOP — live captions and real-time translation</title>
   <desc id="desc">A caption window showing one sentence in English, Japanese and Vietnamese.</desc>
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
@@ -28,14 +28,14 @@
     <animate attributeName="opacity" dur="8s" repeatCount="indefinite" values="0.5;0.15;0.5"/>
   </circle>
 
-  <g transform="translate(80 58) scale(0.95)">
-    <rect x="8" y="12" width="112" height="104" rx="24" fill="url(#icon)" stroke="#ffffff" stroke-opacity="0.25"/>
-    <path d="M28 34h72a8 8 0 0 1 8 8v36a8 8 0 0 1-8 8H58l-16 14v-14H28a8 8 0 0 1-8-8V42a8 8 0 0 1 8-8z" fill="#ffffff"/>
-    <rect x="32" y="48" width="64" height="8" rx="4" fill="#1a5fb4"/>
-    <rect x="32" y="64" width="42" height="8" rx="4" fill="#62a0ea"/>
+  <g transform="translate(80 48) scale(0.24)">
+  <rect width="512" height="512" rx="120" fill="#FFD23F"/>
+  <path d="M256 338v95" stroke="#2A1E5C" stroke-width="30" stroke-linecap="round"/>
+  <circle cx="256" cy="210" r="138" fill="#FF5C8A" stroke="#2A1E5C" stroke-width="10"/>
+  <path d="M158 200v20m33-50v80m33-105v130m33-147v164m33-137v110m33-85v60m33-35v10" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round"/>
   </g>
-  <text x="222" y="120" font-size="76" font-weight="800" fill="#ffffff" letter-spacing="2">LCRT</text>
-  <text x="224" y="160" font-size="25" fill="#dbeafe">Live captions · Real-time translation · Words in context</text>
+  <text x="222" y="120" font-size="76" font-weight="800" fill="#ffffff" letter-spacing="2">LILOPOP</text>
+  <text x="224" y="160" font-size="23" fill="#dbeafe">Translate and caption, live — no connection needed</text>
 
   <g>
     <rect x="820" y="108" width="6" height="20" rx="3" fill="url(#bar)">

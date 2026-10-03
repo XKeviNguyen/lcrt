@@ -1,0 +1,68 @@
+{
+  "wheels": [
+    {
+      "package": "ctranslate2",
+      "version": "4.8.2",
+      "file": "ctranslate2-4.8.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/01/23/d72e70cac2b7c5c832a629c380235b53b20fac8c0921856bcf625b08ba44/ctranslate2-4.8.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 39555908,
+      "sha256": "554a0b2abf098a11c66ef7930c0a05b3de683a455e8ea3f2e6ab6966aaabc136"
+    },
+    {
+      "package": "ctranslate2",
+      "version": "4.8.2",
+      "file": "ctranslate2-4.8.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/14/0c/de0305052c2bb35979c4a6c668c7aa6f139c10bc0939833450b462cef829/ctranslate2-4.8.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 39521307,
+      "sha256": "573dcf5d96034dd9bcf7ee0db1657af490a52292ffc77dfb4b104da1e93322ad"
+    },
+    {
+      "package": "sentencepiece",
+      "version": "0.2.2",
+      "file": "sentencepiece-0.2.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/b6/2d/37e3da037318a70066ded0d51bc2a7f35491ae6338dd993d5eb1503fc3b5/sentencepiece-0.2.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 1397736,
+      "sha256": "c8a168b040bc61681293f79a949b5d911c8e25086f4260285b8d97ab5f1195da"
+    },
+    {
+      "package": "sentencepiece",
+      "version": "0.2.2",
+      "file": "sentencepiece-0.2.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/24/b3/718847349da7b25c8220ed86d85b89080af94740b2d87a59198104ae5c51/sentencepiece-0.2.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 1398138,
+      "sha256": "8d44b20234905ff022b7d535f79d1f823ad7670c9851cc4f03cdc34787cdb3ab"
+    },
+    {
+      "package": "numpy",
+      "version": "2.5.3",
+      "file": "numpy-2.5.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/65/af/aa78d1a88805456e212b65461354cd943197fb9acecc4c90fd12295123a3/numpy-2.5.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 16717410,
+      "sha256": "b7e18c623bb5c95acb3b3328861272816ba199fb531921c5d6d0b675f1fde9e3"
+    },
+    {
+      "package": "numpy",
+      "version": "2.5.3",
+      "file": "numpy-2.5.3-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/45/8f/9beacf79ca7c650688ad0baa80931adb988fe6e6e5d5903c23cc3dbd70eb/numpy-2.5.3-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 16711928,
+      "sha256": "b0521d0f4aebb6e06189451025fa17a913287b13c03d5fe05c017333b654ea5b"
+    },
+    {
+      "package": "PyYAML",
+      "version": "6.0.3",
+      "file": "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/8b/9d/b3589d3877982d4f2329302ef98a8026e7f4443c765c46cfecc8858c6b4b/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 807870,
+      "sha256": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc"
+    },
+    {
+      "package": "PyYAML",
+      "version": "6.0.3",
+      "file": "pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/88/f9/16491d7ed2a919954993e48aa941b200f38040928474c9e85ea9e64222c3/pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 794175,
+      "sha256": "c458b6d084f9b935061bc36216e8a69a7e293a2f1e68bf956dcd9e6cbcd143f5"
+    }
+  ]
+}

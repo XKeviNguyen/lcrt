@@ -11,6 +11,8 @@ pub enum ProcessingMode {
     /// Local Whisper transcription; audio never leaves the device.
     #[default]
     OfflineCaptions,
+    /// Local transcription followed by local OPUS-MT translation.
+    OfflineTranslation,
     /// Streaming transcription by the online service.
     OnlineCaptions,
     /// Streaming speech translation by the online service.
@@ -19,15 +21,21 @@ pub enum ProcessingMode {
 
 impl ProcessingMode {
     /// All modes in presentation order.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Self::OfflineCaptions,
+        Self::OfflineTranslation,
         Self::OnlineCaptions,
         Self::Translation,
     ];
 
+    /// Whether the session presents source and target lanes.
+    pub fn translates(self) -> bool {
+        matches!(self, Self::Translation | Self::OfflineTranslation)
+    }
+
     /// Whether this mode streams audio to the online service.
     pub fn streams_audio_online(self) -> bool {
-        !matches!(self, Self::OfflineCaptions)
+        matches!(self, Self::OnlineCaptions | Self::Translation)
     }
 
     /// Short user-facing name.
@@ -35,7 +43,8 @@ impl ProcessingMode {
         match self {
             Self::OfflineCaptions => "Offline Captions",
             Self::OnlineCaptions => "Online Captions",
-            Self::Translation => "Translation",
+            Self::Translation => "Online Translation",
+            Self::OfflineTranslation => "Offline Translation",
         }
     }
 }
@@ -476,7 +485,11 @@ mod tests {
         let english = LanguageSelection::Language(Language::English);
         assert!(running.needs_restart_for(&options(Translation, "monitor", english)));
         // Captions send the spoken language to the backend.
-        for mode in [OfflineCaptions, OnlineCaptions] {
+        for mode in [
+            OfflineCaptions,
+            OnlineCaptions,
+            ProcessingMode::OfflineTranslation,
+        ] {
             assert!(
                 options(mode, "monitor", auto)
                     .needs_restart_for(&options(mode, "monitor", japanese))
@@ -489,6 +502,7 @@ mod tests {
     #[test]
     fn only_online_modes_stream_audio() {
         assert!(!ProcessingMode::OfflineCaptions.streams_audio_online());
+        assert!(!ProcessingMode::OfflineTranslation.streams_audio_online());
         assert!(ProcessingMode::OnlineCaptions.streams_audio_online());
         assert!(ProcessingMode::Translation.streams_audio_online());
     }

@@ -10,7 +10,7 @@ pub struct WhisperConfig {
     /// ISO language code, `auto`, or `None` for automatic detection.
     pub language: Option<String>,
     /// CPU threads used by whisper.cpp inference. More threads than the
-    /// CPUs LCRT may run on make every pass slower, not faster.
+    /// CPUs LILOPOP may run on make every pass slower, not faster.
     pub inference_threads: u8,
     /// Maximum captured audio waiting behind inference, independent of chunk
     /// size. It may not exceed `window_duration`: a larger backlog could not
@@ -43,8 +43,8 @@ impl WhisperConfig {
             inference_threads: default_inference_threads(),
             max_input_backlog: Duration::from_secs(8),
             window_duration: Duration::from_secs(8),
-            partial_step: Duration::from_millis(1_500),
-            minimum_speech: Duration::from_millis(750),
+            partial_step: Duration::from_millis(500),
+            minimum_speech: Duration::from_millis(1000),
             final_silence: Duration::from_millis(900),
             speech_rms_threshold: 0.008,
             max_transcript_bytes: 16 * 1_024,
@@ -124,7 +124,7 @@ impl WhisperConfig {
 
 /// One thread per CPU this process may use (its affinity and cgroup quota
 /// count), at most four: whisper.cpp gains little beyond that, and the rest
-/// of LCRT needs a CPU too.
+/// of LILOPOP needs a CPU too.
 fn default_inference_threads() -> u8 {
     std::thread::available_parallelism()
         .map_or(1, |cpus| cpus.get().min(4))

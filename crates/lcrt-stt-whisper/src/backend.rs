@@ -682,7 +682,15 @@ impl<'a> Decoding<'a> {
         state: &mut WhisperState,
         samples: &[f32],
     ) -> Result<&FullParams<'a, 'a>, WhisperBackendError> {
+        // A first pass contains much less audio than the rolling window.
+        // Its decode budget must follow that audio, otherwise Tiny can spend
+        // the whole window's token budget hallucinating a long early result.
+        let max_tokens = window_token_limit(Duration::from_secs_f64(
+            samples.len() as f64 / WHISPER_SAMPLE_RATE as f64,
+        ))
+        .min(self.max_tokens);
         if !self.auto {
+            self.configured.set_max_tokens(max_tokens);
             return Ok(&self.configured);
         }
         let now = Instant::now();
@@ -706,12 +714,14 @@ impl<'a> Decoding<'a> {
                 ),
             ));
         }
-        Ok(self
+        let parameters = &mut self
             .by_language
-            .iter()
+            .iter_mut()
             .find(|(known, _)| *known == language)
-            .map(|(_, parameters)| parameters)
-            .unwrap_or(&self.configured))
+            .expect("language parameters were inserted")
+            .1;
+        parameters.set_max_tokens(max_tokens);
+        Ok(parameters)
     }
 }
 
