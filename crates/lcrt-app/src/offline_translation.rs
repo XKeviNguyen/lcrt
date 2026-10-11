@@ -58,6 +58,8 @@ struct Response {
     revision: u64,
     targets: Vec<TargetText>,
     error: Option<String>,
+    /// The worker stopped: no later request will be answered.
+    fatal: bool,
 }
 #[derive(Default)]
 struct Pending {
@@ -202,6 +204,7 @@ impl Worker {
                     revision: request.revision,
                     targets: Vec::new(),
                     error: None,
+                    fatal: false,
                 };
                 for target in request.targets {
                     if work.stopped.load(Ordering::Acquire) {
@@ -275,6 +278,7 @@ impl Worker {
                                 revision: next_revision,
                                 targets: Vec::new(),
                                 error: Some(error.to_string()),
+                                fatal: true,
                             });
                             return;
                         }
@@ -401,6 +405,14 @@ impl LocalTranslation {
         if revision != self.revision {
             self.revision = revision;
             self.targets.retain(|text| targets.contains(text.language));
+            // A paused lane's speech goes untranslated: say so where it stops.
+            let paused: Vec<_> = self
+                .targets
+                .iter()
+                .filter(|lane| stopped.contains(&lane.language) && !lane.text.is_empty())
+                .map(|lane| lane.language)
+                .collect();
+            self.mark_missing(&paused);
             for target in targets.iter() {
                 (self.status)(
                     target,
@@ -431,7 +443,7 @@ impl LocalTranslation {
         let Some((_, segment)) = self.in_flight.take_if(|(id, _)| *id == response.id) else {
             return Ok(false);
         };
-        if response.revision < self.revision {
+        if response.revision < self.revision && !response.fatal {
             // The targets changed during the decode: translate the segment
             // again for the current targets instead of losing it.
             self.queue.push_front(segment);
@@ -470,6 +482,20 @@ impl LocalTranslation {
         lane.push_str(text.trim());
         if lane.len() > MAX_LANE_BYTES {
             *lane = bounded_tail(lane, MAX_LANE_BYTES).to_owned();
+        }
+    }
+
+    /// Ends each lane with a gap marker, once, instead of leaving a
+    /// translation that looks complete when speech went untranslated.
+    fn mark_missing(&mut self, languages: &[Language]) {
+        for &language in languages {
+            let marked = self
+                .targets
+                .iter()
+                .any(|lane| lane.language == language && lane.text.ends_with(GAP));
+            if !marked {
+                self.publish(language, GAP);
+            }
         }
     }
 
@@ -534,15 +560,24 @@ impl LocalTranslation {
             .get(..self.accepted)
             .is_some_and(|accepted| accepted.ends_with(&self.anchor))
         {
-            // Whisper trimmed the front of a very long utterance.
-            self.accepted = text[..end]
-                .rfind(&self.anchor)
-                .map_or(0, |start| start + self.anchor.len());
+            // Whisper trimmed the front of a very long utterance, which only
+            // moves accepted text towards the start.
+            let mut limit = self.accepted.min(end);
+            while !text.is_char_boundary(limit) {
+                limit -= 1;
+            }
+            self.accepted = text[..limit].rfind(&self.anchor).map_or_else(
+                || {
+                    warn!("Offline translation lost its place in a long utterance");
+                    end
+                },
+                |start| start + self.anchor.len(),
+            );
         }
         while let Some(cut) = segment_end(text, self.accepted, end, closed) {
             let segment = &text[self.accepted..cut];
             if !segment.trim().is_empty() && !active.is_empty() {
-                self.enqueue(segment.trim());
+                self.enqueue(segment.trim(), active);
             }
             self.anchor = segment.to_owned();
             self.accepted = cut;
@@ -553,11 +588,13 @@ impl LocalTranslation {
         }
     }
 
-    fn enqueue(&mut self, text: &str) {
+    fn enqueue(&mut self, text: &str, active: &[Language]) {
         self.queue.push_back(Segment {
             text: text.to_owned(),
             after_gap: false,
         });
+        // An idle worker takes it at once, so only real backlog counts.
+        self.dispatch(active);
         if self.queue.len() > MAX_QUEUED_SEGMENTS {
             // Bounded overload: skip the oldest waiting speech and mark the
             // gap, rather than fall ever further behind the speaker.
@@ -595,7 +632,7 @@ impl LocalTranslation {
 }
 
 /// Sentence ends that need no following space.
-const FULL_STOPS: [char; 4] = ['。', '！', '？', '．'];
+const FULL_STOPS: [char; 3] = ['。', '！', '？'];
 /// Sentence ends that count only before a space, so "3.5" stays whole.
 const SPACED_STOPS: [char; 4] = ['.', '!', '?', '…'];
 /// Closing quotes and brackets: a sentence end before one is quoted speech.
@@ -622,7 +659,9 @@ fn segment_end(text: &str, start: usize, end: usize, closed: bool) -> Option<usi
         }
         let next = text[start + after..].chars().next();
         if (FULL_STOPS.contains(&mark) && !next.is_some_and(|next| CLOSERS.contains(&next)))
-            || (SPACED_STOPS.contains(&mark) && next.is_none_or(char::is_whitespace))
+            || (SPACED_STOPS.contains(&mark)
+                && next.is_none_or(char::is_whitespace)
+                && !abbreviation(&span[..index]))
         {
             return Some(start + after);
         }
@@ -640,6 +679,17 @@ fn segment_end(text: &str, start: usize, end: usize, closed: bool) -> Option<usi
         }
         limit
     }))
+}
+
+/// Whether the word before a stop at the end of `text` is likely an
+/// abbreviation, initial or list number ("Dr.", "J.", "TP.", "1."). Missing a
+/// sentence end only delays it; a false one translates half a sentence.
+fn abbreviation(text: &str) -> bool {
+    let word = text.rsplit(char::is_whitespace).next().unwrap_or_default();
+    let length = word.chars().count();
+    length < 3
+        || (length <= 4 && word.chars().next().is_some_and(char::is_uppercase))
+        || word.chars().all(|character| character.is_ascii_digit())
 }
 
 impl Transcriber for LocalTranslation {
@@ -663,19 +713,22 @@ impl Transcriber for LocalTranslation {
         let mut result = self.consume(updates, &active);
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
-            if self.collect()? {
-                result.extend(self.update(CaptionStatus::Partial));
+            match self.collect() {
+                Ok(true) => result.extend(self.update(CaptionStatus::Partial)),
+                Ok(false) => {}
+                // The source captions are complete; still deliver them.
+                Err(_) => {
+                    warn!("Offline translation failed while stopping");
+                    self.mark_missing(&active);
+                    break;
+                }
             }
             self.dispatch(&active);
             if self.idle(&active) {
                 break;
             }
             if Instant::now() >= deadline {
-                // Show that speech is missing instead of ending on a
-                // translation that looks complete.
-                for &language in &active {
-                    self.publish(language, GAP);
-                }
+                self.mark_missing(&active);
                 break;
             }
             // A bounded final drain; normal caption delivery never waits.
@@ -815,6 +868,7 @@ mod tests {
                 text: "stale".into(),
             }],
             error: None,
+            fatal: false,
         });
         assert!(!adapter.collect().unwrap());
         assert!(adapter.targets.is_empty());
@@ -911,6 +965,7 @@ for line in sys.stdin:
             revision: 0,
             targets: Vec::new(),
             error: Some("obsolete failure".into()),
+            fatal: false,
         });
         assert!(!adapter.collect().unwrap());
         assert_eq!(
@@ -1228,6 +1283,7 @@ for line in sys.stdin:
                 text: "[一度だけ。]".into(),
             }],
             error: None,
+            fatal: false,
         });
         assert!(!adapter.collect().unwrap());
         assert_eq!(adapter.targets[0].text, "[一度だけ。]");
@@ -1378,6 +1434,22 @@ for line in sys.stdin:
             ),
             // Stable text without a sentence end waits for more speech.
             ("今日は雨が降らないと", "今日は雨が", None),
+            // Abbreviations, initials and list numbers are not sentence ends.
+            (
+                "Dr. Smith said hello. Then",
+                "Dr. Smith said hello. ",
+                Some("Dr. Smith said hello."),
+            ),
+            (
+                "TP. Hồ Chí Minh rất đẹp. Và",
+                "TP. Hồ Chí Minh rất đẹp. ",
+                Some("TP. Hồ Chí Minh rất đẹp."),
+            ),
+            (
+                "1. Open the door. 2",
+                "1. Open the door. ",
+                Some("1. Open the door."),
+            ),
         ];
         for (text, stable, expected) in cases {
             let end = segment_end(text, 0, stable.len(), false);
@@ -1386,6 +1458,80 @@ for line in sys.stdin:
         // Once final, the rest is one segment even without punctuation.
         assert_eq!(segment_end("chào bạn", 0, 10, true), Some(10));
         assert_eq!(segment_end("chào bạn", 10, 10, true), None);
+    }
+
+    #[test]
+    fn a_worker_that_could_not_restart_is_reported_even_after_a_target_change() {
+        use lcrt_core::TargetChange;
+        let root = fixture("fatal");
+        let control = english_control();
+        let mut adapter = adapter(
+            &root,
+            Script {
+                steps: [].into(),
+                last: Vec::new(),
+            },
+            control.clone(),
+        );
+        adapter.in_flight = Some((1, segment("waiting")));
+        control.apply(TargetChange::Pause(Language::English));
+        control.apply(TargetChange::Resume(Language::English));
+        adapter.reconcile();
+        *adapter.worker.as_ref().unwrap().results.lock().unwrap() = Some(Response {
+            id: 1,
+            revision: 0,
+            targets: Vec::new(),
+            error: Some("restart failed".into()),
+            fatal: true,
+        });
+        // Requeueing it would wait forever on a worker that has exited.
+        assert_eq!(adapter.collect().unwrap_err().to_string(), "restart failed");
+        drop(adapter);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_failure_while_stopping_still_delivers_the_final_captions() {
+        let root = fixture("stop-failure");
+        std::fs::write(
+            root.join("worker.py"),
+            "import sys\nprint('{\"ready\":true}', flush=True)\nfor line in sys.stdin:\n print('{\"error\":\"x\"}', flush=True)\n",
+        )
+        .unwrap();
+        let script = Script {
+            steps: [].into(),
+            last: finalized("最後の文です。"),
+        };
+        let mut adapter = adapter(&root, script, english_control());
+        let last = adapter.finish().unwrap().pop().unwrap();
+        assert_eq!(last.status(), CaptionStatus::Final);
+        let lanes = last.translation_lanes().unwrap();
+        assert_eq!(lanes.original, "最後の文です。");
+        assert_eq!(lanes.target(Language::English), Some("…"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pausing_a_lane_marks_where_its_translation_stops() {
+        use lcrt_core::TargetChange;
+        let root = echo_root("pause-gap");
+        let control = english_control();
+        let script = Script {
+            steps: [finalized("前の文です。"), finalized("後の文です。")].into(),
+            last: Vec::new(),
+        };
+        let mut adapter = adapter(&root, script, control.clone());
+        let mut seen = vec![String::new()];
+        english(&adapter.push_audio(speech()).unwrap(), &mut seen);
+        settle(&mut adapter, &mut seen);
+        control.apply(TargetChange::Pause(Language::English));
+        english(&adapter.push_audio(speech()).unwrap(), &mut seen);
+        control.apply(TargetChange::Resume(Language::English));
+        settle(&mut adapter, &mut seen);
+        // The paused sentence is not translated later; its place is marked.
+        assert_eq!(seen.last().unwrap(), "[前の文です。] …");
+        drop(adapter);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
