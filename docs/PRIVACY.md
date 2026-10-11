@@ -10,20 +10,23 @@ What leaves your computer depends only on the mode and features you choose.
 Audio is processed on this device. Audio and transcription stay on this
 device.
 
-The speech model (Whisper Tiny, multilingual) is a file installed with LILOPOP.
+Speech models are installed with LILOPOP. Explicit Japanese and Vietnamese
+use the bundled streaming model. Auto and other languages use Whisper Tiny
+multilingual. A custom Whisper model overrides this selection.
 LILOPOP never downloads a model, checks for model updates or contacts any
 service to caption offline. In this mode it opens no network connection at
 all: the acceptance runs record every socket the app opens, with the network
 removed from its process, and found none (see
-[SHIP_FAST_ACCEPTANCE.md](SHIP_FAST_ACCEPTANCE.md)).
+[the translation report](SHIP_FAST_ACCEPTANCE.md) and
+[the streaming report](STREAMING_JA_VI_ACCEPTANCE.md)).
 
 Offline Captions never fall back to an online service. If the model is
 missing or damaged, LILOPOP says so and does not start.
 
 ## Offline Translation
 
-Speech is recognized by bundled Whisper Tiny multilingual and translated by
-local CTranslate2 / OPUS-MT models. Japanese↔English and Vietnamese↔English
+Speech uses the same local model selection as Offline Captions and is
+translated by local CTranslate2 / OPUS-MT models. Japanese↔English and Vietnamese↔English
 are supported. No key, network access, runtime model download or telemetry is
 used. Unsupported pairs are rejected; there is no automatic online fallback.
 Vocabulary explanations are disabled in both offline modes.

@@ -94,7 +94,7 @@ X11). Ubuntu ARM64 and Windows 10/11 are portability targets.
 ## 🧭 Four modes, one window
 
 <div align="center">
-<img src="docs/assets/lcrt-flow.svg" alt="Audio from the system or the microphone is captured with PipeWire and goes to exactly one backend: Whisper on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context." width="100%">
+<img src="docs/assets/lcrt-flow.svg" alt="Audio from the system or the microphone is captured with PipeWire and goes to exactly one backend: local speech recognition on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context." width="100%">
 </div>
 
 | Mode | Engine | Languages | Needs |
