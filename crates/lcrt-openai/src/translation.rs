@@ -20,7 +20,7 @@ const SOURCE_TRANSCRIPTION_MODEL: &str = "gpt-realtime-whisper";
 /// The service consumes 200 ms frames (4,800 samples at 24 kHz).
 const APPEND_SAMPLES: usize = 4_800;
 /// Recent text kept per lane; the stream has no turn boundaries.
-const MAX_LANE_BYTES: usize = 360;
+pub const MAX_LANE_BYTES: usize = 360;
 
 /// Client state for one translation session.
 pub struct TranslationProtocol {
