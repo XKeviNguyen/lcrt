@@ -566,13 +566,16 @@ impl LocalTranslation {
             while !text.is_char_boundary(limit) {
                 limit -= 1;
             }
-            self.accepted = text[..limit].rfind(&self.anchor).map_or_else(
-                || {
+            match text[..limit].rfind(&self.anchor) {
+                Some(start) => self.accepted = start + self.anchor.len(),
+                None => {
+                    // Skip what is pending, visibly, and continue from here.
                     warn!("Offline translation lost its place in a long utterance");
-                    end
-                },
-                |start| start + self.anchor.len(),
-            );
+                    self.accepted = end;
+                    self.anchor.clear();
+                    self.mark_missing(active);
+                }
+            }
         }
         while let Some(cut) = segment_end(text, self.accepted, end, closed) {
             let segment = &text[self.accepted..cut];
@@ -661,7 +664,7 @@ fn segment_end(text: &str, start: usize, end: usize, closed: bool) -> Option<usi
         if (FULL_STOPS.contains(&mark) && !next.is_some_and(|next| CLOSERS.contains(&next)))
             || (SPACED_STOPS.contains(&mark)
                 && next.is_none_or(char::is_whitespace)
-                && !abbreviation(&span[..index]))
+                && !(mark == '.' && abbreviation(&span[..index])))
         {
             return Some(start + after);
         }
@@ -681,14 +684,14 @@ fn segment_end(text: &str, start: usize, end: usize, closed: bool) -> Option<usi
     }))
 }
 
-/// Whether the word before a stop at the end of `text` is likely an
-/// abbreviation, initial or list number ("Dr.", "J.", "TP.", "1."). Missing a
-/// sentence end only delays it; a false one translates half a sentence.
+/// Whether the word before a full stop at the end of `text` is likely an
+/// abbreviation, initial or list number ("Dr.", "J.", "TP.", "e.g.", "1.").
+/// Missing a sentence end only delays it; a false one translates half a
+/// sentence, so short capitalized words such as "John." also wait.
 fn abbreviation(text: &str) -> bool {
     let word = text.rsplit(char::is_whitespace).next().unwrap_or_default();
-    let length = word.chars().count();
-    length < 3
-        || (length <= 4 && word.chars().next().is_some_and(char::is_uppercase))
+    (word.chars().count() <= 4 && word.chars().next().is_some_and(char::is_uppercase))
+        || word.contains('.')
         || word.chars().all(|character| character.is_ascii_digit())
 }
 
@@ -1236,6 +1239,30 @@ for line in sys.stdin:
     }
 
     #[test]
+    fn losing_its_place_marks_a_gap_and_keeps_translating() {
+        let root = echo_root("lost");
+        let script = Script {
+            steps: [
+                partial("一つ。", "続き"),
+                // Text that no longer contains the accepted sentence.
+                partial("別の文。", "続き"),
+                partial("別の文。三つ目。", "続き"),
+            ]
+            .into(),
+            last: Vec::new(),
+        };
+        let mut adapter = adapter(&root, script, english_control());
+        let mut seen = vec![String::new()];
+        for _ in 0..3 {
+            english(&adapter.push_audio(speech()).unwrap(), &mut seen);
+            settle(&mut adapter, &mut seen);
+        }
+        assert_eq!(seen.last().unwrap(), "[一つ。] … [三つ目。]");
+        drop(adapter);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn falling_behind_skips_the_oldest_waiting_speech_and_marks_the_gap() {
         let root = echo_root("overload");
         std::fs::write(root.join("hold1"), "").unwrap();
@@ -1450,6 +1477,14 @@ for line in sys.stdin:
                 "1. Open the door. ",
                 Some("1. Open the door."),
             ),
+            (
+                "See e.g. this. Next",
+                "See e.g. this. ",
+                Some("See e.g. this."),
+            ),
+            // Short lowercase and exclaimed endings still end a sentence.
+            ("Mình đi. Rồi", "Mình đi. ", Some("Mình đi.")),
+            ("Go! Now", "Go! ", Some("Go!")),
         ];
         for (text, stable, expected) in cases {
             let end = segment_end(text, 0, stable.len(), false);
