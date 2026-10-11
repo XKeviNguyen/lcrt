@@ -9,8 +9,8 @@ use std::{
 use gtk::{gdk, glib, prelude::*};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use lcrt_core::{
-    AudioSourceDescriptor, Language, LanguageSelection, Preferences, ProcessingMode,
-    SessionOptions, TargetChange, TargetStatus, TranslationTargets,
+    AppearancePreferences, AudioSourceDescriptor, Language, LanguageSelection, Preferences,
+    ProcessingMode, SessionOptions, TargetChange, TargetStatus, TranslationTargets,
 };
 use libadwaita as adw;
 use tracing::{debug, info};
@@ -24,6 +24,7 @@ use crate::{
         SessionPhase, active_status, caption_css, lane_layout, merge_target_statuses,
         open_sessions, preferred_source_index, privacy_notice, source_label, translation_status,
     },
+    theme::{palette, theme_css},
 };
 
 const NORMAL_APPLICATION_ID: &str = "io.github.hoangnguyen7474.Lcrt";
@@ -160,6 +161,8 @@ struct CaptionWindow {
     error_revealer: gtk::Revealer,
     captions: CaptionViews,
     vocabulary: OnceCell<Rc<Vocabulary>>,
+    /// The one stylesheet of every LILOPOP window: theme and caption style.
+    /// Each change replaces its contents.
     css: gtk::CssProvider,
     actions: SyncSender<CaptionUiAction>,
     last_credential: RefCell<Option<CredentialView>>,
@@ -224,6 +227,7 @@ impl CaptionWindow {
 
         let controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         controls.set_margin_top(10);
+        controls.add_css_class("session-controls");
         for widget in [
             mode.upcast_ref::<gtk::Widget>(),
             source.upcast_ref(),
@@ -243,10 +247,10 @@ impl CaptionWindow {
             .xalign(0.0)
             .hexpand(true)
             .build();
-        error.add_css_class("error");
         let error_settings = gtk::Button::with_label("Open Settings");
         error_settings.set_valign(gtk::Align::Center);
         let error_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        error_row.add_css_class("error-banner");
         error_row.append(&error);
         error_row.append(&error_settings);
         let error_revealer = gtk::Revealer::builder()
@@ -348,6 +352,12 @@ impl CaptionWindow {
 
         this.initialize_controls();
         this.apply_preferences(&this.preferences.borrow().clone());
+        let weak = Rc::downgrade(&this);
+        adw::StyleManager::default().connect_high_contrast_notify(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.apply_style(&this.preferences.borrow().appearance);
+            }
+        });
         this.connect_controls(&settings);
         if options.sources.is_empty() {
             this.show_error(
@@ -773,9 +783,28 @@ impl CaptionWindow {
         }
     }
 
+    /// Styles every LILOPOP window: the theme, and the caption style. Only
+    /// presentation changes; the session is not touched.
+    fn apply_style(&self, appearance: &AppearancePreferences) {
+        let style = adw::StyleManager::default();
+        let high_contrast = style.is_high_contrast();
+        // High contrast keeps the desktop's own light or dark choice.
+        style.set_color_scheme(if high_contrast {
+            adw::ColorScheme::Default
+        } else if palette(appearance.theme).dark {
+            adw::ColorScheme::ForceDark
+        } else {
+            adw::ColorScheme::ForceLight
+        });
+        let variables = adw::major_version() > 1 || adw::minor_version() >= 6;
+        let mut css = theme_css(appearance.theme, high_contrast, variables);
+        css.push_str(&caption_css(appearance, high_contrast));
+        self.css.load_from_data(&css);
+    }
+
     fn apply_preferences(self: &Rc<Self>, preferences: &Preferences) {
         let appearance = &preferences.appearance;
-        self.css.load_from_data(&caption_css(appearance));
+        self.apply_style(appearance);
         self.window
             .set_default_size(appearance.width, appearance.height);
         self.sync_language();

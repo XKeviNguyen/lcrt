@@ -5,6 +5,7 @@ mod captions;
 mod lane_controls;
 mod preferences;
 mod presentation;
+mod theme;
 mod window;
 
 pub use bridge::{
