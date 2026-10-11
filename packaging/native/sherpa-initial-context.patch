@@ -1,36 +1,15 @@
 --- a/sherpa-onnx/csrc/online-recognizer-transducer-impl.h
 +++ b/sherpa-onnx/csrc/online-recognizer-transducer-impl.h
-@@ -247,6 +247,7 @@
-   }
- 
-   bool IsReady(OnlineStream *s) const override {
+@@ -249,0 +250 @@
 +    if (!PrepareInitialContext(s)) return false;
-     return s->GetNumProcessedFrames() + model_->ChunkSize() <
-            s->NumFramesReady();
-   }
-@@ -286,6 +287,9 @@
-   }
- 
-   void DecodeStreams(OnlineStream **ss, int32_t n) const override {
+@@ -288,0 +290,3 @@
 +    for (int32_t i = 0; i != n; ++i) {
 +      if (!PrepareInitialContext(ss[i])) return;
 +    }
-     int32_t chunk_size = model_->ChunkSize();
-     int32_t chunk_shift = model_->ChunkShift();
- 
-@@ -390,6 +394,8 @@
-   }
- 
-   void Reset(OnlineStream *s) const override {
+@@ -392,0 +397,2 @@
 +    if (!PrepareInitialContext(s)) return;
 +    const auto initial_token = s->GetOption("initial_context_token");
-     int32_t context_size = model_->ContextSize();
- 
-     {
-@@ -405,7 +411,12 @@
-     auto r = decoder_->GetEmptyResult();
-     auto last_result = s->GetResult();
- 
+@@ -408 +414,6 @@
 -    if (static_cast<int32_t>(last_result.tokens.size()) > context_size) {
 +    if (!initial_token.empty()) {
 +      r.tokens.back() = sym_[initial_token];
@@ -38,23 +17,11 @@
 +        s->SetStates(model_->GetEncoderInitStates());
 +      }
 +    } else if (static_cast<int32_t>(last_result.tokens.size()) > context_size) {
-       // if last result is not empty, then
-       // truncate all last hyps and save as the 'ys' context for next result
-       // (the encoder state buffers are kept)
-@@ -432,6 +443,9 @@
-       }
-     }
- 
+@@ -434,0 +446,3 @@
 +    // Copy assignment intentionally preserves an existing empty-source cache.
 +    // A configured seed needs fresh predictor output after the language reset.
 +    if (!initial_token.empty()) s->GetResult().decoder_out = Ort::Value{nullptr};
-     s->SetResult(r);
- 
-     // Note: We only update counters. The underlying audio samples
-@@ -496,6 +510,47 @@
-     }
-     hotwords_graph_ = std::make_shared<ContextGraph>(
-         hotwords_, config_.hotwords_score, boost_scores_);
+@@ -498,0 +513,41 @@
 +  }
 +
 +  // Stream options preserve the existing C/Rust ABI. Configuration is frozen
@@ -96,6 +63,3 @@
 +    s->SetOption("initial_context_applied", token);
 +    s->SetOption("initial_context_token_id", std::to_string(id));
 +    return true;
-   }
- 
-   void InitOnlineStream(OnlineStream *stream) const {

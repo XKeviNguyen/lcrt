@@ -4,7 +4,7 @@
   "source_url": "https://codeload.github.com/k2-fsa/sherpa-onnx/tar.gz/917bed95c8e5c7c18aa4d69fea42e9ef8ef0a60e",
   "source_sha256": "acf539e930283442c4237b7b23a06ebe3bff10cbc00694a4f09a3580e3c10e9e",
   "patch_file": "packaging/native/sherpa-initial-context.patch",
-  "patch_sha256": "cba9de90753d6ecca615fb0b39267f7f3a4c1607391f7441279b7481db6fac61",
+  "patch_sha256": "36fb87aa0781d7c36f8d8f80177cdbf44a37fa958b0ead7ae09430b7a35df287",
   "onnxruntime": {
     "version": "1.27.1",
     "url": "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.27.1/onnxruntime-linux-x64-glibc2_17-Release-1.27.1.zip",
