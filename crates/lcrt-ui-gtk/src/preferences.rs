@@ -11,11 +11,15 @@ use std::{
 use gtk::{gdk, gio, glib, pango, prelude::*};
 use lcrt_core::{
     AppearancePreferences, GeneralPreferences, Language, LanguageSelection, Preferences, Rgb,
+    Theme,
     preferences::{FONT_SIZE_RANGE, HEIGHT_RANGE, WIDTH_RANGE},
 };
 use libadwaita::{self as adw, prelude::*};
 
-use crate::{CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey};
+use crate::{
+    CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey,
+    theme::{PREVIEW_SWATCHES, css_name},
+};
 
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(400);
 
@@ -499,12 +503,114 @@ fn number_row(title: &str, range: (f64, f64), step: f64) -> (adw::ActionRow, gtk
     (row, spin)
 }
 
+fn theme_description(theme: Theme) -> &'static str {
+    match theme {
+        Theme::PopStudio => "Bold deep purple with pink and yellow accents",
+        Theme::CalmNative => "Light and quiet, close to the Ubuntu desktop",
+        Theme::CinemaFocus => "Dark and low-distraction, for long videos and livestreams",
+    }
+}
+
+/// A few colors of `theme`, beside its name. Decorative: the name says it.
+fn theme_preview(theme: Theme) -> gtk::Box {
+    let preview = gtk::Box::builder()
+        .spacing(3)
+        .valign(gtk::Align::Center)
+        .accessible_role(gtk::AccessibleRole::Presentation)
+        .build();
+    for index in 0..PREVIEW_SWATCHES {
+        let swatch = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        swatch.add_css_class("theme-swatch");
+        swatch.add_css_class(&format!("{}-{index}", css_name(theme)));
+        preview.append(&swatch);
+    }
+    preview
+}
+
+/// The theme choice. A choice applies at once to every LILOPOP window and
+/// is remembered; it never touches a running session.
+fn theme_group(shared: &Rc<PreferencesShared>) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title("Theme")
+        .description("Applies at once to every LILOPOP window and is remembered.")
+        .build();
+    let appearance = shared.preferences.borrow().appearance.clone();
+    let reset = gtk::Button::builder()
+        .label("Reset theme to Pop Studio")
+        .halign(gtk::Align::End)
+        .margin_top(12)
+        .sensitive(appearance.theme != Theme::default())
+        .build();
+    let mut checks: Vec<(Theme, gtk::CheckButton)> = Vec::new();
+    for theme in Theme::ALL {
+        let check = gtk::CheckButton::builder()
+            .valign(gtk::Align::Center)
+            .active(theme == appearance.theme)
+            .build();
+        check.update_property(&[gtk::accessible::Property::Label(theme.label())]);
+        if let Some((_, first)) = checks.first() {
+            check.set_group(Some(first));
+        }
+        let row = adw::ActionRow::builder()
+            .title(theme.label())
+            .subtitle(theme_description(theme))
+            .activatable_widget(&check)
+            .build();
+        row.add_prefix(&check);
+        if theme == Theme::default() {
+            let tag = gtk::Label::builder()
+                .label("Default")
+                .valign(gtk::Align::Center)
+                .build();
+            tag.add_css_class("theme-default-tag");
+            row.add_suffix(&tag);
+        }
+        row.add_suffix(&theme_preview(theme));
+        let (s, reset) = (Rc::clone(shared), reset.clone());
+        check.connect_toggled(move |check| {
+            // Leaving a theme toggles its check off; choosing the current
+            // theme again changes nothing.
+            if check.is_active() && s.preferences.borrow().appearance.theme != theme {
+                s.change(|preferences| preferences.appearance.theme = theme);
+                reset.set_sensitive(theme != Theme::default());
+            }
+        });
+        group.add(&row);
+        checks.push((theme, check));
+    }
+
+    let overlay = adw::SwitchRow::builder()
+        .title("Apply theme to caption overlay too")
+        .subtitle(
+            "Themes the caption title bar, language badges and outline. Caption text, font, \
+             background and opacity keep your caption settings.",
+        )
+        .active(appearance.apply_theme_to_overlay)
+        .build();
+    let s = Rc::clone(shared);
+    overlay.connect_active_notify(move |row| {
+        let active = row.is_active();
+        s.change(|preferences| preferences.appearance.apply_theme_to_overlay = active);
+    });
+    group.add(&overlay);
+
+    reset.connect_clicked(move |_| {
+        // Selecting the default theme's check stores it, as a click would.
+        if let Some((_, check)) = checks.iter().find(|(theme, _)| *theme == Theme::default()) {
+            check.set_active(true);
+        }
+    });
+    group.add(&reset);
+    group
+}
+
 fn appearance_page(shared: &Rc<PreferencesShared>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::builder()
         .title("Appearance")
         .name("appearance")
         .icon_name("applications-graphics-symbolic")
         .build();
+    page.add(&theme_group(shared));
     let group = adw::PreferencesGroup::builder()
         .title("Captions")
         .description("Changes preview immediately and are remembered.")
@@ -556,7 +662,7 @@ fn appearance_page(shared: &Rc<PreferencesShared>) -> adw::PreferencesPage {
         20.0,
     );
     let reset = gtk::Button::builder()
-        .label("Reset appearance to defaults")
+        .label("Reset caption style to defaults")
         .halign(gtk::Align::End)
         .margin_top(12)
         .build();
@@ -640,9 +746,11 @@ fn appearance_page(shared: &Rc<PreferencesShared>) -> adw::PreferencesPage {
     });
     let s = change(shared);
     reset.connect_clicked(move |_| {
-        // Credentials and other preferences are untouched.
-        s.change(|preferences| preferences.appearance = AppearancePreferences::default());
-        fill(&AppearancePreferences::default());
+        // The theme, credentials and other preferences are untouched.
+        s.change(|preferences| preferences.appearance.reset_caption_style());
+        // Filling the rows calls `change` again, so the borrow ends first.
+        let appearance = s.preferences.borrow().appearance.clone();
+        fill(&appearance);
     });
 
     for row in [

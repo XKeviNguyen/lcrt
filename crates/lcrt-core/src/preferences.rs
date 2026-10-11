@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::IgnoredAny};
 
 use crate::{CaptionLane, Language, LanguageSelection, ProcessingMode, TranslationTargets};
 
@@ -187,10 +187,59 @@ impl Default for GeneralPreferences {
     }
 }
 
-/// Caption surface presentation.
+/// The look of LILOPOP's own windows and controls.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    /// Deep purple with pink and yellow accents: LILOPOP's own look.
+    #[default]
+    PopStudio,
+    /// Light and quiet, close to the Ubuntu desktop.
+    CalmNative,
+    /// Dark and low-distraction, for long videos and livestreams.
+    CinemaFocus,
+}
+
+impl Theme {
+    /// Every theme, in the order Settings lists them.
+    pub const ALL: [Self; 3] = [Self::PopStudio, Self::CalmNative, Self::CinemaFocus];
+
+    /// Name shown to the user.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::PopStudio => "Pop Studio",
+            Self::CalmNative => "Calm Native",
+            Self::CinemaFocus => "Cinema Focus",
+        }
+    }
+}
+
+/// Reads a stored theme, taking an unknown or malformed value as the
+/// default theme so it can't discard the rest of the preferences.
+fn stored_theme<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Theme, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Stored {
+        Known(Theme),
+        Unknown(IgnoredAny),
+    }
+    Ok(match Stored::deserialize(deserializer)? {
+        Stored::Known(theme) => theme,
+        Stored::Unknown(_) => Theme::default(),
+    })
+}
+
+/// Caption surface presentation, and the theme of the windows around it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppearancePreferences {
+    /// Theme of LILOPOP's windows and controls.
+    #[serde(deserialize_with = "stored_theme")]
+    pub theme: Theme,
+    /// Whether the theme also styles the caption surface's title bar,
+    /// language badges and outline. Caption text, font, background and
+    /// opacity always follow the caption settings below.
+    pub apply_theme_to_overlay: bool,
     /// Font family, or `None` for the system default.
     pub font_family: Option<String>,
     /// Caption font size in points.
@@ -210,6 +259,8 @@ pub struct AppearancePreferences {
 impl Default for AppearancePreferences {
     fn default() -> Self {
         Self {
+            theme: Theme::default(),
+            apply_theme_to_overlay: false,
             font_family: None,
             font_size_points: 32.0,
             text_color: Rgb::new(0xff, 0xff, 0xff),
@@ -222,6 +273,16 @@ impl Default for AppearancePreferences {
 }
 
 impl AppearancePreferences {
+    /// Restores the default caption style: font, colors, opacity and size.
+    /// The theme is kept.
+    pub fn reset_caption_style(&mut self) {
+        *self = Self {
+            theme: self.theme,
+            apply_theme_to_overlay: self.apply_theme_to_overlay,
+            ..Self::default()
+        };
+    }
+
     /// Returns these values clamped to their supported ranges; non-finite
     /// numbers fall back to the defaults.
     pub fn normalized(self) -> Self {
@@ -230,6 +291,8 @@ impl AppearancePreferences {
             if value.is_finite() { value } else { fallback }
         };
         Self {
+            theme: self.theme,
+            apply_theme_to_overlay: self.apply_theme_to_overlay,
             font_family: self
                 .font_family
                 .map(|family| family.trim().to_owned())
@@ -267,8 +330,72 @@ impl Default for VocabularyPreferences {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppearancePreferences, PREFERENCES_VERSION, Preferences, Rgb};
-    use crate::{CaptionLane, Language, LanguageSelection};
+    use super::{AppearancePreferences, PREFERENCES_VERSION, Preferences, Rgb, Theme};
+    use crate::{CaptionLane, Language, LanguageSelection, ProcessingMode};
+
+    /// Preferences that differ from the defaults everywhere a reset could
+    /// reach by mistake.
+    fn customized() -> Preferences {
+        let mut preferences = Preferences::default();
+        preferences.general.default_mode = ProcessingMode::Translation;
+        preferences.general.default_source_id = Some("monitor".to_owned());
+        preferences.general.spoken_language = LanguageSelection::Language(Language::Japanese);
+        preferences
+            .general
+            .set_translation_targets(Some(Language::English), Some(Language::Vietnamese));
+        preferences.vocabulary.enabled = false;
+        preferences.appearance.theme = Theme::CinemaFocus;
+        preferences.appearance.apply_theme_to_overlay = true;
+        preferences.appearance.font_family = Some("Noto Sans CJK JP".to_owned());
+        preferences.appearance.text_color = Rgb::new(250, 240, 10);
+        preferences.appearance.background_opacity = 0.3;
+        preferences
+    }
+
+    #[test]
+    fn pop_studio_is_the_default_theme_and_the_overlay_is_not_themed() {
+        let appearance = Preferences::default().normalized().appearance;
+        assert_eq!(appearance.theme, Theme::PopStudio);
+        assert!(!appearance.apply_theme_to_overlay);
+        assert_eq!(Theme::ALL[0], Theme::PopStudio);
+    }
+
+    #[test]
+    fn resetting_caption_style_keeps_the_theme_and_every_other_setting() {
+        let before = customized();
+        let mut after = before.clone();
+        after.appearance.reset_caption_style();
+        assert_eq!(after.general, before.general);
+        assert_eq!(after.vocabulary, before.vocabulary);
+        assert_eq!(after.appearance.theme, Theme::CinemaFocus);
+        assert!(after.appearance.apply_theme_to_overlay);
+        assert_eq!(after.appearance.font_family, None);
+        assert_eq!(
+            after.appearance.text_color,
+            AppearancePreferences::default().text_color
+        );
+    }
+
+    /// Covers Reset theme too, which chooses Pop Studio.
+    #[test]
+    fn choosing_a_theme_changes_nothing_a_session_depends_on() {
+        let before = customized().normalized();
+        for theme in Theme::ALL {
+            let mut after = before.clone();
+            after.appearance.theme = theme;
+            let after = after.normalized();
+            assert_eq!(after.general, before.general);
+            assert_eq!(
+                after.general.translation_targets(),
+                before.general.translation_targets()
+            );
+            assert_eq!(after.vocabulary, before.vocabulary);
+            // Caption style is the user's, whatever the theme.
+            let mut style = after.appearance.clone();
+            style.theme = before.appearance.theme;
+            assert_eq!(style, before.appearance);
+        }
+    }
 
     #[test]
     fn stored_translation_targets_are_corrected_when_loaded() {

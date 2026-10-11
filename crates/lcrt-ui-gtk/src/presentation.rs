@@ -3,8 +3,10 @@
 
 use lcrt_core::{
     AppearancePreferences, AudioSourceDescriptor, AudioSourceKind, CaptionLane, GeneralPreferences,
-    Language, LanguageSelection, ProcessingMode, TargetStatus, TranslationTargets,
+    Language, LanguageSelection, ProcessingMode, Rgb, TargetStatus, TranslationTargets,
 };
+
+use crate::theme::palette;
 
 /// Where the current caption session is in its lifecycle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -269,11 +271,44 @@ pub(crate) fn row_fit(labeled: bool, available: i32, line: i32) -> RowFit {
 
 /// Stylesheet for the caption surface. Fallback families always follow the
 /// chosen one so Japanese and Vietnamese glyphs keep rendering.
+///
+/// Caption text, font, background and opacity are always the user's. Text
+/// around the captions (title bar, status, notices) takes the caption text
+/// color, so it reads wherever the captions do. Only when the theme is
+/// applied to the overlay does it restyle the title bar, the language
+/// badges and the outline.
 pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
     let family = css_font_family(appearance.font_family.as_deref())
         .map(|family| format!("font-family: \"{family}\", sans-serif;"))
         .unwrap_or_default();
     let background = appearance.background_color;
+    let text = appearance.text_color.to_hex();
+    let opacity = appearance.background_opacity;
+    let with_opacity = |color: Rgb| {
+        format!(
+            "rgba({}, {}, {}, {opacity:.3})",
+            color.red, color.green, color.blue
+        )
+    };
+    let (header, header_text, badge, badge_text, outline) = if appearance.apply_theme_to_overlay {
+        let palette = palette(appearance.theme);
+        let accent = palette.accent.to_hex();
+        (
+            with_opacity(palette.header),
+            palette.header_ink.to_hex(),
+            accent.clone(),
+            palette.accent_ink.to_hex(),
+            format!("box-shadow: inset 0 0 0 1px {accent};"),
+        )
+    } else {
+        (
+            with_opacity(background),
+            text.clone(),
+            format!("alpha({text}, 0.16)"),
+            text.clone(),
+            String::new(),
+        )
+    };
     // The badge sits level with the first line of its row's text: half the
     // difference between the two line heights (points to pixels is 4/3, and
     // a line is about 1.3 times its font size).
@@ -284,15 +319,15 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
         "window.caption-overlay, window.caption-overlay > contents, \
          window.caption-overlay toolbarview {{ background-color: transparent; }}\n\
          window.caption-overlay headerbar {{ \
-             background-color: rgba({r}, {g}, {b}, {opacity:.3}); box-shadow: none; }}\n\
-         .caption-panel {{ background-color: rgba({r}, {g}, {b}, {opacity:.3}); \
-             border-radius: 16px; }}\n\
+             background-color: {header}; color: {header_text}; box-shadow: none; }}\n\
+         .caption-panel {{ background-color: {panel}; color: {text}; \
+             border-radius: 16px; padding: 0 8px 8px; {outline} }}\n\
          textview.caption-text, textview.caption-text text {{ background-color: transparent; \
              color: {text}; {family} font-size: {size:.1}pt; }}\n\
          textview.caption-original, textview.caption-original text {{ \
              background-color: transparent; color: {text}; opacity: 0.82; {family} \
              font-size: {size:.1}pt; }}\n\
-         .lane-badge {{ color: {text}; background-color: alpha({text}, 0.16); \
+         .lane-badge {{ color: {badge_text}; background-color: {badge}; \
              border-radius: 9px; padding: 2px 9px; font-weight: 700; \
              font-size: {badge_size:.1}pt; letter-spacing: 1px; min-width: 2.3em; \
              margin-top: {badge_offset:.0}px; }}\n\
@@ -301,13 +336,8 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
          scrolledwindow.lane-badge-holder overshoot {{ \
              background: none; box-shadow: none; }}\n\
          splitbutton.hidden-lane > button:first-child {{ opacity: 0.45; }}\n\
-         .caption-notice {{ font-size: smaller; }}\n\
-         .error {{ color: @error_color; padding: 6px; }}",
-        r = background.red,
-        g = background.green,
-        b = background.blue,
-        opacity = appearance.background_opacity,
-        text = appearance.text_color.to_hex(),
+         .caption-notice {{ font-size: smaller; }}",
+        panel = with_opacity(background),
         size = appearance.font_size_points,
         badge_size = badge_size,
         badge_offset = badge_offset,
@@ -317,7 +347,7 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
 #[cfg(test)]
 mod tests {
     use lcrt_core::{
-        AppearancePreferences, AudioSourceDescriptor, AudioSourceKind, ProcessingMode, Rgb,
+        AppearancePreferences, AudioSourceDescriptor, AudioSourceKind, ProcessingMode, Rgb, Theme,
     };
 
     use super::{
@@ -574,6 +604,72 @@ mod tests {
         );
         assert_eq!(css_font_family(Some("Evil\"; } * { color: red")), None);
         assert_eq!(css_font_family(None), None);
+    }
+
+    fn custom_caption_style() -> AppearancePreferences {
+        AppearancePreferences {
+            font_family: Some("Noto Sans CJK JP".to_owned()),
+            font_size_points: 44.0,
+            text_color: Rgb::new(0x10, 0xe0, 0x30),
+            background_color: Rgb::new(0x05, 0x06, 0x07),
+            background_opacity: 0.4,
+            ..AppearancePreferences::default()
+        }
+    }
+
+    #[test]
+    fn switching_themes_leaves_the_caption_overlay_alone_unless_asked() {
+        let mut appearance = custom_caption_style();
+        let before = caption_css(&appearance);
+        for theme in Theme::ALL {
+            appearance.theme = theme;
+            assert_eq!(caption_css(&appearance), before, "{theme:?}");
+        }
+        // The title bar and the text around the captions take the caption
+        // text color, so they read on the caption background in any theme.
+        assert!(
+            before.contains("headerbar { background-color: rgba(5, 6, 7, 0.400); color: #10e030;")
+        );
+        assert!(
+            before.contains(
+                ".caption-panel { background-color: rgba(5, 6, 7, 0.400); color: #10e030;"
+            )
+        );
+    }
+
+    #[test]
+    fn a_themed_overlay_keeps_the_user_s_caption_style() {
+        let plain = custom_caption_style();
+        let plain_css = caption_css(&plain);
+        for theme in Theme::ALL {
+            let themed = AppearancePreferences {
+                theme,
+                apply_theme_to_overlay: true,
+                ..plain.clone()
+            };
+            let css = caption_css(&themed);
+            assert_ne!(css, plain_css, "{theme:?}");
+            // Caption text, font, size and background are untouched.
+            for kept in [
+                "textview.caption-text, textview.caption-text text { background-color: transparent; color: #10e030; font-family: \"Noto Sans CJK JP\", sans-serif; font-size: 44.0pt; }",
+                "opacity: 0.82; font-family: \"Noto Sans CJK JP\", sans-serif; font-size: 44.0pt;",
+                ".caption-panel { background-color: rgba(5, 6, 7, 0.400); color: #10e030;",
+            ] {
+                assert!(css.contains(kept), "{theme:?} lost {kept}");
+            }
+        }
+        // Pop Studio's title bar and badges, still at the user's opacity.
+        let pop = caption_css(&AppearancePreferences {
+            apply_theme_to_overlay: true,
+            ..plain
+        });
+        assert!(
+            pop.contains(
+                "headerbar { background-color: rgba(255, 210, 63, 0.400); color: #2a1e5c;"
+            )
+        );
+        assert!(pop.contains(".lane-badge { color: #2a1e5c; background-color: #ffd23f;"));
+        assert!(pop.contains("box-shadow: inset 0 0 0 1px #ffd23f;"));
     }
 
     #[test]
