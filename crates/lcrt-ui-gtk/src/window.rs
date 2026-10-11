@@ -787,13 +787,17 @@ impl CaptionWindow {
     /// presentation changes; the session is not touched.
     fn apply_style(&self, appearance: &AppearancePreferences) {
         let style = adw::StyleManager::default();
-        style.set_color_scheme(if palette(appearance.theme).dark {
+        let high_contrast = style.is_high_contrast();
+        // High contrast keeps the desktop's own light or dark choice.
+        style.set_color_scheme(if high_contrast {
+            adw::ColorScheme::Default
+        } else if palette(appearance.theme).dark {
             adw::ColorScheme::ForceDark
         } else {
             adw::ColorScheme::ForceLight
         });
         let variables = adw::major_version() > 1 || adw::minor_version() >= 6;
-        let mut css = theme_css(appearance.theme, style.is_high_contrast(), variables);
+        let mut css = theme_css(appearance.theme, high_contrast, variables);
         css.push_str(&caption_css(appearance));
         self.css.load_from_data(&css);
     }

@@ -24,7 +24,7 @@ only on request).
 | Caption window control bar (mode, source, language, lane chips, Start/Stop, status, Settings) | Theme | The bar has its own theme-colored surface, so it reads the same over any caption background. |
 | Error banner | Desktop error colors | Solid red banner with white text (6.1:1) and, when useful, an **Open Settings** button. |
 | Caption text, font, size, background color, opacity | Caption style | Never themed. |
-| Caption title bar, language badges, panel outline | Caption style, or theme when **Apply theme to caption overlay too** is on | The title bar keeps the caption background opacity in both cases. |
+| Caption title bar, language badges, panel outline | Caption style, or theme when **Apply theme to caption overlay too** is on | A themed title bar is solid, so its text reads at any caption opacity. |
 | Status, notice and title text around the captions | Caption text color | So it reads wherever the captions do. |
 
 The Preferences entry stores one typed value, `appearance.theme`
@@ -37,8 +37,9 @@ for that field only: the rest of the file still loads.
 to defaults** (formerly "Reset appearance to defaults") resets font, colors,
 opacity and window size, and keeps the theme.
 
-When the desktop asks for high contrast, the theme palette is not applied
-and libadwaita's high-contrast style is used.
+When the desktop asks for high contrast, the theme palette is not applied:
+libadwaita's high-contrast style is used, light or dark as the desktop
+chooses.
 
 ## Palette
 
@@ -91,6 +92,9 @@ theme foundation:
 - The Pop Studio yellow app bar from the visual direction applies to raised
   header bars only. libadwaita's Settings window uses a flat header, which
   shows the window background.
+- On libadwaita older than 1.6 (Ubuntu 24.04), only dim labels and row
+  subtitles get the 70% dimming; other dimmed text keeps libadwaita's 55%.
+  That runtime was not tested.
 - The caption window cannot be narrower than its control bar (about
   670 px at 100% scale, wider with translation lanes), whatever width is
   set in Caption style. This predates themes.

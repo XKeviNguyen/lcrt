@@ -566,13 +566,17 @@ fn theme_group(shared: &Rc<PreferencesShared>) -> adw::PreferencesGroup {
             row.add_suffix(&tag);
         }
         row.add_suffix(&theme_preview(theme));
-        let (s, reset) = (Rc::clone(shared), reset.clone());
+        // Weak: the reset button holds the checks, so a strong reference
+        // back would keep both alive forever.
+        let (s, reset) = (Rc::clone(shared), reset.downgrade());
         check.connect_toggled(move |check| {
             // Leaving a theme toggles its check off; choosing the current
             // theme again changes nothing.
             if check.is_active() && s.preferences.borrow().appearance.theme != theme {
                 s.change(|preferences| preferences.appearance.theme = theme);
-                reset.set_sensitive(theme != Theme::default());
+                if let Some(reset) = reset.upgrade() {
+                    reset.set_sensitive(theme != Theme::default());
+                }
             }
         });
         group.add(&row);

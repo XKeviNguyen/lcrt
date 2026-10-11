@@ -275,8 +275,8 @@ pub(crate) fn row_fit(labeled: bool, available: i32, line: i32) -> RowFit {
 /// Caption text, font, background and opacity are always the user's. Text
 /// around the captions (title bar, status, notices) takes the caption text
 /// color, so it reads wherever the captions do. Only when the theme is
-/// applied to the overlay does it restyle the title bar, the language
-/// badges and the outline.
+/// applied to the overlay does it restyle the title bar (solid, so its text
+/// reads at any opacity), the language badges and the outline.
 pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
     let family = css_font_family(appearance.font_family.as_deref())
         .map(|family| format!("font-family: \"{family}\", sans-serif;"))
@@ -293,8 +293,10 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
     let (header, header_text, badge, badge_text, outline) = if appearance.apply_theme_to_overlay {
         let palette = palette(appearance.theme);
         let accent = palette.accent.to_hex();
+        // Solid, so its text reads at any caption opacity; the captions
+        // below keep the user's opacity.
         (
-            with_opacity(palette.header),
+            palette.header.to_hex(),
             palette.header_ink.to_hex(),
             accent.clone(),
             palette.accent_ink.to_hex(),
@@ -658,16 +660,12 @@ mod tests {
                 assert!(css.contains(kept), "{theme:?} lost {kept}");
             }
         }
-        // Pop Studio's title bar and badges, still at the user's opacity.
+        // Pop Studio's title bar is solid, so its text reads at any opacity.
         let pop = caption_css(&AppearancePreferences {
             apply_theme_to_overlay: true,
             ..plain
         });
-        assert!(
-            pop.contains(
-                "headerbar { background-color: rgba(255, 210, 63, 0.400); color: #2a1e5c;"
-            )
-        );
+        assert!(pop.contains("headerbar { background-color: #ffd23f; color: #2a1e5c;"));
         assert!(pop.contains(".lane-badge { color: #2a1e5c; background-color: #ffd23f;"));
         assert!(pop.contains("box-shadow: inset 0 0 0 1px #ffd23f;"));
     }
