@@ -23,7 +23,7 @@ pub use config::{RuntimeConfig, RuntimeConfigError};
 pub use convert::{AudioConversionError, AudioConverter};
 pub use pipeline::{CaptionPipeline, PipelineError, RunSummary};
 pub use preferences::{
-    AppearancePreferences, GeneralPreferences, Preferences, Rgb, VocabularyPreferences,
+    AppearancePreferences, GeneralPreferences, Preferences, Rgb, Theme, VocabularyPreferences,
 };
 pub use session::{
     CaptionLane, Language, LanguageSelection, MAX_CAPTION_LANES, MAX_TRANSLATION_TARGETS,

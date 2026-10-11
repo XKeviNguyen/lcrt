@@ -104,7 +104,7 @@ impl SettingsStore {
 mod tests {
     use std::{fs, path::PathBuf};
 
-    use lcrt_core::{Language, LanguageSelection, Preferences, ProcessingMode, Rgb};
+    use lcrt_core::{Language, LanguageSelection, Preferences, ProcessingMode, Rgb, Theme};
 
     use super::SettingsStore;
 
@@ -186,6 +186,112 @@ mod tests {
         let repaired = store.load().general;
         assert_eq!(repaired.translation_target, Language::English);
         assert_eq!(repaired.second_translation_target, None);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A file as an earlier LILOPOP wrote it, before themes, with `extra`
+    /// spliced into its appearance section.
+    fn file_without_theme(extra: &str) -> String {
+        format!(
+            r#"{{"version": 1,
+                "general": {{"default_mode": "translation", "default_source_id": "monitor",
+                    "custom_model": "/models/ggml-small.bin",
+                    "spoken_language": {{"language": "japanese"}},
+                    "translation_target": "english",
+                    "second_translation_target": "vietnamese"}},
+                "appearance": {{{extra} "font_family": "Noto Sans CJK JP",
+                    "font_size_points": 40.0,
+                    "text_color": {{"red": 250, "green": 240, "blue": 10}},
+                    "background_opacity": 0.25}},
+                "vocabulary": {{"enabled": false, "explanation_language": "japanese"}}}}"#
+        )
+    }
+
+    fn assert_everything_but_the_theme_survived(loaded: &Preferences) {
+        let general = &loaded.general;
+        assert_eq!(general.default_mode, ProcessingMode::Translation);
+        assert_eq!(general.default_source_id.as_deref(), Some("monitor"));
+        assert_eq!(
+            general.custom_model.as_deref(),
+            Some(std::path::Path::new("/models/ggml-small.bin"))
+        );
+        assert_eq!(
+            general.spoken_language,
+            LanguageSelection::Language(Language::Japanese)
+        );
+        assert_eq!(general.translation_target, Language::English);
+        assert_eq!(
+            general.second_translation_target,
+            Some(Language::Vietnamese)
+        );
+        let appearance = &loaded.appearance;
+        assert_eq!(appearance.font_family.as_deref(), Some("Noto Sans CJK JP"));
+        assert_eq!(appearance.font_size_points, 40.0);
+        assert_eq!(appearance.text_color, Rgb::new(250, 240, 10));
+        assert_eq!(appearance.background_opacity, 0.25);
+        assert!(!loaded.vocabulary.enabled);
+        assert_eq!(loaded.vocabulary.explanation_language, Language::Japanese);
+    }
+
+    #[test]
+    fn a_file_from_before_themes_gets_pop_studio_and_keeps_everything_else() {
+        let directory = scratch("before-themes");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("preferences.json"), file_without_theme("")).unwrap();
+        let loaded = SettingsStore::at(directory.clone()).load();
+        assert_eq!(loaded.appearance.theme, Theme::PopStudio);
+        assert!(!loaded.appearance.apply_theme_to_overlay);
+        assert_everything_but_the_theme_survived(&loaded);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_unknown_or_malformed_theme_falls_back_to_pop_studio_only() {
+        for stored in [
+            r#""theme": "neon_future","#,
+            r#""theme": "PopStudio","#,
+            r#""theme": 42,"#,
+            r#""theme": null,"#,
+            r#""theme": {"calm_native": true},"#,
+        ] {
+            let directory = scratch("unknown-theme");
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(
+                directory.join("preferences.json"),
+                file_without_theme(stored),
+            )
+            .unwrap();
+            let loaded = SettingsStore::at(directory.clone()).load();
+            assert_eq!(loaded.appearance.theme, Theme::PopStudio, "{stored}");
+            assert_everything_but_the_theme_survived(&loaded);
+            // The file was read, not set aside as unreadable.
+            assert!(!directory.join("preferences.json.corrupt").exists());
+            fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[test]
+    fn every_theme_and_the_overlay_choice_survive_a_restart() {
+        let directory = scratch("themes");
+        let store = SettingsStore::at(directory.clone());
+        for theme in Theme::ALL {
+            for apply_theme_to_overlay in [false, true] {
+                let mut preferences = Preferences::default();
+                preferences.appearance.theme = theme;
+                preferences.appearance.apply_theme_to_overlay = apply_theme_to_overlay;
+                store.save(&preferences).unwrap();
+                let loaded = store.load();
+                assert_eq!(loaded.appearance.theme, theme);
+                assert_eq!(
+                    loaded.appearance.apply_theme_to_overlay,
+                    apply_theme_to_overlay
+                );
+                assert_eq!(loaded, preferences.normalized());
+            }
+        }
+        // Stored as a readable name, not a number or a debug string.
+        let text = fs::read_to_string(directory.join("preferences.json")).unwrap();
+        assert!(text.contains(r#""theme": "cinema_focus""#), "{text}");
         fs::remove_dir_all(directory).unwrap();
     }
 
