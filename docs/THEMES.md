@@ -37,7 +37,8 @@ for that field only: the rest of the file still loads.
 to defaults** (formerly "Reset appearance to defaults") resets font, colors,
 opacity and window size, and keeps the theme.
 
-When the desktop asks for high contrast, the theme palette is not applied:
+When the desktop asks for high contrast, the theme palette is not applied,
+not even to the caption overlay:
 libadwaita's high-contrast style is used, light or dark as the desktop
 chooses.
 

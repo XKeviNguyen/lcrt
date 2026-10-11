@@ -798,7 +798,7 @@ impl CaptionWindow {
         });
         let variables = adw::major_version() > 1 || adw::minor_version() >= 6;
         let mut css = theme_css(appearance.theme, high_contrast, variables);
-        css.push_str(&caption_css(appearance));
+        css.push_str(&caption_css(appearance, high_contrast));
         self.css.load_from_data(&css);
     }
 

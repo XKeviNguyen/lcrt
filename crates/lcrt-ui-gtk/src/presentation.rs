@@ -276,8 +276,9 @@ pub(crate) fn row_fit(labeled: bool, available: i32, line: i32) -> RowFit {
 /// around the captions (title bar, status, notices) takes the caption text
 /// color, so it reads wherever the captions do. Only when the theme is
 /// applied to the overlay does it restyle the title bar (solid, so its text
-/// reads at any opacity), the language badges and the outline.
-pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
+/// reads at any opacity), the language badges and the outline, and not
+/// while the desktop asks for `high_contrast`.
+pub(crate) fn caption_css(appearance: &AppearancePreferences, high_contrast: bool) -> String {
     let family = css_font_family(appearance.font_family.as_deref())
         .map(|family| format!("font-family: \"{family}\", sans-serif;"))
         .unwrap_or_default();
@@ -290,27 +291,28 @@ pub(crate) fn caption_css(appearance: &AppearancePreferences) -> String {
             color.red, color.green, color.blue
         )
     };
-    let (header, header_text, badge, badge_text, outline) = if appearance.apply_theme_to_overlay {
-        let palette = palette(appearance.theme);
-        let accent = palette.accent.to_hex();
-        // Solid, so its text reads at any caption opacity; the captions
-        // below keep the user's opacity.
-        (
-            palette.header.to_hex(),
-            palette.header_ink.to_hex(),
-            accent.clone(),
-            palette.accent_ink.to_hex(),
-            format!("box-shadow: inset 0 0 0 1px {accent};"),
-        )
-    } else {
-        (
-            with_opacity(background),
-            text.clone(),
-            format!("alpha({text}, 0.16)"),
-            text.clone(),
-            String::new(),
-        )
-    };
+    let (header, header_text, badge, badge_text, outline) =
+        if appearance.apply_theme_to_overlay && !high_contrast {
+            let palette = palette(appearance.theme);
+            let accent = palette.accent.to_hex();
+            // Solid, so its text reads at any caption opacity; the captions
+            // below keep the user's opacity.
+            (
+                palette.header.to_hex(),
+                palette.header_ink.to_hex(),
+                accent.clone(),
+                palette.accent_ink.to_hex(),
+                format!("box-shadow: inset 0 0 0 1px {accent};"),
+            )
+        } else {
+            (
+                with_opacity(background),
+                text.clone(),
+                format!("alpha({text}, 0.16)"),
+                text.clone(),
+                String::new(),
+            )
+        };
     // The badge sits level with the first line of its row's text: half the
     // difference between the two line heights (points to pixels is 4/3, and
     // a line is about 1.3 times its font size).
@@ -622,10 +624,10 @@ mod tests {
     #[test]
     fn switching_themes_leaves_the_caption_overlay_alone_unless_asked() {
         let mut appearance = custom_caption_style();
-        let before = caption_css(&appearance);
+        let before = caption_css(&appearance, false);
         for theme in Theme::ALL {
             appearance.theme = theme;
-            assert_eq!(caption_css(&appearance), before, "{theme:?}");
+            assert_eq!(caption_css(&appearance, false), before, "{theme:?}");
         }
         // The title bar and the text around the captions take the caption
         // text color, so they read on the caption background in any theme.
@@ -642,14 +644,14 @@ mod tests {
     #[test]
     fn a_themed_overlay_keeps_the_user_s_caption_style() {
         let plain = custom_caption_style();
-        let plain_css = caption_css(&plain);
+        let plain_css = caption_css(&plain, false);
         for theme in Theme::ALL {
             let themed = AppearancePreferences {
                 theme,
                 apply_theme_to_overlay: true,
                 ..plain.clone()
             };
-            let css = caption_css(&themed);
+            let css = caption_css(&themed, false);
             assert_ne!(css, plain_css, "{theme:?}");
             // Caption text, font, size and background are untouched.
             for kept in [
@@ -661,25 +663,44 @@ mod tests {
             }
         }
         // Pop Studio's title bar is solid, so its text reads at any opacity.
-        let pop = caption_css(&AppearancePreferences {
-            apply_theme_to_overlay: true,
-            ..plain
-        });
+        let pop = caption_css(
+            &AppearancePreferences {
+                apply_theme_to_overlay: true,
+                ..plain
+            },
+            false,
+        );
         assert!(pop.contains("headerbar { background-color: #ffd23f; color: #2a1e5c;"));
         assert!(pop.contains(".lane-badge { color: #2a1e5c; background-color: #ffd23f;"));
         assert!(pop.contains("box-shadow: inset 0 0 0 1px #ffd23f;"));
     }
 
     #[test]
+    fn high_contrast_keeps_the_overlay_out_of_the_theme() {
+        let themed = AppearancePreferences {
+            apply_theme_to_overlay: true,
+            ..custom_caption_style()
+        };
+        assert_eq!(
+            caption_css(&themed, true),
+            caption_css(&custom_caption_style(), true)
+        );
+        assert_ne!(caption_css(&themed, false), caption_css(&themed, true));
+    }
+
+    #[test]
     fn css_reflects_colors_opacity_size_and_keeps_a_fallback_family() {
-        let css = caption_css(&AppearancePreferences {
-            font_family: Some("Ubuntu".to_owned()),
-            font_size_points: 40.0,
-            text_color: Rgb::new(255, 255, 0),
-            background_color: Rgb::new(0, 0, 0),
-            background_opacity: 0.0,
-            ..AppearancePreferences::default()
-        });
+        let css = caption_css(
+            &AppearancePreferences {
+                font_family: Some("Ubuntu".to_owned()),
+                font_size_points: 40.0,
+                text_color: Rgb::new(255, 255, 0),
+                background_color: Rgb::new(0, 0, 0),
+                background_opacity: 0.0,
+                ..AppearancePreferences::default()
+            },
+            false,
+        );
         assert!(css.contains("color: #ffff00"));
         assert!(css.contains("rgba(0, 0, 0, 0.000)"));
         assert!(css.contains("font-size: 40.0pt"));
