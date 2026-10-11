@@ -13,6 +13,62 @@
       "license_file": "packaging/licenses/whisper-MIT.txt",
       "copyright": "Copyright (c) 2022 OpenAI (Whisper weights); ggml conversion by the whisper.cpp authors",
       "destination": "usr/share/lcrt/models/ggml-tiny.bin"
+    },
+    {
+      "id": "streaming-ja-vi-encoder",
+      "purpose": "Offline Captions: Japanese and Vietnamese streaming speech engine",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
+      "revision": "c6726c1147387ad2a11148b33973135d92a55e6c",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/c6726c1147387ad2a11148b33973135d92a55e6c/encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+      "file": "encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+      "size": 296583597,
+      "sha256": "f9001ed7a9e46d0294438c1a30cd7c72d1cc4bdd4e7880edbcda36f67081e32e",
+      "license": "Apache-2.0",
+      "license_file": "packaging/licenses/streaming-Apache-2.0.txt",
+      "copyright": "PengChengStarling contributors; sherpa-onnx export and quantization by Fangjun Kuang",
+      "destination": "usr/share/lcrt/models/encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx"
+    },
+    {
+      "id": "streaming-ja-vi-decoder",
+      "purpose": "Offline Captions: Japanese and Vietnamese streaming speech engine",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
+      "revision": "c6726c1147387ad2a11148b33973135d92a55e6c",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/c6726c1147387ad2a11148b33973135d92a55e6c/decoder-epoch-75-avg-11-chunk-16-left-128.onnx",
+      "file": "decoder-epoch-75-avg-11-chunk-16-left-128.onnx",
+      "size": 33837085,
+      "sha256": "7ebc63f34b21c8efb4a41a5a2eee7fe1448829ce0230ecc5369e67fc14d90d48",
+      "license": "Apache-2.0",
+      "license_file": "packaging/licenses/streaming-Apache-2.0.txt",
+      "copyright": "PengChengStarling contributors; sherpa-onnx export and quantization by Fangjun Kuang",
+      "destination": "usr/share/lcrt/models/decoder-epoch-75-avg-11-chunk-16-left-128.onnx"
+    },
+    {
+      "id": "streaming-ja-vi-joiner",
+      "purpose": "Offline Captions: Japanese and Vietnamese streaming speech engine",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
+      "revision": "c6726c1147387ad2a11148b33973135d92a55e6c",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/c6726c1147387ad2a11148b33973135d92a55e6c/joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+      "file": "joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+      "size": 8257421,
+      "sha256": "db88e3172323551abaa99b91b18fb422a27ea4a834fd0db10389f9478816f917",
+      "license": "Apache-2.0",
+      "license_file": "packaging/licenses/streaming-Apache-2.0.txt",
+      "copyright": "PengChengStarling contributors; sherpa-onnx export and quantization by Fangjun Kuang",
+      "destination": "usr/share/lcrt/models/joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx"
+    },
+    {
+      "id": "streaming-ja-vi-tokens",
+      "purpose": "Offline Captions: Japanese and Vietnamese streaming speech engine",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
+      "revision": "c6726c1147387ad2a11148b33973135d92a55e6c",
+      "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/c6726c1147387ad2a11148b33973135d92a55e6c/tokens.txt",
+      "file": "tokens.txt",
+      "size": 195244,
+      "sha256": "784f24950f6bcce1b0021035632dd60fd4617ecd8ca0581ab57d7b39d77ba5ab",
+      "license": "Apache-2.0",
+      "license_file": "packaging/licenses/streaming-Apache-2.0.txt",
+      "copyright": "PengChengStarling contributors; sherpa-onnx export and quantization by Fangjun Kuang",
+      "destination": "usr/share/lcrt/models/tokens.txt"
     }
   ]
 }

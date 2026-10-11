@@ -31,7 +31,7 @@ application, exercise platform adapters, or validate runtime behavior.
 
 ## Platform adapters
 
-Linux V1 adapters own PipeWire capture, local whisper.cpp integration, and
+Linux adapters own PipeWire capture, local speech recognition, and
 GTK4/libadwaita presentation. The `lcrt-app` binary enumerates sources and owns
 only lifecycle orchestration: a controller thread starts a cancellable pipeline
 worker while the GTK main thread remains dedicated to presentation. Adapters
@@ -64,12 +64,12 @@ when the window closes, so UI closure never waits on native inference. A worker
 permanently blocked in model loading or inference cannot be force-terminated
 safely; cancellable model loading is a later STT lifecycle milestone.
 
-Also deferred: PipeWire source refresh, capture-error final transcript
-flushing, V2 translation, and packaging.
+Also deferred: PipeWire source refresh and capture-error final transcript
+flushing.
 
 ### Local translation
 
-Offline Translation wraps the Whisper adapter with an independent CPU worker
+Offline Translation wraps the selected speech adapter with an independent CPU worker
 using CTranslate2 and int8 Helsinki OPUS-MT models. Source updates return
 immediately. One replaceable pending speech window and one in-flight window
 bound work; the worker does not retranslate accumulated history. Live target
@@ -82,3 +82,25 @@ The package contains the worker, verified runtime wheels, and four converted
 models. Conversion and external retrieval happen only at build time. Offline
 paths never construct an online transcriber, and vocabulary cloud lookups are
 disabled while an offline session is active.
+
+### Japanese and Vietnamese streaming speech
+
+`lcrt-app::models::speech_model` chooses `lcrt-stt-sherpa` for explicit Japanese
+and Vietnamese with the built-in pack. Auto, other languages, and custom
+Whisper paths keep `lcrt-stt-whisper`. The controller feeds either adapter into
+the same pipeline and local translation wrapper.
+
+The streaming adapter verifies the pinned model hashes before native loading.
+One pipeline thread owns the recognizer and stream, feeds 20 ms increments,
+and performs greedy decoding with one CPU inference thread. Partials replace
+the current utterance, endpoints finalize it once, and Stop flushes the tail.
+GTK already replaces only the changed suffix, preserving the visible prefix.
+The existing eight-chunk PipeWire queue and controller generations remain
+authoritative for capture pressure and session ownership.
+
+The source patch uses existing stream options to select a vocabulary-derived
+language seed. It changes no C ABI structures or Rust binding layout. Configured
+reset restores the language seed and clears the decoder cache explicitly.
+Default streams retain upstream blank initialization and reset behavior. Rust
+requires the patched runtime's seed acknowledgment before starting capture.
+See [the native proof and reproduction steps](../experiments/sherpa-ja-vi/README.md).

@@ -1,0 +1,16 @@
+[package]
+name = "lcrt-sherpa-ja-vi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+sherpa-onnx = { version = "=1.13.7", default-features = false, features = ["shared"] }
+hound = "3.5.1"
+serde_json = "1.0"
+
+[lints.rust]
+unsafe_code = "forbid"

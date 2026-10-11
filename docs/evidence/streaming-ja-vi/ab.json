@@ -1,0 +1,1037 @@
+{
+  "dataset": "google/fleurs",
+  "license": "CC-BY-4.0",
+  "split": "validation",
+  "runs": [
+    {
+      "clip": "ja_jp-0",
+      "fleurs_id": 1519,
+      "reference": "多くの場合、海外のギャップイヤーコースに入学することで、帰国後に実際に大学に進学しやすくなります。",
+      "predefined_useful_phrase": "多くの場合",
+      "engines": {
+        "whisper": {
+          "schema_version": 1,
+          "word_milestones": [
+            {
+              "words": 1,
+              "ms": 1240.07,
+              "text": "大阪は、大阪は"
+            },
+            {
+              "words": 3,
+              "ms": null,
+              "text": null
+            },
+            {
+              "words": 5,
+              "ms": null,
+              "text": null
+            }
+          ],
+          "mode": "paced",
+          "model_startup_ms": 70.768,
+          "audio_duration_ms": 11100.0,
+          "first_partial_ms": 1240.07,
+          "first_final_ms": 11465.067,
+          "completion_ms": 11465.107,
+          "real_time_factor": null,
+          "inference_count": 19,
+          "update_count": 19,
+          "transcript": "オークの場合、会がのギャップやコースに似合することで、機閣を実際に対側に進んでいたいが、新しい新しいタイガープに進んでいたいが、新lent障疫だ。お子の場合。解画のガップ、アイパフォースの比較することで、必顷に実際に大画に新作しาしら、その供品で誇ったキーキカイガーのギャップやコースに似合くすることで、機閣を実際に大学に新学しやすくなります。キャップやコースに入学することで、機関を実際に対側に新学しやすくなります。キャップやコースに似合がくすることで、機関方に実際に対側に新駆しやすくなります。",
+          "resource": "CPU=200% RSS_KIB=134172 ELAPSED=11.54",
+          "changes": [
+            {
+              "ms": 1240.07,
+              "text": "大阪は、大阪は",
+              "final": false
+            },
+            {
+              "ms": 1800.202,
+              "text": "アイスタイルは、アイスタ",
+              "final": false
+            },
+            {
+              "ms": 2200.159,
+              "text": "おー",
+              "final": false
+            },
+            {
+              "ms": 2720.149,
+              "text": "ウークの場合",
+              "final": false
+            },
+            {
+              "ms": 3240.042,
+              "text": "オークの場合、海鎧",
+              "final": false
+            },
+            {
+              "ms": 3840.083,
+              "text": "おーこの場合、海鎧のギャプリン",
+              "final": false
+            },
+            {
+              "ms": 4260.218,
+              "text": "オークの場合 海岸のギャップやこそ",
+              "final": false
+            },
+            {
+              "ms": 4800.245,
+              "text": "オークの場合 海鎧のギャッと役抜によかった",
+              "final": false
+            },
+            {
+              "ms": 5280.213,
+              "text": "オーコの場合 海岸のギャッと役抜くすること",
+              "final": false
+            },
+            {
+              "ms": 5800.24,
+              "text": "オークの場合 海岸のギャッと役抜に動かくすることで",
+              "final": false
+            },
+            {
+              "ms": 6300.286,
+              "text": "おーこの場合会場のギャッと役抜くすることで キカクオー",
+              "final": false
+            },
+            {
+              "ms": 7060.122,
+              "text": "おーこの場合会場のギャッと役抜に揺角することで キカコーニー",
+              "final": false
+            },
+            {
+              "ms": 7320.135,
+              "text": "おうこの場合会場のギャッと役抜に動くすることで 企画を実際に",
+              "final": false
+            },
+            {
+              "ms": 7880.214,
+              "text": "オークの場合会画のギャッとやコースに入学することで 機閣王に実際に対側に対側に",
+              "final": false
+            },
+            {
+              "ms": 8480.14,
+              "text": "オークの場合、会がのギャップやコースに似合することで、機閣を実際に対側に進んでいたいが、新しい新しいタイガープに進んでいたいが、新",
+              "final": false
+            },
+            {
+              "ms": 10400.162,
+              "text": "オークの場合、会がのギャップやコースに似合することで、機閣を実際に対側に進んでいたいが、新しい新しいタイガープに進んでいたいが、新lent障疫だ。お子の場合。解画のガップ、アイパフォースの比較することで、必顷に実際に大画に新作しาしら、その供品で誇ったキーキ",
+              "final": false
+            },
+            {
+              "ms": 10680.284,
+              "text": "オークの場合、会がのギャップやコースに似合することで、機閣を実際に対側に進んでいたいが、新しい新しいタイガープに進んでいたいが、新lent障疫だ。お子の場合。解画のガップ、アイパフォースの比較することで、必顷に実際に大画に新作しาしら、その供品で誇ったキーキカイガーのギャップやコースに似合くすることで、機閣を実際に大学に新学しやすくなります。",
+              "final": false
+            },
+            {
+              "ms": 11465.067,
+              "text": "オークの場合、会がのギャップやコースに似合することで、機閣を実際に対側に進んでいたいが、新しい新しいタイガープに進んでいたいが、新lent障疫だ。お子の場合。解画のガップ、アイパフォースの比較することで、必顷に実際に大画に新作しาしら、その供品で誇ったキーキカイガーのギャップやコースに似合くすることで、機閣を実際に大学に新学しやすくなります。キャップやコースに入学することで、機関を実際に対側に新学しやすくなります。",
+              "final": false
+            },
+            {
+              "ms": 11465.067,
+              "text": "オークの場合、会がのギャップやコースに似合することで、機閣を実際に対側に進んでいたいが、新しい新しいタイガープに進んでいたいが、新lent障疫だ。お子の場合。解画のガップ、アイパフォースの比較することで、必顷に実際に大画に新作しาしら、その供品で誇ったキーキカイガーのギャップやコースに似合くすることで、機閣を実際に大学に新学しやすくなります。キャップやコースに入学することで、機関を実際に対側に新学しやすくなります。キャップやコースに似合がくすることで、機関方に実際に対側に新駆しやすくなります。",
+              "final": true
+            }
+          ]
+        },
+        "streaming": {
+          "audio_seconds": 11.1,
+          "changes": [
+            {
+              "ms": 2760.855019,
+              "text": "多く"
+            },
+            {
+              "ms": 3084.088342,
+              "text": "多くの場合"
+            },
+            {
+              "ms": 3405.8070580000003,
+              "text": "多くの場合海外"
+            },
+            {
+              "ms": 3720.7272009999997,
+              "text": "多くの場合海外の"
+            },
+            {
+              "ms": 4039.8004109999997,
+              "text": "多くの場合海外のギャップ"
+            },
+            {
+              "ms": 4365.109345999999,
+              "text": "多くの場合海外のギャップイヤー"
+            },
+            {
+              "ms": 4693.39274,
+              "text": "多くの場合海外のギャップイヤーコース"
+            },
+            {
+              "ms": 5004.29472,
+              "text": "多くの場合海外のギャップイヤーコースに入学"
+            },
+            {
+              "ms": 5327.195867,
+              "text": "多くの場合海外のギャップイヤーコースに入学する"
+            },
+            {
+              "ms": 5649.287423,
+              "text": "多くの場合海外のギャップイヤーコースに入学するこ"
+            },
+            {
+              "ms": 5967.439361000001,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで"
+            },
+            {
+              "ms": 6285.3431,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画"
+            },
+            {
+              "ms": 6924.2161209999995,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画を"
+            },
+            {
+              "ms": 7250.500416999999,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画をに"
+            },
+            {
+              "ms": 7561.713904,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画をに実際に"
+            },
+            {
+              "ms": 8204.217255,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画をに実際に大学に"
+            },
+            {
+              "ms": 8856.400167,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画をに実際に大学に進学し"
+            },
+            {
+              "ms": 9161.851977999999,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画をに実際に大学に進学しやすく"
+            },
+            {
+              "ms": 9483.727751,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画をに実際に大学に進学しやすくなり"
+            },
+            {
+              "ms": 9805.751952999999,
+              "text": "多くの場合海外のギャップイヤーコースに入学することで企画をに実際に大学に進学しやすくなります"
+            }
+          ],
+          "completion_ms": 11145.313642,
+          "decode_calls": 35,
+          "endpoints": 1,
+          "final_segments": [
+            "多くの場合海外のギャップイヤーコースに入学することで企画をに実際に大学に進学しやすくなります"
+          ],
+          "first_nonempty_ms": 2760.855019,
+          "language": "ja",
+          "startup_ms": 2888.4510849999997,
+          "token_id": 6,
+          "resource": "CPU=32% RSS_KIB=504004 ELAPSED=14.08"
+        }
+      },
+      "audio_sha256": "570db11a61ce21c1cd2852bc625def6959898f863aeb2966c22c1ceb1766f510"
+    },
+    {
+      "clip": "ja_jp-1",
+      "fleurs_id": 1608,
+      "reference": "「私は妹やその友人とはぐれてしまったのですが、途中で車椅子に乗った障害者が2人いて、飛び越えて車椅子を押している人たちがいました」とアルマン・ヴェルサーチさんは語っています。",
+      "predefined_useful_phrase": "私は妹やその友人",
+      "engines": {
+        "whisper": {
+          "schema_version": 1,
+          "word_milestones": [
+            {
+              "words": 1,
+              "ms": 6380.276,
+              "text": "私は"
+            },
+            {
+              "words": 3,
+              "ms": 17880.102,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�フェイema負 62 愁väすリinal 支 ヨー instrumentalが2人  allocation"
+            },
+            {
+              "words": 5,
+              "ms": 17880.102,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�フェイema負 62 愁väすリinal 支 ヨー instrumentalが2人  allocation"
+            }
+          ],
+          "mode": "paced",
+          "model_startup_ms": 64.889,
+          "audio_duration_ms": 22860.0,
+          "first_partial_ms": 6380.276,
+          "first_final_ms": 19760.073,
+          "completion_ms": 22875.766,
+          "real_time_factor": null,
+          "inference_count": 22,
+          "update_count": 21,
+          "transcript": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�フェイema負 62 愁väすリinal 支 ヨー instrumentalが2人  allocationがりとりこいとクルマイスを押して引き出しがいました。とアルマンベルサーチさんは方が方とは方とは、アルマンベルサーチさんは方が方が必今回社が2人で飛び越えて車急をしていくとしがいましたとアルマンベルサーチさんはかとっていますとりあえず、とりこいって車枠をしている人がいました。と、アルマンベルサーチさんは固っています。",
+          "resource": "CPU=124% RSS_KIB=135032 ELAPSED=22.95",
+          "changes": [
+            {
+              "ms": 6380.276,
+              "text": "私は",
+              "final": false
+            },
+            {
+              "ms": 7400.116,
+              "text": "私は妹やその",
+              "final": false
+            },
+            {
+              "ms": 7920.111,
+              "text": "私は妹やその友人とは",
+              "final": false
+            },
+            {
+              "ms": 8420.16,
+              "text": "私は妹やその友人とはうりです",
+              "final": false
+            },
+            {
+              "ms": 9020.254,
+              "text": "私は妹やその友人とはうりてしまったのです",
+              "final": false
+            },
+            {
+              "ms": 9600.283,
+              "text": "私は妹やその友人とはうりでしまったのですが",
+              "final": false
+            },
+            {
+              "ms": 10160.104,
+              "text": "私は妹やその友人とは売りてしまったのですが",
+              "final": false
+            },
+            {
+              "ms": 10660.068,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすい",
+              "final": false
+            },
+            {
+              "ms": 11260.213,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいの。",
+              "final": false
+            },
+            {
+              "ms": 11740.134,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのをお会いしが",
+              "final": false
+            },
+            {
+              "ms": 12280.108,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いて",
+              "final": false
+            },
+            {
+              "ms": 13000.2,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと",
+              "final": false
+            },
+            {
+              "ms": 13560.083,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて",
+              "final": false
+            },
+            {
+              "ms": 14100.157,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私",
+              "final": false
+            },
+            {
+              "ms": 14580.295,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押",
+              "final": false
+            },
+            {
+              "ms": 15080.151,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つと",
+              "final": false
+            },
+            {
+              "ms": 15580.348,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�",
+              "final": false
+            },
+            {
+              "ms": 17880.102,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�フェイema負 62 愁väすリinal 支 ヨー instrumentalが2人  allocation",
+              "final": false
+            },
+            {
+              "ms": 18940.099,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�フェイema負 62 愁väすリinal 支 ヨー instrumentalが2人  allocationがりとりこいとクルマイスを押して引き出しがいました。とアルマンベルサーチさんは方が方とは方とは、アルマンベルサーチさんは方が方が必",
+              "final": false
+            },
+            {
+              "ms": 19220.182,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�フェイema負 62 愁väすリinal 支 ヨー instrumentalが2人  allocationがりとりこいとクルマイスを押して引き出しがいました。とアルマンベルサーチさんは方が方とは方とは、アルマンベルサーチさんは方が方が必今回社が2人で飛び越えて車急をしていくとしがいましたとアルマンベルサーチさんはかとっています",
+              "final": false
+            },
+            {
+              "ms": 19760.073,
+              "text": "私は妹やその友人とはうりてしまったのですが、途中でくれまいすいのった紹介者が2人いてと私は妹やその友人とはうりてしまったのですが、途中でくれ前すいのった瞬間に下がふたりいて飛び越えていて飛び越えていて飛び越えていて、飛び越えていて私は妹やその友人とはうりてしまったのですが、途中で車い過ぎのった紹介者が2人いて飛び越えて車い前に行って車い前に行って、車を前に行って、私今音やその友人とはうりてしまったのですが、途中でクルマイスイーのおった紹介者が2人いて、飛び越えてクルマイスを押し押し押し押それやその友人とはぐりでしまったのですが、途中で車急いのった所を迎えしがふたりいて飛び越えて車急を押して一つとして一つとして一つとして一つという事にとはぐりでしまったのですが、途中で車急いのった紹介者が2人で飛び越えて車急を押して一度足が今今今までの時に、とりこいて車急を�フェイema負 62 愁väすリinal 支 ヨー instrumentalが2人  allocationがりとりこいとクルマイスを押して引き出しがいました。とアルマンベルサーチさんは方が方とは方とは、アルマンベルサーチさんは方が方が必今回社が2人で飛び越えて車急をしていくとしがいましたとアルマンベルサーチさんはかとっていますとりあえず、とりこいって車枠をしている人がいました。と、アルマンベルサーチさんは固っています。",
+              "final": true
+            }
+          ]
+        },
+        "streaming": {
+          "audio_seconds": 22.86,
+          "changes": [
+            {
+              "ms": 6610.659683,
+              "text": "たしは"
+            },
+            {
+              "ms": 6920.971996,
+              "text": "たしは妹"
+            },
+            {
+              "ms": 7245.845718,
+              "text": "たしは妹や"
+            },
+            {
+              "ms": 7566.585094,
+              "text": "たしは妹やその"
+            },
+            {
+              "ms": 7886.388529999999,
+              "text": "たしは妹やその友"
+            },
+            {
+              "ms": 8200.526520000001,
+              "text": "たしは妹やその友人と"
+            },
+            {
+              "ms": 8527.278383,
+              "text": "たしは妹やその友人とはぐれて"
+            },
+            {
+              "ms": 8841.605094,
+              "text": "たしは妹やその友人とはぐれてしまっ"
+            },
+            {
+              "ms": 9167.587951,
+              "text": "たしは妹やその友人とはぐれてしまった"
+            },
+            {
+              "ms": 9487.432969,
+              "text": "たしは妹やその友人とはぐれてしまったのですが"
+            },
+            {
+              "ms": 9809.652394,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途"
+            },
+            {
+              "ms": 10127.966756,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で"
+            },
+            {
+              "ms": 10446.62053,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車"
+            },
+            {
+              "ms": 10760.814492,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いす"
+            },
+            {
+              "ms": 11086.070355,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗っ"
+            },
+            {
+              "ms": 11406.256318,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った"
+            },
+            {
+              "ms": 11727.445976,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者"
+            },
+            {
+              "ms": 12043.588118000001,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が"
+            },
+            {
+              "ms": 12418.318237,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人い"
+            },
+            {
+              "ms": 12684.142975,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて"
+            },
+            {
+              "ms": 13325.183002,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び"
+            },
+            {
+              "ms": 13641.148805,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて"
+            },
+            {
+              "ms": 13962.612241,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車"
+            },
+            {
+              "ms": 14290.521998999999,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いす"
+            },
+            {
+              "ms": 14604.389973,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押し"
+            },
+            {
+              "ms": 14924.057918999999,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している"
+            },
+            {
+              "ms": 15240.016239999999,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人た"
+            },
+            {
+              "ms": 15566.951084,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがい"
+            },
+            {
+              "ms": 15884.409783000001,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいまし"
+            },
+            {
+              "ms": 16205.89515,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいました"
+            },
+            {
+              "ms": 16846.593952,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたと"
+            },
+            {
+              "ms": 17167.790189000003,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマン"
+            },
+            {
+              "ms": 17487.02684,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマンベル"
+            },
+            {
+              "ms": 17807.080234,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマンベルサーチさ"
+            },
+            {
+              "ms": 18129.788814,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマンベルサーチさんは"
+            },
+            {
+              "ms": 18447.780845,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマンベルサーチさんは語って"
+            },
+            {
+              "ms": 18763.399901,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマンベルサーチさんは語っていま"
+            },
+            {
+              "ms": 19083.48273,
+              "text": "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマンベルサーチさんは語っています"
+            }
+          ],
+          "completion_ms": 22944.275903,
+          "decode_calls": 72,
+          "endpoints": 3,
+          "final_segments": [
+            "たしは妹やその友人とはぐれてしまったのですが途中で車いすに乗った障害者が二人いて飛び越えて車いすを押している人たちがいましたとアルマンベルサーチさんは語っています"
+          ],
+          "first_nonempty_ms": 6610.659683,
+          "language": "ja",
+          "startup_ms": 2724.6505939999997,
+          "token_id": 6,
+          "resource": "CPU=24% RSS_KIB=513716 ELAPSED=25.71"
+        }
+      },
+      "audio_sha256": "30ede8b6b37d40d9f56c01523b001e3f2ec4992c48578cb2424e8f9653b139fe"
+    },
+    {
+      "clip": "vi_vn-0",
+      "fleurs_id": 1594,
+      "reference": "Một số loài động vật như voi và hươu cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng.",
+      "predefined_useful_phrase": "một số loài động vật",
+      "engines": {
+        "whisper": {
+          "schema_version": 1,
+          "word_milestones": [
+            {
+              "words": 1,
+              "ms": 1160.08,
+              "text": "Mà"
+            },
+            {
+              "words": 3,
+              "ms": 2240.072,
+              "text": "Mọng châu, lại đau"
+            },
+            {
+              "words": 5,
+              "ms": 2760.148,
+              "text": "Mọb châu, lại đầm vã"
+            }
+          ],
+          "mode": "paced",
+          "model_startup_ms": 62.406,
+          "audio_duration_ms": 14940.0,
+          "first_partial_ms": 1160.08,
+          "first_final_ms": 16193.557,
+          "completion_ms": 16193.684,
+          "real_time_factor": null,
+          "inference_count": 23,
+          "update_count": 23,
+          "transcript": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu, và hỗ cấu cấu. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng sẽ cũng sẽ vừa. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay Thường hay là dàng xe và chỉ phơi két nhận cổ bên thường. Chúng ta cũng xe. Quên xe, quên xe, thường hay là dàng xe và chỉ phơi két nhận cổ bên thường Hãy lại dạng xe và chỉ phát két nhóm cầu bên thường. Chúng ta cũng xe. Quên xe, một cách xe, một cách xe, một cách xe và chỉ phát két nhóm cầu bên thb êt lạng sẽ vào chuy 왜냐하면 chí phığı kè ch 생각이 không i× 8 thông chung ta cũng sẽ quan h remed khói seja size chanh sl Feld OK tui b McK có j Fuj channel hành ký tr�� mắnvà chỉ với cách nhrung cầu bên thường. Chúng ta cũng sẽ, quân sẽ, mọc cách gì dành.",
+          "resource": "CPU=256% RSS_KIB=134748 ELAPSED=16.26",
+          "changes": [
+            {
+              "ms": 1160.08,
+              "text": "Mà",
+              "final": false
+            },
+            {
+              "ms": 1680.073,
+              "text": "Mạm chào",
+              "final": false
+            },
+            {
+              "ms": 2240.072,
+              "text": "Mọng châu, lại đau",
+              "final": false
+            },
+            {
+              "ms": 2760.148,
+              "text": "Mọb châu, lại đầm vã",
+              "final": false
+            },
+            {
+              "ms": 3280.164,
+              "text": "Mọc châu, lại đam vá như vó",
+              "final": false
+            },
+            {
+              "ms": 3800.102,
+              "text": "Mọb châu, lại đầm vach, như vời",
+              "final": false
+            },
+            {
+              "ms": 4320.075,
+              "text": "Mọb châu, lại đam vach, như vời và hỗ cộp",
+              "final": false
+            },
+            {
+              "ms": 4900.181,
+              "text": "Mọc châu, lời đầm vạch như vời và hỗ khó khó khó.",
+              "final": false
+            },
+            {
+              "ms": 5340.07,
+              "text": "Mọc châu, lại đầm vạch như vời và hỗ cấu",
+              "final": false
+            },
+            {
+              "ms": 5840.072,
+              "text": "Mọc châu, lại đầm vạch như vôi và hỗ cấu",
+              "final": false
+            },
+            {
+              "ms": 6260.068,
+              "text": "Mọc châu, lại đầm vạch như vơi và hũ cấu cấu. Tường hay đây.",
+              "final": false
+            },
+            {
+              "ms": 6760.07,
+              "text": "Mọc châu, lời đầm vọc như vôi và hũ cấu cấu Tường hay là dàng xe",
+              "final": false
+            },
+            {
+              "ms": 7300.092,
+              "text": "Mọc châu, lời đầm vọc như vôi và hũ cấu tường hay là dàng xe",
+              "final": false
+            },
+            {
+              "ms": 7900.082,
+              "text": "Mọc châu, lời đầm vọc như vôi và hũ cấu thường hay là dàng xe và kỳ tựa bài kỳ tựa bài kỳ tựa bài",
+              "final": false
+            },
+            {
+              "ms": 9840.073,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá",
+              "final": false
+            },
+            {
+              "ms": 10280.089,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường.",
+              "final": false
+            },
+            {
+              "ms": 11480.109,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu,",
+              "final": false
+            },
+            {
+              "ms": 12560.123,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu, và hỗ cấu cấu. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng sẽ cũng sẽ vừa. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng",
+              "final": false
+            },
+            {
+              "ms": 13020.086,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu, và hỗ cấu cấu. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng sẽ cũng sẽ vừa. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay",
+              "final": false
+            },
+            {
+              "ms": 13520.088,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu, và hỗ cấu cấu. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng sẽ cũng sẽ vừa. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay Thường hay là dàng xe và chỉ phơi két nhận cổ bên thường. Chúng ta cũng xe. Quên xe, quên xe, thường hay là dàng xe và chỉ phơi két nhận cổ bên thường",
+              "final": false
+            },
+            {
+              "ms": 14000.138,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu, và hỗ cấu cấu. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng sẽ cũng sẽ vừa. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay Thường hay là dàng xe và chỉ phơi két nhận cổ bên thường. Chúng ta cũng xe. Quên xe, quên xe, thường hay là dàng xe và chỉ phơi két nhận cổ bên thường Hãy lại dạng xe và chỉ phát két nhóm cầu bên thường. Chúng ta cũng xe. Quên xe, một cách xe, một cách xe, một cách xe và chỉ phát két nhóm cầu bên th",
+              "final": false
+            },
+            {
+              "ms": 16193.557,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu, và hỗ cấu cấu. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng sẽ cũng sẽ vừa. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay Thường hay là dàng xe và chỉ phơi két nhận cổ bên thường. Chúng ta cũng xe. Quên xe, quên xe, thường hay là dàng xe và chỉ phơi két nhận cổ bên thường Hãy lại dạng xe và chỉ phát két nhóm cầu bên thường. Chúng ta cũng xe. Quên xe, một cách xe, một cách xe, một cách xe và chỉ phát két nhóm cầu bên thb êt lạng sẽ vào chuy 왜냐하면 chí phığı kè ch 생각이 không i× 8 thông chung ta cũng sẽ quan h remed khói seja size chanh sl Feld OK tui b McK có j Fuj channel hành ký tr�� mắn",
+              "final": false
+            },
+            {
+              "ms": 16193.557,
+              "text": "một số ai đamo vọng như voy và hũv  cỗu thường hay lời yang xe Affordable take take ơpack cheekache e vợc dazu chligt quá đầm vọng như vôi và hũ câu cậu. Thường hay là dàng xe và chỉ với két nhóm cậu bình thường. Như vôy và hũ câu cấu, Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường, Chúng ta ta chung ta ta chung ta vôy và hũ câu cấu cấu, và hỗ cấu cấu. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng sẽ cũng sẽ vừa. Thường hay là dần sẽ và chỉ với cách dùng cấu bên thường. Chúng ta cũng Thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay thường hay là dàng xe và chỉ phết cách nhóm cầu bên thường. Chúng ta cũng sẽ quay quay Thường hay là dàng xe và chỉ phơi két nhận cổ bên thường. Chúng ta cũng xe. Quên xe, quên xe, thường hay là dàng xe và chỉ phơi két nhận cổ bên thường Hãy lại dạng xe và chỉ phát két nhóm cầu bên thường. Chúng ta cũng xe. Quên xe, một cách xe, một cách xe, một cách xe và chỉ phát két nhóm cầu bên thb êt lạng sẽ vào chuy 왜냐하면 chí phığı kè ch 생각이 không i× 8 thông chung ta cũng sẽ quan h remed khói seja size chanh sl Feld OK tui b McK có j Fuj channel hành ký tr�� mắnvà chỉ với cách nhrung cầu bên thường. Chúng ta cũng sẽ, quân sẽ, mọc cách gì dành.",
+              "final": true
+            }
+          ]
+        },
+        "streaming": {
+          "audio_seconds": 14.94,
+          "changes": [
+            {
+              "ms": 1806.894153,
+              "text": "một"
+            },
+            {
+              "ms": 2125.272998,
+              "text": "một số"
+            },
+            {
+              "ms": 2444.232222,
+              "text": "một số loài"
+            },
+            {
+              "ms": 2764.877275,
+              "text": "một số loài động vật"
+            },
+            {
+              "ms": 3404.778285,
+              "text": "một số loài động vật như"
+            },
+            {
+              "ms": 3721.485917,
+              "text": "một số loài động vật như voi"
+            },
+            {
+              "ms": 4050.4150780000004,
+              "text": "một số loài động vật như voi và"
+            },
+            {
+              "ms": 4363.797716,
+              "text": "một số loài động vật như voi và hư"
+            },
+            {
+              "ms": 4684.879433,
+              "text": "một số loài động vật như voi và hư cao cổ"
+            },
+            {
+              "ms": 5963.652569,
+              "text": "một số loài động vật như voi và hư cao cổ thường"
+            },
+            {
+              "ms": 6286.224476,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay"
+            },
+            {
+              "ms": 6603.896937,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để"
+            },
+            {
+              "ms": 6920.518061,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần"
+            },
+            {
+              "ms": 7247.587233,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe"
+            },
+            {
+              "ms": 7884.798204,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và"
+            },
+            {
+              "ms": 8203.1302,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với"
+            },
+            {
+              "ms": 8525.295103,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các"
+            },
+            {
+              "ms": 8846.828336,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ"
+            },
+            {
+              "ms": 9165.341147,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình"
+            },
+            {
+              "ms": 9484.915979,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường"
+            },
+            {
+              "ms": 10763.968287000002,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng"
+            },
+            {
+              "ms": 11086.506436,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta"
+            },
+            {
+              "ms": 11405.153564,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta cũng"
+            },
+            {
+              "ms": 12364.174386,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ"
+            },
+            {
+              "ms": 13324.554877,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát"
+            },
+            {
+              "ms": 13962.350036,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một"
+            },
+            {
+              "ms": 14280.163099,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ"
+            },
+            {
+              "ms": 14601.576378000002,
+              "text": "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng"
+            }
+          ],
+          "completion_ms": 14982.664701000002,
+          "decode_calls": 47,
+          "endpoints": 0,
+          "final_segments": [
+            "một số loài động vật như voi và hư cao cổ thường hay để gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng"
+          ],
+          "first_nonempty_ms": 1806.894153,
+          "language": "vi",
+          "startup_ms": 3117.370974,
+          "token_id": 4,
+          "resource": "CPU=29% RSS_KIB=512728 ELAPSED=18.15"
+        }
+      },
+      "audio_sha256": "c6cbcedd8ce8aef46e1b07479479dbb12538772b2374f56d063792365fc1bbc1"
+    },
+    {
+      "clip": "vi_vn-1",
+      "fleurs_id": 1573,
+      "reference": "Điện thoại vệ tinh nói chung không phải là sự thay thế cho điện thoại di động, vì bạn phải ở ngoài trời và phải có tầm nhìn thông thoáng thẳng đến vệ tinh thì mới sử dụng được.",
+      "predefined_useful_phrase": "điện thoại vệ tinh",
+      "engines": {
+        "whisper": {
+          "schema_version": 1,
+          "word_milestones": [
+            {
+              "words": 1,
+              "ms": 3440.232,
+              "text": "để người đing thả vét tinh nước"
+            },
+            {
+              "words": 3,
+              "ms": 3440.232,
+              "text": "để người đing thả vét tinh nước"
+            },
+            {
+              "words": 5,
+              "ms": 3440.232,
+              "text": "để người đing thả vét tinh nước"
+            }
+          ],
+          "mode": "paced",
+          "model_startup_ms": 71.674,
+          "audio_duration_ms": 10200.0,
+          "first_partial_ms": 3440.232,
+          "first_final_ms": 10555.612,
+          "completion_ms": 10555.632,
+          "real_time_factor": null,
+          "inference_count": 11,
+          "update_count": 11,
+          "transcript": "để nhìn thật vứt tin nó chung, không phải là sự thế thế cho đện thật giết đổng. Vì bằng phải áo ngoài trài và có tầm nhìn thống tháng, thẳ Vì bản phẩy áo ngoài trài và có tầm nhìn thống tháng, tháng đến vệ tin thêm mấy xí dụng được. Vì bản phẩy áo ngoài trài và có tầm",
+          "resource": "CPU=119% RSS_KIB=134320 ELAPSED=10.63",
+          "changes": [
+            {
+              "ms": 3440.232,
+              "text": "để người đing thả vét tinh nước",
+              "final": false
+            },
+            {
+              "ms": 4000.121,
+              "text": "để nhìn thật với tinh nước dung, không phải lại",
+              "final": false
+            },
+            {
+              "ms": 4700.259,
+              "text": "để nhìn thật với tinh nước dung, không phải là sự thế thấy cho",
+              "final": false
+            },
+            {
+              "ms": 5300.134,
+              "text": "Điện thật với tinh nước chung, không phải là sự thế thế thế, cho",
+              "final": false
+            },
+            {
+              "ms": 6520.322,
+              "text": "để người tinh tinh nước dung không phải là sự thế thế cho để người tảy y đậm vì bán phá",
+              "final": false
+            },
+            {
+              "ms": 7300.218,
+              "text": "để người thật với tinh nước dung không phải là sự thế thế cho những người thật giết đống vì bán phải Ấn ngoài gài v",
+              "final": false
+            },
+            {
+              "ms": 7960.332,
+              "text": "Vì bản phẩy áo ngoài trời và có tầm nền thống thông thông thông",
+              "final": false
+            },
+            {
+              "ms": 8480.299,
+              "text": "Vì bản phẩy áo ngoài trời và có tầm nền thống tháng",
+              "final": false
+            },
+            {
+              "ms": 9220.334,
+              "text": "Vì bản phản ngoài gài và có tầm nhìn thống tháng, tháng đến vệ tin thế mà",
+              "final": false
+            },
+            {
+              "ms": 9840.24,
+              "text": "để nhìn thật vứt tin nó chung, không phải là sự thế thế cho đện thật giết đổng. Vì bằng phải áo ngoài trài và có tầm nhìn thống tháng, thẳ",
+              "final": false
+            },
+            {
+              "ms": 10555.612,
+              "text": "để nhìn thật vứt tin nó chung, không phải là sự thế thế cho đện thật giết đổng. Vì bằng phải áo ngoài trài và có tầm nhìn thống tháng, thẳ Vì bản phẩy áo ngoài trài và có tầm nhìn thống tháng, tháng đến vệ tin thêm mấy xí dụng được. Vì bản phẩy áo ngoài trài và có tầm",
+              "final": true
+            }
+          ]
+        },
+        "streaming": {
+          "audio_seconds": 10.2,
+          "changes": [
+            {
+              "ms": 2125.386979,
+              "text": "thế"
+            },
+            {
+              "ms": 2762.534125,
+              "text": "thế thôi"
+            },
+            {
+              "ms": 3727.4363749999998,
+              "text": "thế thôi không"
+            },
+            {
+              "ms": 4047.470551,
+              "text": "thế thôi không phải là"
+            },
+            {
+              "ms": 4365.450046,
+              "text": "thế thôi không phải là sự"
+            },
+            {
+              "ms": 4688.689950999999,
+              "text": "thế thôi không phải là sự thay thế"
+            },
+            {
+              "ms": 5009.733859,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại"
+            },
+            {
+              "ms": 5326.669889,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động"
+            },
+            {
+              "ms": 6290.086253,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn"
+            },
+            {
+              "ms": 6609.570223000001,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải"
+            },
+            {
+              "ms": 6927.048252,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài"
+            },
+            {
+              "ms": 7244.582146,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và"
+            },
+            {
+              "ms": 7566.215461,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm"
+            },
+            {
+              "ms": 7891.180083,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông"
+            },
+            {
+              "ms": 8199.441547999999,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng"
+            },
+            {
+              "ms": 8530.835974,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng thẳng"
+            },
+            {
+              "ms": 8845.628115,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng thẳng đến"
+            },
+            {
+              "ms": 9165.856036,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng thẳng đến vệ tinh"
+            },
+            {
+              "ms": 9486.515601000001,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng thẳng đến vệ tinh thì mới"
+            },
+            {
+              "ms": 9808.065432,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng thẳng đến vệ tinh thì mới sử dụng"
+            },
+            {
+              "ms": 10124.506042,
+              "text": "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng thẳng đến vệ tinh thì mới sử dụng được"
+            }
+          ],
+          "completion_ms": 10284.565223,
+          "decode_calls": 33,
+          "endpoints": 0,
+          "final_segments": [
+            "thế thôi không phải là sự thay thế cho điện thoại di động vì bạn phải ở ngoài trời và có tầm nhìn thông thoáng thẳng đến vệ tinh thì mới sử dụng được"
+          ],
+          "first_nonempty_ms": 2125.386979,
+          "language": "vi",
+          "startup_ms": 2640.04419,
+          "token_id": 4,
+          "resource": "CPU=32% RSS_KIB=511504 ELAPSED=12.97"
+        }
+      },
+      "audio_sha256": "df7ce2bfa14624a5766ca7f9f0a81986381245dd62bf2143a8eb1138ad80b145"
+    }
+  ]
+}

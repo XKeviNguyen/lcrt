@@ -56,6 +56,7 @@ impl WavAudio {
 
 #[derive(Default)]
 struct TranscriptMetrics {
+    trace: bool,
     first_partial: Option<Duration>,
     word_milestones: [Option<(Duration, String)>; 3],
     first_final: Option<Duration>,
@@ -66,6 +67,15 @@ struct TranscriptMetrics {
 impl TranscriptMetrics {
     fn observe(&mut self, updates: Vec<TranscriptUpdate>, elapsed: Duration) {
         for update in updates {
+            // Explicit diagnostic mode for public reference fixtures only.
+            if self.trace {
+                eprintln!(
+                    "caption-update\t{{\"ms\":{:.3},\"text\":\"{}\",\"final\":{}}}",
+                    milliseconds(elapsed),
+                    escape_json(update.text()),
+                    update.status() == CaptionStatus::Final,
+                );
+            }
             // Match the JFK benchmark normalization: remove ASCII punctuation,
             // then count whitespace-separated tokens. Revisions never reset a milestone.
             let normalized: String = update
@@ -197,7 +207,10 @@ fn run_benchmark(mode: BenchmarkMode, input: Input) -> Result<(), Box<dyn Error>
     let mut transcriber = WhisperTranscriber::new(config)?;
     let model_startup = startup_started.elapsed();
     let replay_started = Instant::now();
-    let mut transcript = TranscriptMetrics::default();
+    let mut transcript = TranscriptMetrics {
+        trace: env::var("LCRT_BENCHMARK_TRACE").as_deref() == Ok("1"),
+        ..Default::default()
+    };
 
     match mode {
         BenchmarkMode::Paced => {

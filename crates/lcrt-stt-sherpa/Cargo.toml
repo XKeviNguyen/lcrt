@@ -1,0 +1,18 @@
+[package]
+name = "lcrt-stt-sherpa"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+lcrt-core = { path = "../lcrt-core" }
+sherpa-onnx = { version = "=1.13.7", default-features = false, features = ["shared"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"

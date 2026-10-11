@@ -5,6 +5,7 @@ members = [
     "crates/lcrt-core",
     "crates/lcrt-openai",
     "crates/lcrt-stt-whisper",
+    "crates/lcrt-stt-sherpa",
     "crates/lcrt-ui-gtk",
 ]
 resolver = "3"

@@ -1,0 +1,101 @@
+--- a/sherpa-onnx/csrc/online-recognizer-transducer-impl.h
++++ b/sherpa-onnx/csrc/online-recognizer-transducer-impl.h
+@@ -247,6 +247,7 @@
+   }
+ 
+   bool IsReady(OnlineStream *s) const override {
++    if (!PrepareInitialContext(s)) return false;
+     return s->GetNumProcessedFrames() + model_->ChunkSize() <
+            s->NumFramesReady();
+   }
+@@ -286,6 +287,9 @@
+   }
+ 
+   void DecodeStreams(OnlineStream **ss, int32_t n) const override {
++    for (int32_t i = 0; i != n; ++i) {
++      if (!PrepareInitialContext(ss[i])) return;
++    }
+     int32_t chunk_size = model_->ChunkSize();
+     int32_t chunk_shift = model_->ChunkShift();
+ 
+@@ -390,6 +394,8 @@
+   }
+ 
+   void Reset(OnlineStream *s) const override {
++    if (!PrepareInitialContext(s)) return;
++    const auto initial_token = s->GetOption("initial_context_token");
+     int32_t context_size = model_->ContextSize();
+ 
+     {
+@@ -405,7 +411,12 @@
+     auto r = decoder_->GetEmptyResult();
+     auto last_result = s->GetResult();
+ 
+-    if (static_cast<int32_t>(last_result.tokens.size()) > context_size) {
++    if (!initial_token.empty()) {
++      r.tokens.back() = sym_[initial_token];
++      if (config_.reset_encoder) {
++        s->SetStates(model_->GetEncoderInitStates());
++      }
++    } else if (static_cast<int32_t>(last_result.tokens.size()) > context_size) {
+       // if last result is not empty, then
+       // truncate all last hyps and save as the 'ys' context for next result
+       // (the encoder state buffers are kept)
+@@ -432,6 +443,9 @@
+       }
+     }
+ 
++    // Copy assignment intentionally preserves an existing empty-source cache.
++    // A configured seed needs fresh predictor output after the language reset.
++    if (!initial_token.empty()) s->GetResult().decoder_out = Ort::Value{nullptr};
+     s->SetResult(r);
+ 
+     // Note: We only update counters. The underlying audio samples
+@@ -496,6 +510,47 @@
+     }
+     hotwords_graph_ = std::make_shared<ContextGraph>(
+         hotwords_, config_.hotwords_score, boost_scores_);
++  }
++
++  // Stream options preserve the existing C/Rust ABI. Configuration is frozen
++  // before the first decode and survives endpoint resets.
++  bool PrepareInitialContext(OnlineStream *s) const {
++    if (!s->GetOption("initial_context_error").empty()) return false;
++    const auto token = s->GetOption("initial_context_token");
++    auto fail = [s](const std::string &message) {
++      s->SetOption("initial_context_error", message);
++      return false;
++    };
++    if (s->HasOption("initial_context_applied")) {
++      if (token != s->GetOption("initial_context_applied")) {
++        return fail("Initial decoder context cannot change; create a new stream");
++      }
++      return true;
++    }
++    int32_t id = 0;
++    if (!token.empty()) {
++      if (config_.decoding_method != "greedy_search") {
++        return fail("Initial decoder context requires greedy search");
++      }
++      if (!sym_.Contains(token)) {
++        return fail("Initial decoder token is missing from the vocabulary");
++      }
++      id = sym_[token];
++      if (id <= 0 || id == unk_id_ || id >= model_->VocabSize()) {
++        return fail("Initial decoder token is blank, unknown or outside the model vocabulary");
++      }
++      auto r = s->GetResult();
++      if (r.tokens.size() != static_cast<size_t>(model_->ContextSize()) ||
++          r.decoder_out || s->GetNumProcessedFrames() != 0) {
++        return fail("Initial decoder context requires a fresh stream");
++      }
++      // Keep the predictor context size and preceding -1 padding unchanged.
++      r.tokens.back() = id;
++      s->SetResult(r);
++    }
++    s->SetOption("initial_context_applied", token);
++    s->SetOption("initial_context_token_id", std::to_string(id));
++    return true;
+   }
+ 
+   void InitOnlineStream(OnlineStream *stream) const {
