@@ -1,0 +1,5 @@
+MemoryCurrent=660852736
+MemoryPeak=678907904
+CPUUsageNSec=84341237000
+AllowedCPUs=0-1
+MemoryMax=2147483648

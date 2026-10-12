@@ -1,0 +1,24 @@
+Japanese and Vietnamese streaming speech pack
+
+PengChengStarling model, declared Apache-2.0 by its upstream publisher:
+https://huggingface.co/stdo/PengChengStarling
+Revision: 3afca1d0cdbda6b0cde440e31539be81df5d1301
+
+Official sherpa-onnx export and int8 MatMul quantization:
+https://github.com/k2-fsa/sherpa-onnx/tree/d5da9430e89a6ac05ead12ef01e7d501e5192904/scripts/peng-cheng-starling
+Repack revision: c6726c1147387ad2a11148b33973135d92a55e6c
+Exact file hashes and destinations are recorded in models.json.
+Decoder, tokens and BPE file hashes match the original upstream export.
+
+sherpa-onnx native runtime, Apache-2.0:
+https://github.com/k2-fsa/sherpa-onnx
+Revision: 917bed95c8e5c7c18aa4d69fea42e9ef8ef0a60e, version 1.13.7
+Source archive SHA-256:
+acf539e930283442c4237b7b23a06ebe3bff10cbc00694a4f09a3580e3c10e9e
+LILOPOP modifies initial decoder context configuration and endpoint reset.
+The complete source patch is included alongside this notice.
+
+ONNX Runtime and native dependencies are selected by the pinned sherpa source.
+Their archive checksums are verified by CMake. Their original licenses and
+notices are included in the streaming-native dependency directories.
+ONNX Runtime is MIT licensed; Eigen headers are MPL-2.0 licensed.

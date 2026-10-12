@@ -33,6 +33,9 @@ print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] =
 architecture="$(dpkg --print-architecture)"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}"
 
+native_root="$(realpath -m -- "${LCRT_SHERPA_NATIVE_ROOT:-${repo_root}/target/sherpa-native}")"
+scripts/build-sherpa-native.sh "${native_root}"
+export SHERPA_ONNX_LIB_DIR="${native_root}/install/lib"
 cargo build --locked --release -p lcrt-app
 model_cache="$(realpath -m -- "${LCRT_MODEL_CACHE:-${repo_root}/target/share/lcrt/models}")"
 python3 scripts/fetch-models.py "${model_cache}"
@@ -47,6 +50,30 @@ umask 022
 
 install -Dm755 target/release/lcrt "${stage}/usr/bin/lcrt"
 strip --strip-unneeded "${stage}/usr/bin/lcrt"
+for library in libsherpa-onnx-c-api.so libonnxruntime.so; do
+  install -Dm755 "${SHERPA_ONNX_LIB_DIR}/${library}" "${stage}/usr/lib/lcrt/${library}"
+  strip --strip-unneeded "${stage}/usr/lib/lcrt/${library}"
+done
+native_docs="${doc_dir}/streaming-native"
+mkdir -p "${native_docs}"
+install -m644 packaging/native/sherpa-initial-context.patch "${native_docs}/"
+install -m644 packaging/native/runtime.json "${native_docs}/"
+install -m644 packaging/licenses/streaming-Apache-2.0.txt "${native_docs}/"
+install -m644 packaging/licenses/streaming-NOTICE.txt "${native_docs}/"
+native_revision="$(python3 -c 'import json; print(json.load(open("packaging/native/runtime.json"))["source_revision"])')"
+native_source="${native_root}/sherpa-onnx-${native_revision}"
+install -Dm644 "${native_source}/LICENSE" "${native_docs}/sherpa/LICENSE"
+for dependency in "${native_root}"/build/_deps/*-src; do
+  name="$(basename "${dependency}")"
+  for notice in "${dependency}"/LICENSE* "${dependency}"/COPYING* "${dependency}"/NOTICE* "${dependency}"/*Notices*; do
+    if [[ -f "${notice}" ]]; then
+      install -Dm644 "${notice}" "${native_docs}/${name}/$(basename "${notice}")"
+    elif [[ -d "${notice}" ]]; then
+      mkdir -p "${native_docs}/${name}"
+      cp -a "${notice}" "${native_docs}/${name}/"
+    fi
+  done
+done
 install -Dm644 "packaging/linux/${APP_ID}.desktop" \
   "${stage}/usr/share/applications/${APP_ID}.desktop"
 install -Dm644 "packaging/linux/${APP_ID}.metainfo.xml" \
@@ -123,7 +150,9 @@ mkdir -p "${work_dir}/shlibs/debian"
 printf 'Source: %s\n\nPackage: %s\nArchitecture: any\n' "${PACKAGE}" "${PACKAGE}" \
   >"${work_dir}/shlibs/debian/control"
 depends="$(cd "${work_dir}/shlibs" &&
-  dpkg-shlibdeps -O "${stage}/usr/bin/lcrt" 2>/dev/null |
+  dpkg-shlibdeps -O -l"${stage}/usr/lib/lcrt" -x"${PACKAGE}" \
+    "${stage}/usr/bin/lcrt" "${stage}/usr/lib/lcrt/libsherpa-onnx-c-api.so" \
+    "${stage}/usr/lib/lcrt/libonnxruntime.so" 2>/dev/null |
   sed -n 's/^shlibs:Depends=//p')"
 test -n "${depends}"
 
@@ -143,7 +172,8 @@ Homepage: https://github.com/hoangnguyen7474/lcrt
 Description: LILOPOP live captions and offline translation
  LILOPOP shows real-time captions for system audio or a microphone.
  Offline Captions work right after installation with the included
- multilingual speech model (Whisper Tiny); audio stays on the device.
+ streaming speech pack for Japanese and Vietnamese and Whisper Tiny
+ for other languages; audio stays on the device.
  Online Captions, Online Translation and vocabulary explanations use
  the user's own OpenAI API key, stored in the desktop keyring, and stream
  audio or selected text to OpenAI only while in use. API charges may apply.

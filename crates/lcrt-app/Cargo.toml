@@ -21,6 +21,7 @@ lcrt-core = { path = "../lcrt-core" }
 lcrt-openai = { path = "../lcrt-openai" }
 serde_json = "1.0"
 lcrt-stt-whisper = { path = "../lcrt-stt-whisper" }
+lcrt-stt-sherpa = { path = "../lcrt-stt-sherpa" }
 lcrt-ui-gtk = { path = "../lcrt-ui-gtk" }
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 # No `tracing-log` bridge: dependencies' `log` output can include request

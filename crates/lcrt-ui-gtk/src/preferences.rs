@@ -274,7 +274,9 @@ fn offline_group(
             model.set_subtitle(match (overridden, path) {
                 (true, _) => "Set by --model or LCRT_MODEL_PATH for this run",
                 (false, Some(_)) => "Custom Whisper model",
-                (false, None) => "Fast — built-in multilingual model",
+                (false, None) => {
+                    "Streaming for Japanese and Vietnamese; built-in model for other languages"
+                }
             });
             custom.set_active(path.is_some());
             file.set_visible(path.is_some());

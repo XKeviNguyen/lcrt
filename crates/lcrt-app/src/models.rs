@@ -3,10 +3,53 @@
 //! LILOPOP is installed with a multilingual model, so Offline Captions work
 //! without any setup. A custom model is optional and chosen in Settings.
 
+use lcrt_core::Language;
+use lcrt_stt_sherpa::StreamingLanguage;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
+
+/// The selected offline speech model. Custom selections always remain Whisper.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SpeechModel {
+    Whisper {
+        path: PathBuf,
+        language: Option<String>,
+    },
+    Streaming {
+        root: PathBuf,
+        language: StreamingLanguage,
+    },
+}
+
+pub(crate) fn speech_model(
+    run_override: Option<&Path>,
+    custom: Option<&Path>,
+    built_in: Option<&Path>,
+    language: Option<Language>,
+) -> Result<SpeechModel, ModelProblem> {
+    if run_override.is_none() && custom.is_none() {
+        let streaming = match language {
+            Some(Language::Japanese) => Some(StreamingLanguage::Japanese),
+            Some(Language::Vietnamese) => Some(StreamingLanguage::Vietnamese),
+            _ => None,
+        };
+        if let Some(language) = streaming {
+            let root = built_in
+                .and_then(Path::parent)
+                .ok_or(ModelProblem::BuiltInMissing)?;
+            return Ok(SpeechModel::Streaming {
+                root: root.to_owned(),
+                language,
+            });
+        }
+    }
+    Ok(SpeechModel::Whisper {
+        path: offline_model(run_override, custom, built_in)?,
+        language: language.map(|language| language.code().to_owned()),
+    })
+}
 
 /// File name of the built-in model: Whisper Tiny, multilingual.
 const BUILT_IN_FILE: &str = "ggml-tiny.bin";
@@ -100,6 +143,66 @@ mod tests {
     };
 
     use super::{BUILT_IN_BYTES, BUILT_IN_FILE, ModelProblem, built_in_model, offline_model};
+
+    #[test]
+    fn ja_vi_route_to_streaming_without_requiring_the_whisper_file() {
+        use super::{SpeechModel, speech_model};
+        use lcrt_core::Language;
+        use lcrt_stt_sherpa::StreamingLanguage;
+        let built_in = Path::new("/unused/share/lcrt/models/ggml-tiny.bin");
+        for (language, expected) in [
+            (Language::Japanese, StreamingLanguage::Japanese),
+            (Language::Vietnamese, StreamingLanguage::Vietnamese),
+        ] {
+            assert_eq!(
+                speech_model(None, None, Some(built_in), Some(language)),
+                Ok(SpeechModel::Streaming {
+                    root: PathBuf::from("/unused/share/lcrt/models"),
+                    language: expected,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn auto_other_languages_and_custom_selections_keep_whisper() {
+        use super::{SpeechModel, speech_model};
+        use lcrt_core::Language;
+        let directory = scratch("engine-routing");
+        let built_in = directory.join(BUILT_IN_FILE);
+        fs::File::create(&built_in)
+            .unwrap()
+            .set_len(BUILT_IN_BYTES)
+            .unwrap();
+        for language in [
+            None,
+            Some(Language::English),
+            Some(Language::Chinese),
+            Some(Language::Korean),
+        ] {
+            assert!(matches!(
+                speech_model(None, None, Some(&built_in), language),
+                Ok(SpeechModel::Whisper { .. })
+            ));
+        }
+        let custom = directory.join("custom.bin");
+        fs::write(&custom, b"custom").unwrap();
+        for language in [Language::Japanese, Language::Vietnamese] {
+            for (run, settings) in [
+                (Some(custom.as_path()), None),
+                (None, Some(custom.as_path())),
+            ] {
+                assert_eq!(
+                    speech_model(run, settings, Some(&built_in), Some(language)),
+                    Ok(SpeechModel::Whisper {
+                        path: custom.clone(),
+                        language: Some(language.code().to_owned()),
+                    })
+                );
+            }
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let directory =

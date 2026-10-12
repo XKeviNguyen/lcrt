@@ -27,6 +27,7 @@ use lcrt_openai::{
     transport::WebSocketConnector,
     vocabulary::{self, VocabularyCache, VocabularyError, VocabularyRequest},
 };
+use lcrt_stt_sherpa::StreamingTranscriber;
 use lcrt_stt_whisper::{WhisperBackendError, WhisperConfig, WhisperTranscriber};
 use lcrt_ui_gtk::{
     CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey, GtkCaptionSink, VocabularyCard,
@@ -35,7 +36,7 @@ use lcrt_ui_gtk::{
 use tracing::{error, info, warn};
 
 use crate::{
-    models::offline_model,
+    models::{SpeechModel, speech_model},
     offline_translation::{LocalTranslation, UNSUPPORTED, supports},
     settings::SettingsStore,
 };
@@ -308,8 +309,7 @@ pub(crate) enum ControllerOutcome {
 /// The processing backend a session will use, resolved before it starts.
 enum Backend {
     Offline {
-        model_path: PathBuf,
-        language: Option<String>,
+        speech: SpeechModel,
         /// The model was chosen in Settings, not built in or given for
         /// this run.
         custom_model: bool,
@@ -597,10 +597,11 @@ impl Controller {
     fn resolve_backend(&self, options: &SessionOptions) -> Result<Backend, (&'static str, bool)> {
         match options.mode {
             ProcessingMode::OfflineCaptions | ProcessingMode::OfflineTranslation => {
-                let model_path = offline_model(
+                let speech = speech_model(
                     self.overrides.model_path.as_deref(),
                     self.preferences.general.custom_model.as_deref(),
                     self.overrides.built_in_model.as_deref(),
+                    options.spoken_language.language(),
                 )
                 .map_err(|problem| (problem.message(), problem.needs_settings()))?;
                 let translation = if options.mode == ProcessingMode::OfflineTranslation {
@@ -620,12 +621,7 @@ impl Controller {
                     None
                 };
                 Ok(Backend::Offline {
-                    model_path,
-                    // Auto lets Whisper detect the language.
-                    language: options
-                        .spoken_language
-                        .language()
-                        .map(|language| language.code().to_owned()),
+                    speech,
                     translation,
                     custom_model: self.overrides.model_path.is_none()
                         && self.preferences.general.custom_model.is_some(),
@@ -1000,14 +996,20 @@ fn open_backend(
     } = flags;
     match backend {
         Backend::Offline {
-            model_path,
-            language,
+            speech,
             translation,
             ..
         } => {
-            let mut config = WhisperConfig::new(model_path);
-            config.language = language;
-            let transcriber = WhisperTranscriber::new(config)?;
+            let transcriber: Box<dyn Transcriber> = match speech {
+                SpeechModel::Whisper { path, language } => {
+                    let mut config = WhisperConfig::new(path);
+                    config.language = language;
+                    Box::new(WhisperTranscriber::new(config)?)
+                }
+                SpeechModel::Streaming { root, language } => {
+                    Box::new(StreamingTranscriber::new(&root, language)?)
+                }
+            };
             if let Some((source, control)) = translation {
                 let executable = std::env::current_exe()?;
                 let root = executable
@@ -1020,12 +1022,12 @@ fn open_backend(
                     notify_ui(status_sink.set_target_status(language, status));
                 });
                 let translation =
-                    LocalTranslation::new(Box::new(transcriber), source, control, &root, status)?;
+                    LocalTranslation::new(transcriber, source, control, &root, status)?;
                 ready.store(true, Ordering::Release);
                 Ok(Box::new(translation))
             } else {
                 ready.store(true, Ordering::Release);
-                Ok(Box::new(transcriber))
+                Ok(transcriber)
             }
         }
         Backend::Online {

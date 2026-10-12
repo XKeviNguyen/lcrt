@@ -1,0 +1,834 @@
+[
+  {
+    "run": "vi_vn-offline_captions-constrained",
+    "round": 0,
+    "observations": [
+      {
+        "ms": 210.830887001066,
+        "texts": []
+      },
+      {
+        "ms": 2145.2718380023725,
+        "texts": [
+          "một số"
+        ]
+      },
+      {
+        "ms": 2461.0433470006683,
+        "texts": [
+          "một số lo"
+        ]
+      },
+      {
+        "ms": 2800.885833999928,
+        "texts": [
+          "một số loài"
+        ]
+      },
+      {
+        "ms": 3096.716895001009,
+        "texts": [
+          "một số loài động"
+        ]
+      },
+      {
+        "ms": 3397.1483200002695,
+        "texts": [
+          "một số loài động vật"
+        ]
+      },
+      {
+        "ms": 3724.2915660026483,
+        "texts": [
+          "một số loài động vật như v"
+        ]
+      },
+      {
+        "ms": 4051.3408510014415,
+        "texts": [
+          "một số loài động vật như voi"
+        ]
+      },
+      {
+        "ms": 4362.187332000758,
+        "texts": [
+          "một số loài động vật như voi và"
+        ]
+      },
+      {
+        "ms": 4657.285749002767,
+        "texts": [
+          "một số loài động vật như voi và hươu"
+        ]
+      },
+      {
+        "ms": 5519.789573001617,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ"
+        ]
+      },
+      {
+        "ms": 6447.991387001821,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường"
+        ]
+      },
+      {
+        "ms": 6756.529136000609,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay"
+        ]
+      },
+      {
+        "ms": 7057.0927940025285,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại"
+        ]
+      },
+      {
+        "ms": 7354.691026001092,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần"
+        ]
+      },
+      {
+        "ms": 7637.663471999986,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe"
+        ]
+      },
+      {
+        "ms": 7921.999876001792,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và"
+        ]
+      },
+      {
+        "ms": 8240.380889001244,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ"
+        ]
+      },
+      {
+        "ms": 8562.276619999466,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các"
+        ]
+      },
+      {
+        "ms": 8886.749509001675,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng"
+        ]
+      },
+      {
+        "ms": 9187.94170000183,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ"
+        ]
+      },
+      {
+        "ms": 9499.044588999823,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình"
+        ]
+      },
+      {
+        "ms": 9815.629349999654,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường"
+        ]
+      },
+      {
+        "ms": 10784.77100300006,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng"
+        ]
+      },
+      {
+        "ms": 11433.806462002394,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta"
+        ]
+      },
+      {
+        "ms": 11777.248172002146,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng"
+        ]
+      },
+      {
+        "ms": 12719.212103002064,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ"
+        ]
+      },
+      {
+        "ms": 13353.489436001837,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan"
+        ]
+      },
+      {
+        "ms": 13661.858575000224,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát"
+        ]
+      },
+      {
+        "ms": 14304.893266002182,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách"
+        ]
+      },
+      {
+        "ms": 14647.452929002611,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ d"
+        ]
+      },
+      {
+        "ms": 14969.539761001215,
+        "texts": [
+          "một số loài động vật như voi và hươu cổ thường hay để lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng"
+        ]
+      }
+    ],
+    "peak_rss": "VmHWM:\t  633500 kB",
+    "stop_ms": 553.1676760001574
+  },
+  {
+    "run": "vi_vn-offline_captions-constrained",
+    "round": 1,
+    "observations": [
+      {
+        "ms": 246.4920849997725,
+        "texts": []
+      },
+      {
+        "ms": 2225.828946000547,
+        "texts": [
+          "một số"
+        ]
+      },
+      {
+        "ms": 2578.089041999192,
+        "texts": [
+          "một số lo"
+        ]
+      },
+      {
+        "ms": 3059.51784699937,
+        "texts": [
+          "một số loài động"
+        ]
+      },
+      {
+        "ms": 3442.1852720006427,
+        "texts": [
+          "một số loài động vật như"
+        ]
+      },
+      {
+        "ms": 3782.3003369994694,
+        "texts": [
+          "một số loài động vật như vo"
+        ]
+      },
+      {
+        "ms": 4131.044918998668,
+        "texts": [
+          "một số loài động vật như voi"
+        ]
+      },
+      {
+        "ms": 4475.905071998568,
+        "texts": [
+          "một số loài động vật như voi và"
+        ]
+      },
+      {
+        "ms": 4789.559560998896,
+        "texts": [
+          "một số loài động vật như voi và hư cao"
+        ]
+      },
+      {
+        "ms": 5100.351795001188,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ"
+        ]
+      },
+      {
+        "ms": 6436.010101999273,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường"
+        ]
+      },
+      {
+        "ms": 6737.505154000246,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay"
+        ]
+      },
+      {
+        "ms": 7056.080606998876,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần"
+        ]
+      },
+      {
+        "ms": 7704.282411999884,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe"
+        ]
+      },
+      {
+        "ms": 8021.980394998536,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và"
+        ]
+      },
+      {
+        "ms": 8338.165484998171,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ"
+        ]
+      },
+      {
+        "ms": 8658.796455998527,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các"
+        ]
+      },
+      {
+        "ms": 8977.502941997955,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng"
+        ]
+      },
+      {
+        "ms": 9282.19037099916,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ"
+        ]
+      },
+      {
+        "ms": 9608.43898299936,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường"
+        ]
+      },
+      {
+        "ms": 10906.125556997722,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng"
+        ]
+      },
+      {
+        "ms": 11239.385573000618,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta"
+        ]
+      },
+      {
+        "ms": 11933.553001999826,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng"
+        ]
+      },
+      {
+        "ms": 13008.806220001134,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ"
+        ]
+      },
+      {
+        "ms": 13355.305119999684,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan"
+        ]
+      },
+      {
+        "ms": 13676.209388999268,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát"
+        ]
+      },
+      {
+        "ms": 14026.511750998907,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một"
+        ]
+      },
+      {
+        "ms": 14408.97291500005,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách"
+        ]
+      },
+      {
+        "ms": 14744.467846998305,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ d"
+        ]
+      },
+      {
+        "ms": 15075.155548998737,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng"
+        ]
+      }
+    ],
+    "peak_rss": "VmHWM:\t  643512 kB",
+    "stop_ms": 612.3263949993998
+  },
+  {
+    "run": "vi_vn-offline_captions-constrained",
+    "round": 2,
+    "observations": [
+      {
+        "ms": 301.16762000034214,
+        "texts": []
+      },
+      {
+        "ms": 2564.657466002245,
+        "texts": [
+          "một số lo"
+        ]
+      },
+      {
+        "ms": 2892.2820200023125,
+        "texts": [
+          "một số loài động"
+        ]
+      },
+      {
+        "ms": 3200.259351000568,
+        "texts": [
+          "một số loài động vật"
+        ]
+      },
+      {
+        "ms": 3537.8373710009328,
+        "texts": [
+          "một số loài động vật như"
+        ]
+      },
+      {
+        "ms": 3855.2099080006883,
+        "texts": [
+          "một số loài động vật như vo"
+        ]
+      },
+      {
+        "ms": 4196.504640000057,
+        "texts": [
+          "một số loài động vật như voi"
+        ]
+      },
+      {
+        "ms": 4562.225669000327,
+        "texts": [
+          "một số loài động vật như voi và"
+        ]
+      },
+      {
+        "ms": 4898.6280060016725,
+        "texts": [
+          "một số loài động vật như voi và hư cao"
+        ]
+      },
+      {
+        "ms": 5254.5582150014525,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ"
+        ]
+      },
+      {
+        "ms": 6314.518995000981,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường"
+        ]
+      },
+      {
+        "ms": 6647.601143002248,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay"
+        ]
+      },
+      {
+        "ms": 7001.242051999725,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn"
+        ]
+      },
+      {
+        "ms": 7695.290291001584,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe"
+        ]
+      },
+      {
+        "ms": 8024.477389000822,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và"
+        ]
+      },
+      {
+        "ms": 8348.662936001347,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ"
+        ]
+      },
+      {
+        "ms": 8720.744243000809,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các"
+        ]
+      },
+      {
+        "ms": 9100.632532001327,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng"
+        ]
+      },
+      {
+        "ms": 9457.796247999795,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường"
+        ]
+      },
+      {
+        "ms": 10857.053941999766,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng"
+        ]
+      },
+      {
+        "ms": 11524.351754000236,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta"
+        ]
+      },
+      {
+        "ms": 11856.419834002736,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng"
+        ]
+      },
+      {
+        "ms": 12832.294764000835,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ"
+        ]
+      },
+      {
+        "ms": 13592.536157000723,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan"
+        ]
+      },
+      {
+        "ms": 13970.922489999793,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một"
+        ]
+      },
+      {
+        "ms": 14341.884114001004,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách"
+        ]
+      },
+      {
+        "ms": 14697.792330000084,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ d"
+        ]
+      },
+      {
+        "ms": 15046.781809000095,
+        "texts": [
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng"
+        ]
+      }
+    ],
+    "peak_rss": "VmHWM:\t  643900 kB",
+    "stop_ms": 592.2247319977032
+  },
+  {
+    "run": "ja_jp-offline_translation-constrained",
+    "round": 0,
+    "observations": [
+      {
+        "ms": 372.801838999294,
+        "texts": []
+      },
+      {
+        "ms": 2736.7894449998857,
+        "texts": [
+          "Multiplier"
+        ]
+      },
+      {
+        "ms": 3218.561100002262,
+        "texts": [
+          "A lot."
+        ]
+      },
+      {
+        "ms": 3750.5628340004478,
+        "texts": [
+          "And that's what we're going to do.",
+          "多くの場合海外"
+        ]
+      },
+      {
+        "ms": 4281.642923000618,
+        "texts": [
+          "I'm a Japanese.",
+          "多くの場合海外のギャップイ"
+        ]
+      },
+      {
+        "ms": 4818.310954000481,
+        "texts": [
+          "And that's what we're doing.",
+          "多くの場合海外のギャップイヤーコ"
+        ]
+      },
+      {
+        "ms": 5369.522566001251,
+        "texts": [
+          "And I'm going to be a student.",
+          "多くの場合海外のギャップイヤーコースに入学"
+        ]
+      },
+      {
+        "ms": 6021.670392001397,
+        "texts": [
+          "And I'm going to do that in a couple of years.",
+          "多くの場合海外のギャップイヤーコースに入学すること"
+        ]
+      },
+      {
+        "ms": 6701.650416998746,
+        "texts": [
+          "And I think that's a great idea.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画"
+        ]
+      },
+      {
+        "ms": 7285.798854001769,
+        "texts": [
+          "And I'm going to show you a couple of examples.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画後に"
+        ]
+      },
+      {
+        "ms": 7869.962118998956,
+        "texts": [
+          "And I'm going to show you a couple of examples.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画後に実際に"
+        ]
+      },
+      {
+        "ms": 8415.493124000932,
+        "texts": [
+          "And I think that's a good idea.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画後に実際に大"
+        ]
+      },
+      {
+        "ms": 8989.714816001651,
+        "texts": [
+          "And I'm going to show you a couple of examples.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画後に実際に大学に進学"
+        ]
+      },
+      {
+        "ms": 9661.351210001158,
+        "texts": [
+          "And I'm going to talk about how to do that.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画後に実際に大学に進学しやすくな"
+        ]
+      },
+      {
+        "ms": 10432.1701580011,
+        "texts": [
+          "And I think that's a good idea.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画後に実際に大学に進学しやすくなります"
+        ]
+      },
+      {
+        "ms": 11018.76737800194,
+        "texts": [
+          "And that's what I'm going to do.",
+          "多くの場合海外のギャップイヤーコースに入学することで企画後に実際に大学に進学しやすくなります"
+        ]
+      }
+    ],
+    "peak_rss": "VmHWM:\t  642240 kB",
+    "stop_ms": 813.0174510006327
+  },
+  {
+    "run": "vi_vn-offline_translation-constrained",
+    "round": 0,
+    "observations": [
+      {
+        "ms": 383.7070980007411,
+        "texts": []
+      },
+      {
+        "ms": 2902.466584004287,
+        "texts": [
+          "some species of action",
+          "một số loài động"
+        ]
+      },
+      {
+        "ms": 3387.2262820004835,
+        "texts": [
+          "Some animals.",
+          "một số loài động vật"
+        ]
+      },
+      {
+        "ms": 3885.816159003298,
+        "texts": [
+          "Some animals are like buzz.",
+          "một số loài động vật như vo"
+        ]
+      },
+      {
+        "ms": 4395.987399002479,
+        "texts": [
+          "Some animals like elephants.",
+          "một số loài động vật như voi và"
+        ]
+      },
+      {
+        "ms": 4908.69755300082,
+        "texts": [
+          "Some animals like elephants and high-end animals.",
+          "một số loài động vật như voi và hư cao"
+        ]
+      },
+      {
+        "ms": 5381.747393999831,
+        "texts": [
+          "Some animals like elephants and high-end decay",
+          "một số loài động vật như voi và hư cao cổ"
+        ]
+      },
+      {
+        "ms": 6366.2454029981745,
+        "texts": [
+          "Some animals like elephants and high-end animals.",
+          "một số loài động vật như voi và hư cao cổ thường"
+        ]
+      },
+      {
+        "ms": 6937.2887420031475,
+        "texts": [
+          "Some animals like elephants and high-end animals are usually good.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn"
+        ]
+      },
+      {
+        "ms": 7442.555314999481,
+        "texts": [
+          "Some animals like elephants and high-end damage often have to set up.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn"
+        ]
+      },
+      {
+        "ms": 7977.238111998304,
+        "texts": [
+          "Some animals like elephants and high-end damage often use to set up cars",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và"
+        ]
+      },
+      {
+        "ms": 8530.360381999344,
+        "texts": [
+          "Some animals like elephants and high-end damage often use to set up cars and just",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các"
+        ]
+      },
+      {
+        "ms": 9090.511207999953,
+        "texts": [
+          "Some animals like elephants and high-end damage often use for car formation and just for use",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng"
+        ]
+      },
+      {
+        "ms": 9683.306609003921,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to set up cars and just with normal instruments.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường"
+        ]
+      },
+      {
+        "ms": 10840.512419999868,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to set up cars and just with normal instruments.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng"
+        ]
+      },
+      {
+        "ms": 11376.102340000216,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to set up cars and just with their normal tools.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta"
+        ]
+      },
+      {
+        "ms": 11948.780045000603,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to rig cars and just with normal instruments we also have",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng"
+        ]
+      },
+      {
+        "ms": 13013.313403003849,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to rig cars and just with normal instruments we'll also do it.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ"
+        ]
+      },
+      {
+        "ms": 13550.62238300161,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to rig cars and just with normal instruments we'll also be able to do it.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan"
+        ]
+      },
+      {
+        "ms": 14150.355844001751,
+        "texts": [
+          "Some animals like elephants and high-end damage tend to have cars in place and with just normal instruments we'll also see.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một"
+        ]
+      },
+      {
+        "ms": 14770.025146004627,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to rig cars and just with normal instruments we'll also see them in a way",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ d"
+        ]
+      },
+      {
+        "ms": 15416.488711998682,
+        "texts": [
+          "Some animals like elephants and high-end damage usually use to rig cars and just with normal instruments we'll also be able to look at them easily.",
+          "một số loài động vật như voi và hư cao cổ thường hay để dàn xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng"
+        ]
+      }
+    ],
+    "peak_rss": "VmHWM:\t  640804 kB",
+    "stop_ms": 843.0072159972042
+  }
+]

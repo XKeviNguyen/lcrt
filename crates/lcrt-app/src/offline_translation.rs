@@ -1,4 +1,4 @@
-//! Local MT runs independently of Whisper. One in-flight window and one
+//! Local MT runs independently of speech recognition. One in-flight window and one
 //! replaceable pending window bound work; source captions never wait for MT.
 use std::{
     io::{BufRead, BufReader, Read, Write},

@@ -1,0 +1,65 @@
+--- a/sherpa-onnx/csrc/online-recognizer-transducer-impl.h
++++ b/sherpa-onnx/csrc/online-recognizer-transducer-impl.h
+@@ -249,0 +250 @@
++    if (!PrepareInitialContext(s)) return false;
+@@ -288,0 +290,3 @@
++    for (int32_t i = 0; i != n; ++i) {
++      if (!PrepareInitialContext(ss[i])) return;
++    }
+@@ -392,0 +397,2 @@
++    if (!PrepareInitialContext(s)) return;
++    const auto initial_token = s->GetOption("initial_context_token");
+@@ -408 +414,6 @@
+-    if (static_cast<int32_t>(last_result.tokens.size()) > context_size) {
++    if (!initial_token.empty()) {
++      r.tokens.back() = sym_[initial_token];
++      if (config_.reset_encoder) {
++        s->SetStates(model_->GetEncoderInitStates());
++      }
++    } else if (static_cast<int32_t>(last_result.tokens.size()) > context_size) {
+@@ -434,0 +446,3 @@
++    // Copy assignment intentionally preserves an existing empty-source cache.
++    // A configured seed needs fresh predictor output after the language reset.
++    if (!initial_token.empty()) s->GetResult().decoder_out = Ort::Value{nullptr};
+@@ -498,0 +513,41 @@
++  }
++
++  // Stream options preserve the existing C/Rust ABI. Configuration is frozen
++  // before the first decode and survives endpoint resets.
++  bool PrepareInitialContext(OnlineStream *s) const {
++    if (!s->GetOption("initial_context_error").empty()) return false;
++    const auto token = s->GetOption("initial_context_token");
++    auto fail = [s](const std::string &message) {
++      s->SetOption("initial_context_error", message);
++      return false;
++    };
++    if (s->HasOption("initial_context_applied")) {
++      if (token != s->GetOption("initial_context_applied")) {
++        return fail("Initial decoder context cannot change; create a new stream");
++      }
++      return true;
++    }
++    int32_t id = 0;
++    if (!token.empty()) {
++      if (config_.decoding_method != "greedy_search") {
++        return fail("Initial decoder context requires greedy search");
++      }
++      if (!sym_.Contains(token)) {
++        return fail("Initial decoder token is missing from the vocabulary");
++      }
++      id = sym_[token];
++      if (id <= 0 || id == unk_id_ || id >= model_->VocabSize()) {
++        return fail("Initial decoder token is blank, unknown or outside the model vocabulary");
++      }
++      auto r = s->GetResult();
++      if (r.tokens.size() != static_cast<size_t>(model_->ContextSize()) ||
++          r.decoder_out || s->GetNumProcessedFrames() != 0) {
++        return fail("Initial decoder context requires a fresh stream");
++      }
++      // Keep the predictor context size and preceding -1 padding unchanged.
++      r.tokens.back() = id;
++      s->SetResult(r);
++    }
++    s->SetOption("initial_context_applied", token);
++    s->SetOption("initial_context_token_id", std::to_string(id));
++    return true;

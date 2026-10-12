@@ -94,13 +94,13 @@ X11). Ubuntu ARM64 and Windows 10/11 are portability targets.
 ## 🧭 Four modes, one window
 
 <div align="center">
-<img src="docs/assets/lcrt-flow.svg" alt="Audio from the system or the microphone is captured with PipeWire and goes to exactly one backend: Whisper on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context." width="100%">
+<img src="docs/assets/lcrt-flow.svg" alt="Audio from the system or the microphone is captured with PipeWire and goes to exactly one backend: local speech recognition on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context." width="100%">
 </div>
 
 | Mode | Engine | Languages | Needs |
 | --- | --- | --- | --- |
-| Offline Captions | Bundled Whisper Tiny multilingual (Fast) | Auto, EN, JA, VI, ZH, KO, ES, FR, DE | Nothing after installation |
-| Offline Translation | Whisper Tiny + local CTranslate2 / OPUS-MT int8 | Japanese↔English and Vietnamese↔English | Explicit spoken language and a supported target; no API key or internet |
+| Offline Captions | Streaming Zipformer for explicit JA/VI; Whisper Tiny for Auto and other languages | Auto, EN, JA, VI, ZH, KO, ES, FR, DE | Nothing after installation |
+| Offline Translation | Selected local speech engine + CTranslate2 / OPUS-MT int8 | Japanese↔English and Vietnamese↔English | Explicit spoken language and a supported target; no API key or internet |
 | Online Captions | OpenAI realtime transcription | The same eight languages, or Auto | Your OpenAI key and internet |
 | Online Translation | OpenAI realtime translation | One or two targets from the eight languages | Your OpenAI key and internet; charged per target |
 
@@ -111,7 +111,9 @@ falls back online. Japanese↔Vietnamese pivot is not included.
 Each session uses exactly one backend. LILOPOP never switches to another backend
 or to a paid service on its own.
 
-Measured results for the new offline path are in [the focused acceptance report](docs/SHIP_FAST_ACCEPTANCE.md).
+Measured translation results are in [the translation acceptance report](docs/SHIP_FAST_ACCEPTANCE.md).
+Japanese/Vietnamese speech measurements and limitations are in
+[the streaming pilot report](docs/STREAMING_JA_VI_ACCEPTANCE.md).
 
 ### Multi-language lanes
 
@@ -208,12 +210,14 @@ sudo apt install ./target/debian/lcrt_2.0.0_amd64.deb
 Then open **LILOPOP Live Captions** from the app grid, or run `lcrt`. Offline
 Captions work at once, with no download and no setup.
 
-The package includes Whisper Tiny multilingual (78 MB), four int8 OPUS-MT
-models, and the local CTranslate2 runtime. No model setup is required.
+The package includes the Japanese/Vietnamese streaming model (339 MB), its
+native runtime, Whisper Tiny multilingual (78 MB), four int8 OPUS-MT models,
+and the local CTranslate2 runtime. No model setup is required.
 Build-time downloads are pinned and verified with SHA-256; mismatches fail
 packaging. See [speech model pins](packaging/models.json),
 [translation model pins](packaging/translation-models.json), and
-[runtime wheel pins](packaging/translation-runtime.json).
+[runtime wheel pins](packaging/translation-runtime.json), and
+[streaming native source and patch pins](packaging/native/runtime.json).
 
 ## 🚀 Use
 
@@ -241,12 +245,15 @@ LILOPOP remembers the last mode, source, languages and which lanes you hid.
 
 <br>
 
-Offline Captions use the model installed with LILOPOP: Whisper Tiny
-multilingual (Fast), at `/usr/share/lcrt/models/ggml-tiny.bin`. Settings shows it as
-**Offline model: Built-in multilingual model**; there is nothing to choose.
+Explicit **Japanese** and **Vietnamese** use the bundled streaming recognizer.
+**Auto** and all other languages use Whisper Tiny multilingual (Fast), at
+`/usr/share/lcrt/models/ggml-tiny.bin`. Offline Translation uses the same speech
+selection. Settings shows **Offline model: Built-in multilingual model**; no
+model selection is required.
 
 Under **Settings → General → Advanced**, **Use a custom Whisper model** lets
-you pick another whisper.cpp model file instead. It is never required.
+you pick another whisper.cpp model file for every spoken language, including
+Japanese and Vietnamese. It is never required.
 Language support then depends on that model: an English-only model (such as
 `ggml-base.en.bin`) is refused for any spoken language other than English or
 Auto, rather than inventing English text for other speech.
@@ -392,6 +399,15 @@ scripts/install-gtk4-layer-shell.sh
 The layer-shell installer skips its checksum-verified source build when the
 system already provides GTK4 layer shell 1.0.4 or newer.
 
+Build the patched streaming runtime before compiling the application. This
+build fetches pinned source and verifies the patch hash:
+
+```sh
+scripts/build-sherpa-native.sh
+export SHERPA_ONNX_LIB_DIR="$PWD/target/sherpa-native/install/lib"
+export LD_LIBRARY_PATH="$SHERPA_ONNX_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
 Run the same local quality gates as CI with:
 
 ```sh
@@ -401,7 +417,7 @@ cargo test --locked --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps
 ```
 
-Fetch the built-in model once, then run from source. A build in `target/`
+Fetch the built-in speech models once, then run from source. A build in `target/`
 finds the model in `target/share/lcrt/models/`, where the script saves it:
 
 ```sh

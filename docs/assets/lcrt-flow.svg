@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc" font-family="Inter, 'Noto Sans', 'Segoe UI', Roboto, sans-serif">
   <title id="title">How audio becomes captions in LILOPOP</title>
-  <desc id="desc">System audio or the microphone is captured with PipeWire and sent to exactly one backend: Whisper on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context.</desc>
+  <desc id="desc">System audio or the microphone is captured with PipeWire and sent to exactly one backend: local speech recognition on this device, OpenAI realtime transcription, or OpenAI realtime translation. The result appears in the caption window, where selecting text asks for its meaning in context.</desc>
   <rect width="1200" height="360" rx="24" fill="#0b1220"/>
   <text x="175" y="46" font-size="15" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="1.5">CAPTURE · PIPEWIRE</text>
   <text x="600" y="46" font-size="15" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing="1.5">ONE BACKEND PER SESSION</text>
@@ -54,7 +54,7 @@
   <g>
     <rect x="460" y="68" width="280" height="64" rx="14" fill="#0f1b33" stroke="#34d399" stroke-width="2"/>
     <text x="600.0" y="94.0" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">Offline Captions</text>
-    <text x="600.0" y="118.0" font-size="14" fill="#cbd5e1" text-anchor="middle">Whisper · stays on this device</text>
+    <text x="600.0" y="118.0" font-size="14" fill="#cbd5e1" text-anchor="middle">Speech stays on this device</text>
   </g>
   <g>
     <rect x="460" y="148" width="280" height="64" rx="14" fill="#0f1b33" stroke="#62a0ea" stroke-width="2"/>

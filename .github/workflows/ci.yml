@@ -168,6 +168,18 @@ jobs:
         if: ${{ hashFiles('Cargo.toml') != '' }}
         run: cargo fmt --all -- --check
 
+      - name: Build and verify patched streaming native runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          native_root="$RUNNER_TEMP/lcrt-sherpa-native"
+          scripts/build-sherpa-native.sh "$native_root"
+          printf 'SHERPA_ONNX_LIB_DIR=%s\n' "$native_root/install/lib" >> "$GITHUB_ENV"
+          printf 'LD_LIBRARY_PATH=%s\n' "$native_root/install/lib" >> "$GITHUB_ENV"
+          python3 scripts/fetch-models.py "$RUNNER_TEMP/lcrt-speech-models"
+          "$native_root/native-context-test" "$RUNNER_TEMP/lcrt-speech-models"
+          printf 'LCRT_TEST_STREAMING_MODEL_DIR=%s\n' "$RUNNER_TEMP/lcrt-speech-models" >> "$GITHUB_ENV"
+
       - name: Run Clippy
         if: ${{ hashFiles('Cargo.toml') != '' }}
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
@@ -175,6 +187,17 @@ jobs:
       - name: Run Rust tests
         if: ${{ hashFiles('Cargo.toml') != '' }}
         run: cargo test --locked --workspace --all-features
+
+      - name: Verify native Stop and Restart
+        run: cargo test --locked -p lcrt-stt-sherpa -- --ignored
+
+      - name: Verify streaming compatibility experiment
+        working-directory: experiments/sherpa-ja-vi
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-features
+          RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
 
       - name: Build documentation without warnings
         if: ${{ hashFiles('Cargo.toml') != '' }}
