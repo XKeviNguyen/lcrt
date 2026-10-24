@@ -506,8 +506,12 @@ fn infer_and_publish(
 ) -> Result<(), WhisperBackendError> {
     let started = Instant::now();
     let audio_duration_ms = window.samples().len() * 1_000 / 16_000;
-    let parameters = decoding.for_pass(state, window.samples())?;
-    let text = transcribe_window(state, window.samples(), parameters)?;
+    // Audio Auto can't place in a language yet is not transcribed: a pass
+    // in a guessed language could show a translation as captions.
+    let text = match decoding.for_pass(state, window.samples())? {
+        Some(parameters) => transcribe_window(state, window.samples(), parameters)?,
+        None => String::new(),
+    };
     inference_count.fetch_add(1, Ordering::Relaxed);
     let window_rolled = window.rolled_since_inference();
     debug!(
@@ -584,12 +588,14 @@ fn backlog_reservation_us(chunk: &AudioChunk) -> u64 {
 }
 
 /// Audio a pass must span before Auto keeps the language it detected.
-/// Detection on the first second of speech is unreliable: measured on
-/// Japanese, it often chose English or Hindi.
-const LANGUAGE_LOCK_SAMPLES: usize = 3 * WHISPER_SAMPLE_RATE;
+/// Measured on FLEURS Japanese and Vietnamese, played through PipeWire as
+/// the app hears it, Tiny chose English with up to 0.92 confidence on 2 s
+/// and 0.81 on 3 s of Japanese; from 5 s on, every detection was right.
+const LANGUAGE_LOCK_SAMPLES: usize = 5 * WHISPER_SAMPLE_RATE;
 /// Share of the probability, among the languages LCRT offers, the detected
-/// language needs before it is kept.
-const LANGUAGE_LOCK_CONFIDENCE: f32 = 0.7;
+/// language needs before it is kept. From 5 s on, right detections scored
+/// 0.87 or more and the one wrong one 0.58.
+const LANGUAGE_LOCK_CONFIDENCE: f32 = 0.85;
 /// How long a kept language is used before it is checked again.
 const LANGUAGE_RECHECK: Duration = Duration::from_secs(30);
 
@@ -601,6 +607,11 @@ const LANGUAGE_RECHECK: Duration = Duration::from_secs(30);
 /// did on two CPUs, after 81 s. So a confidently detected language is kept
 /// and checked again only every 30 s, which follows a change of language
 /// with at most one extra pass per 30 s.
+///
+/// Nothing is transcribed in a language that isn't kept: told the wrong
+/// language, Whisper translates into it instead of transcribing. Tiny hears
+/// the first two seconds of most speech as English, often with 0.9
+/// confidence, so a guess from them showed Japanese as English captions.
 #[derive(Clone, Copy, Debug, Default)]
 struct AutoLanguage {
     /// The kept language and when it was last detected.
@@ -616,25 +627,24 @@ impl AutoLanguage {
     }
 
     /// Records a detection over `samples` audio samples and returns the
-    /// language to transcribe this pass in. A short or unsure detection is
-    /// used for this pass only; a language kept before stays kept.
+    /// language to transcribe this pass in: a long, confident detection,
+    /// or else the language kept before, if any. `None` means the language
+    /// isn't known yet and the pass must not be transcribed.
     fn detected(
         &mut self,
         language: &'static str,
         confidence: f32,
         samples: usize,
         now: Instant,
-    ) -> &'static str {
+    ) -> Option<&'static str> {
         if samples >= LANGUAGE_LOCK_SAMPLES && confidence >= LANGUAGE_LOCK_CONFIDENCE {
             self.kept = Some((language, now));
-            language
-        } else if let Some((kept, _)) = self.kept {
-            // Unsure: keep the language, and check again after a full wait.
-            self.kept = Some((kept, now));
-            kept
-        } else {
-            language
+            return Some(language);
         }
+        // Unsure: keep the language, and check again after a full wait.
+        let (kept, _) = self.kept?;
+        self.kept = Some((kept, now));
+        Some(kept)
     }
 }
 
@@ -677,11 +687,13 @@ impl<'a> Decoding<'a> {
     }
 
     /// The parameters to transcribe `samples` with.
+    /// The parameters to transcribe `samples` with, or `None` while Auto
+    /// doesn't know the language.
     fn for_pass(
         &mut self,
         state: &mut WhisperState,
         samples: &[f32],
-    ) -> Result<&FullParams<'a, 'a>, WhisperBackendError> {
+    ) -> Result<Option<&FullParams<'a, 'a>>, WhisperBackendError> {
         // A first pass contains much less audio than the rolling window.
         // Its decode budget must follow that audio, otherwise Tiny can spend
         // the whole window's token budget hallucinating a long early result.
@@ -691,7 +703,7 @@ impl<'a> Decoding<'a> {
         .min(self.max_tokens);
         if !self.auto {
             self.configured.set_max_tokens(max_tokens);
-            return Ok(&self.configured);
+            return Ok(Some(&self.configured));
         }
         let now = Instant::now();
         let language = match self.language.current(now) {
@@ -699,8 +711,16 @@ impl<'a> Decoding<'a> {
             None => {
                 let (language, confidence) = detect_language(state, samples, self.threads)?;
                 debug!(language, confidence, "Whisper detected the spoken language");
-                self.language
+                match self
+                    .language
                     .detected(language, confidence, samples.len(), now)
+                {
+                    Some(language) => language,
+                    None => {
+                        debug!("spoken language not certain yet; pass skipped");
+                        return Ok(None);
+                    }
+                }
             }
         };
         if !self.by_language.iter().any(|(known, _)| *known == language) {
@@ -721,7 +741,7 @@ impl<'a> Decoding<'a> {
             .expect("language parameters were inserted")
             .1;
         parameters.set_max_tokens(max_tokens);
-        Ok(parameters)
+        Ok(Some(parameters))
     }
 }
 
@@ -874,24 +894,46 @@ mod tests {
         let start = std::time::Instant::now();
         let mut auto = AutoLanguage::default();
         assert_eq!(auto.current(start), None);
-        // A short pass is transcribed in what it detected, but not kept.
-        assert_eq!(auto.detected("en", 0.9, 16_000, start), "en");
-        assert_eq!(auto.current(start), None);
         // A long, confident pass is kept, with no detection until 30 s on.
-        assert_eq!(auto.detected("ja", 0.9, LANGUAGE_LOCK_SAMPLES, start), "ja");
+        assert_eq!(
+            auto.detected("ja", 0.9, LANGUAGE_LOCK_SAMPLES, start),
+            Some("ja")
+        );
         assert_eq!(auto.current(start + LANGUAGE_RECHECK / 2), Some("ja"));
         let recheck = start + LANGUAGE_RECHECK;
         assert_eq!(auto.current(recheck), None);
         // An unsure check keeps the language for another 30 s.
         assert_eq!(
-            auto.detected("vi", 0.4, LANGUAGE_LOCK_SAMPLES, recheck),
-            "ja"
+            auto.detected("vi", 0.6, LANGUAGE_LOCK_SAMPLES, recheck),
+            Some("ja")
         );
         assert_eq!(auto.current(recheck + LANGUAGE_RECHECK / 2), Some("ja"));
         // A confident check follows a change of language.
         let later = recheck + LANGUAGE_RECHECK;
-        assert_eq!(auto.detected("vi", 0.9, LANGUAGE_LOCK_SAMPLES, later), "vi");
+        assert_eq!(
+            auto.detected("vi", 0.9, LANGUAGE_LOCK_SAMPLES, later),
+            Some("vi")
+        );
         assert_eq!(auto.current(later), Some("vi"));
+    }
+
+    #[test]
+    fn auto_never_transcribes_in_a_guessed_language() {
+        let now = std::time::Instant::now();
+        let mut auto = AutoLanguage::default();
+        // Measured: Tiny heard 2 s of Japanese as English with 0.92
+        // confidence, 3.8 s of it with 0.87, and 5 s with 0.58. None may
+        // decide the language: decoded as English, the Japanese would have
+        // been shown translated.
+        let second = LANGUAGE_LOCK_SAMPLES / 5;
+        assert_eq!(auto.detected("en", 0.92, 2 * second, now), None);
+        assert_eq!(auto.detected("en", 0.87, 38 * second / 10, now), None);
+        assert_eq!(auto.detected("en", 0.58, LANGUAGE_LOCK_SAMPLES, now), None);
+        assert_eq!(auto.current(now), None);
+        assert_eq!(
+            auto.detected("ja", 0.91, LANGUAGE_LOCK_SAMPLES, now),
+            Some("ja")
+        );
     }
 
     #[test]
