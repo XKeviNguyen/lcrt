@@ -1,14 +1,28 @@
 //! Portable audio-to-caption orchestration.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use tracing::{debug, info, warn};
 
 use crate::{
     AudioCapture, AudioCaptureError, AudioInputEvent, CaptionSink, CaptionSinkError, CaptionState,
     CaptionStateError, RuntimeConfig, RuntimeConfigError, Transcriber, TranscriptUpdate,
-    TranscriptionError,
+    TranscriptionError, transcription::AcceptedText,
 };
+
+/// Receives the accepted transcript as transcription produces it, before the
+/// UI coalesces anything. It must never block: it runs on the capture path.
+pub trait TranscriptRecorder: Send {
+    /// Called after each transcription step. `audio` is how much audio had
+    /// been passed to transcription; `presented` is whether the step changed
+    /// the captions.
+    fn record(&mut self, audio: Duration, presented: bool, accepted: Vec<AcceptedText>);
+    /// The session ended, normally when `completed`, or with an error.
+    fn finish(&mut self, completed: bool);
+}
 
 /// Counts useful work completed by one bounded pipeline run.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -26,6 +40,9 @@ pub struct CaptionPipeline<A, T, U> {
     sink: U,
     captions: CaptionState,
     config: RuntimeConfig,
+    recorder: Option<Box<dyn TranscriptRecorder>>,
+    /// Audio passed to transcription so far, by its sample count.
+    audio_time: Duration,
 }
 
 impl<A, T, U> CaptionPipeline<A, T, U>
@@ -48,7 +65,15 @@ where
             sink,
             captions: CaptionState::new(),
             config,
+            recorder: None,
+            audio_time: Duration::ZERO,
         })
+    }
+
+    /// Hands the accepted transcript to `recorder` as it is produced.
+    pub fn with_recorder(mut self, recorder: Box<dyn TranscriptRecorder>) -> Self {
+        self.recorder = Some(recorder);
+        self
     }
 
     /// Runs until cancellation, clean end-of-stream, or an adapter error.
@@ -69,6 +94,9 @@ where
                     .finish()
                     .map_err(PipelineError::Transcription)?;
                 self.publish_updates(final_updates, &mut summary)?;
+                if let Some(recorder) = &mut self.recorder {
+                    recorder.finish(true);
+                }
                 info!(
                     source_id,
                     audio_chunks = summary.audio_chunks,
@@ -87,6 +115,9 @@ where
                 };
                 if audio_stopped && matches!(&error, PipelineError::Audio(_)) {
                     self.finish_after_capture_failure();
+                }
+                if let Some(recorder) = &mut self.recorder {
+                    recorder.finish(false);
                 }
                 Err(error)
             }
@@ -120,6 +151,10 @@ where
                         "audio chunk reached pipeline"
                     );
                     summary.audio_chunks += 1;
+                    let rate = u64::from(chunk.sample_rate_hz().max(1));
+                    self.audio_time += Duration::from_nanos(
+                        (chunk.frame_count() as u64).saturating_mul(1_000_000_000) / rate,
+                    );
                     let updates = self
                         .transcriber
                         .push_audio(chunk)
@@ -151,6 +186,12 @@ where
         updates: Vec<TranscriptUpdate>,
         summary: &mut RunSummary,
     ) -> Result<(), PipelineError> {
+        // Accepted text is taken every step, recorded or not, so a backend
+        // never holds more than one step's worth of it.
+        let accepted = self.transcriber.take_accepted();
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record(self.audio_time, !updates.is_empty(), accepted);
+        }
         for update in updates {
             let state_started = std::time::Instant::now();
             let snapshot = self
@@ -602,5 +643,106 @@ mod tests {
 
         assert!(matches!(error, PipelineError::Audio(_)));
         assert!(error.to_string().contains("selected source disconnected"));
+    }
+
+    /// Accepts one text per chunk, and one more when finished.
+    struct AcceptingTranscriber {
+        accepted: Vec<crate::AcceptedText>,
+        next: u64,
+    }
+
+    impl AcceptingTranscriber {
+        fn accept(&mut self) {
+            self.next += 1;
+            self.accepted.push(crate::AcceptedText {
+                segment: self.next,
+                lane: crate::CaptionLane::Source,
+                text: format!("segment {}", self.next),
+                after_gap: false,
+            });
+        }
+    }
+
+    impl Transcriber for AcceptingTranscriber {
+        fn push_audio(
+            &mut self,
+            _chunk: AudioChunk,
+        ) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+            self.accept();
+            Ok(vec![TranscriptUpdate::partial("hello").unwrap()])
+        }
+
+        fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
+            self.accept();
+            Ok(Vec::new())
+        }
+
+        fn take_accepted(&mut self) -> Vec<crate::AcceptedText> {
+            std::mem::take(&mut self.accepted)
+        }
+    }
+
+    type Recorded = Arc<Mutex<(Vec<(Duration, bool, Vec<u64>)>, Option<bool>)>>;
+
+    struct Recording(Recorded);
+
+    impl super::TranscriptRecorder for Recording {
+        fn record(&mut self, audio: Duration, presented: bool, accepted: Vec<crate::AcceptedText>) {
+            let segments = accepted.iter().map(|text| text.segment).collect();
+            self.0.lock().unwrap().0.push((audio, presented, segments));
+        }
+
+        fn finish(&mut self, completed: bool) {
+            self.0.lock().unwrap().1 = Some(completed);
+        }
+    }
+
+    fn accepting_run(sink: impl CaptionSink) -> (Result<RunSummary, PipelineError>, Recorded) {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let chunk =
+            || AudioInputEvent::Chunk(AudioChunk::new(vec![0.0; 1_600], 16_000, 1).unwrap());
+        let audio = audio_with(
+            vec![chunk(), chunk(), AudioInputEvent::EndOfStream],
+            stopped,
+        );
+        let recorded = Recorded::default();
+        let pipeline = CaptionPipeline::new(
+            audio,
+            AcceptingTranscriber {
+                accepted: Vec::new(),
+                next: 0,
+            },
+            sink,
+            RuntimeConfig::default(),
+        )
+        .unwrap()
+        .with_recorder(Box::new(Recording(Arc::clone(&recorded))));
+        (pipeline.run(&AtomicBool::new(false)), recorded)
+    }
+
+    #[test]
+    fn every_accepted_text_reaches_the_recorder_once_with_the_audio_clock() {
+        let (result, recorded) = accepting_run(CollectingSink::default());
+        result.unwrap();
+        let (steps, finished) = recorded.lock().unwrap().clone();
+        let ms = Duration::from_millis;
+        assert_eq!(
+            steps,
+            [
+                (ms(100), true, vec![1]),
+                (ms(200), true, vec![2]),
+                (ms(200), false, vec![3]),
+            ]
+        );
+        assert_eq!(finished, Some(true));
+    }
+
+    #[test]
+    fn accepted_text_is_recorded_even_when_the_window_is_gone() {
+        let (result, recorded) = accepting_run(FailingSink);
+        assert!(matches!(result, Err(PipelineError::CaptionSink(_))));
+        let (steps, finished) = recorded.lock().unwrap().clone();
+        assert_eq!(steps[0].2, [1]);
+        assert_eq!(finished, Some(false));
     }
 }

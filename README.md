@@ -19,6 +19,7 @@
 **[Install](#-install-on-ubuntu)** ·
 **[Use](#-use)** ·
 **[Modes](#-four-modes-one-window)** ·
+**[History](#-caption-history)** ·
 **[Measured](#-measured-not-promised)** ·
 **[Privacy](#-privacy-at-a-glance)** ·
 **[How it works](#-how-it-works)** ·
@@ -82,7 +83,35 @@ and never in a file or log.
 ### 🎨 Make it yours
 
 Font, size, colors, transparency and window size are adjustable and
-remembered.
+remembered. Three themes: Pop Studio, Calm Native and Cinema Focus.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🗂️ Keep what was said
+
+Optional **caption history**: read, search, copy and export past sessions
+as text or subtitles (`.srt`, `.vtt`). Off until you turn it on, and saved
+only on this device.
+
+</td>
+<td valign="top">
+
+### 🔎 Auto language
+
+**Auto** detects the spoken language and only shows captions once it is
+sure, so speech is never shown as a translation by mistake.
+
+</td>
+<td valign="top">
+
+### 📐 Readable at any size
+
+Large fonts and long Japanese lines stay inside the window: only whole
+lines are shown, and the controls stay reachable on narrow or 200%-scaled
+screens.
 
 </td>
 </tr>
@@ -99,14 +128,15 @@ X11). Ubuntu ARM64 and Windows 10/11 are portability targets.
 
 | Mode | Engine | Languages | Needs |
 | --- | --- | --- | --- |
-| Offline Captions | Bundled Whisper Tiny multilingual (Fast) | Auto, EN, JA, VI, ZH, KO, ES, FR, DE | Nothing after installation |
+| Offline Captions | Bundled Whisper Tiny multilingual (Fast) | Auto, EN, JA, VI, ZH, KO, ES, FR, DE | Nothing after installation (Auto waits for about 5 s of speech before its first caption) |
 | Offline Translation | Whisper Tiny + local CTranslate2 / OPUS-MT int8 | Japanese↔English and Vietnamese↔English | Explicit spoken language and a supported target; no API key or internet |
 | Online Captions | OpenAI realtime transcription | The same eight languages, or Auto | Your OpenAI key and internet |
 | Online Translation | OpenAI realtime translation | One or two targets from the eight languages | Your OpenAI key and internet; charged per target |
 
-Offline translation shows the source immediately and translates the current
-speech window in a separate CPU worker. It never downloads at runtime or silently
-falls back online. Japanese↔Vietnamese pivot is not included.
+Offline translation shows the source immediately and translates each accepted
+sentence once, in order, in a separate CPU worker, so a translation you have
+read never changes under you. It never downloads at runtime or silently falls
+back online. Japanese↔Vietnamese pivot is not included.
 
 Each session uses exactly one backend. LILOPOP never switches to another backend
 or to a paid service on its own.
@@ -158,12 +188,14 @@ Changing mode or audio source restarts a session. In offline modes, changing the
   lane's menu tries again.
 - **In online modes, words in context work in every lane.** Select text in any lane to have it
   explained from that lane's own text.
-- **Lanes fit the window you chose.** The lanes share the window's height and
-  never enlarge it. A lane with room for two lines wraps its text, as in the
-  picture. With less room it shows one line that follows the newest words.
-  Either way only whole lines are shown, unless a lane is shorter than one
-  line at a very large font; its text is then cut off rather than the window
-  grown.
+- **Lanes fit the window you chose.** The lanes share the window's height. A
+  lane with room for two lines wraps its text, as in the picture. With less
+  room it shows one line that follows the newest words, starting at a whole
+  character. Only whole lines are ever shown, and every lane is at least one
+  line tall: at a very large font the window grows to fit a line instead of
+  cutting the text in half.
+- **The controls fit narrow screens.** Long mode, device and status labels
+  shorten with an ellipsis instead of pushing Stop and Settings off-screen.
 
 ## 📊 Measured, not promised
 
@@ -194,6 +226,42 @@ every result are in [docs/V2_ACCEPTANCE.md](docs/V2_ACCEPTANCE.md).
   Offline Captions kept up with speech in all three languages, and used
   under 500 MB.
 
+## 🗂️ Caption history
+
+Caption history is **off** until you turn on **Save caption history** in
+**Settings → History & Privacy**. When it is on, LILOPOP saves the text of
+each session on this device so you can come back to it.
+
+- **Open it** with the history button at the top-left of the caption
+  window. Sessions are grouped by day and show their languages, source,
+  length and status, never their text.
+- **Read** a session as the original, the translation, or both side by side,
+  with approximate times.
+- **Search** all saved sessions from the library, or one transcript with
+  next/previous and highlighted matches. Japanese, Vietnamese and English
+  work; matching ignores case but not Vietnamese tone marks.
+- **Copy** a selection or the whole transcript, and **export** it as plain
+  text, SubRip (`.srt`) or WebVTT (`.vtt`). Only content the session has is
+  offered.
+- **Delete** one session from the library, or everything with **Clear All
+  History…** in Settings, after confirming. Nothing else is deleted.
+
+What is saved: only text the engine has accepted as final (finished
+utterances, accepted sentences and their translations, completed online
+turns), never in-progress guesses, and never audio. Offline Captions,
+Offline Translation and Online Captions are saved. **Online Translation is
+not saved yet**: its service gives no sentence boundaries to pair the
+original speech with its translations, so the window says so instead of
+saving misleading text.
+
+| | |
+| --- | --- |
+| Where | `$XDG_DATA_HOME/lcrt/history/`, or `~/.local/share/lcrt/history/` |
+| Access | Folder `0700`, each session file `0600`: readable only by you |
+| Storage limit | 25 MB to 1 GB, 100 MB by default. At the limit LILOPOP stops saving and tells you; it never deletes history on its own |
+| Times | Approximate, measured on the session's audio; subtitle cues are ordered and never overlap |
+| Gaps | Turning history off mid-session, a full queue or a crash is marked in the transcript, and the session is shown as Incomplete or Interrupted |
+
 ## 📦 Install on Ubuntu
 
 The Debian package is built for the Ubuntu release it is built on. It needs
@@ -204,6 +272,10 @@ LTS is the tested release.
 scripts/build-deb.sh            # prints target/debian/lcrt_2.0.0_amd64.deb
 sudo apt install ./target/debian/lcrt_2.0.0_amd64.deb
 ```
+
+To replace an installed build of the same version, add `--reinstall`. A
+notice that the file "couldn't be accessed by user '_apt'" is harmless: apt
+reads a package in your home folder as root.
 
 Then open **LILOPOP Live Captions** from the app grid, or run `lcrt`. Offline
 Captions work at once, with no download and no setup.
@@ -221,7 +293,9 @@ packaging. See [speech model pins](packaging/models.json),
    **System audio**, microphones as **Microphone**. Then choose the language:
    - Offline and Online Captions: the spoken language, or **Auto** to have it
      detected. Captions are always in the spoken language; they are never
-     translated.
+     translated. Offline Auto shows nothing until it has heard about 5 s of
+     speech and is sure of the language; choosing the language skips that
+     wait and is the most accurate.
    - Offline Translation: choose Japanese, English, or Vietnamese as the spoken
      language, then a supported target with the language chips.
    - Online Translation: the language chips (see
@@ -231,8 +305,10 @@ packaging. See [speech model pins](packaging/models.json),
    the last sentence and keeps the text on screen.
 3. **In online modes, select a word or phrase** in the captions to see what it means in that
    sentence.
-4. **Open Settings** to enter your OpenAI API key and adjust appearance and
-   vocabulary.
+4. **Open Settings** to enter your OpenAI API key and adjust appearance,
+   vocabulary and caption history.
+5. **Open the history** (top-left button) to read, search, copy or export
+   saved sessions, if you turned caption history on.
 
 LILOPOP remembers the last mode, source, languages and which lanes you hid.
 
@@ -292,10 +368,12 @@ still works, but LILOPOP cannot keep it on top.
 | Select text, with Vocabulary on | The selection (at most 200 characters) and up to 160 characters of caption on each side. |
 | Select text, with Vocabulary off | Nothing. |
 | Test connection | One request that lists models. No audio or text. |
+| Caption history, when you turn it on | Nothing. Accepted caption text is saved on this device only. |
 
-LILOPOP has no telemetry, analytics or crash reporting, and it saves neither
-audio nor transcripts to disk. Everything it sends goes from your computer
-directly to OpenAI. [docs/PRIVACY.md](docs/PRIVACY.md) has the full details.
+LILOPOP has no telemetry, analytics or crash reporting, and it never saves
+audio. Transcripts are saved only while caption history is on, and only on
+this device. Everything it sends goes from your computer directly to OpenAI.
+[docs/PRIVACY.md](docs/PRIVACY.md) has the full details.
 
 ## 🧠 How it works
 
@@ -309,18 +387,20 @@ flowchart LR
     C --> UI["Caption window<br>lcrt-ui-gtk"]
     UI -. "selected text" .-> V["Vocabulary lookup<br>lcrt-openai"]
     V -.-> UI
+    P -. "accepted text" .-> H["History writer<br>lcrt-app"]
+    H -.-> F[("Local history files<br>lcrt-core")]
     APP["Controller, settings, credentials<br>lcrt-app"] --- P
     APP --- UI
 ```
 
 | Crate | What it holds |
 | --- | --- |
-| `lcrt-core` | The portable domain: audio chunks, the caption pipeline, caption state, sessions and preferences. No OS-specific code. |
+| `lcrt-core` | The portable domain: audio chunks, the caption pipeline, caption state, sessions, preferences, and the caption-history format, search and exporters. No OS-specific code. |
 | `lcrt-audio-pipewire` | PipeWire capture for microphones and system-output monitors. |
 | `lcrt-stt-whisper` | Local speech-to-text through whisper.cpp, with a bounded rolling window. |
 | `lcrt-openai` | Realtime transcription and translation over WebSocket, vocabulary lookups, and keyring-backed credentials. |
-| `lcrt-ui-gtk` | The GTK4 and libadwaita caption window, Settings and the vocabulary popover. |
-| `lcrt-app` | The `lcrt` binary: the controller that owns sessions, settings and credentials. |
+| `lcrt-ui-gtk` | The GTK4 and libadwaita caption window, Settings, the History window and the vocabulary popover. |
+| `lcrt-app` | The `lcrt` binary: the controller that owns sessions, settings, credentials and the history writer. |
 
 A few rules shape the design:
 
@@ -333,6 +413,10 @@ A few rules shape the design:
   GTK thread.
 - **Late events can't leak.** Every session has a generation, and updates
   from a replaced session are dropped.
+- **History is recorded at the source, not the screen.** Backends report
+  accepted text once, before the window merges updates, and a bounded queue
+  hands it to a single writer thread. A slow or full disk stops saving,
+  never captioning.
 
 The portable core and its adapter boundaries are described in
 [docs/architecture.md](docs/architecture.md).
@@ -345,10 +429,17 @@ The portable core and its adapter boundaries are described in
   small enough for modest hardware, so its Japanese and Vietnamese captions
   contain more mistakes than the online service's.
 - **Offline Translation supports only Japanese↔English and Vietnamese↔English.**
-  It translates the current speech window, not a saved transcript. Short or
-  incomplete phrases may produce no translation until more speech arrives.
+  It translates accepted sentences, so a phrase appears in translation once
+  its sentence ends or the speaker pauses. Its quality follows the offline
+  captions: when Whisper Tiny mishears the speech, the translation is wrong
+  too.
   Japanese↔Vietnamese pivot is not included. A local worker error ends the
   session with a clear message; Stop/Start retries it.
+- **Offline Auto takes about 5 s** of speech to choose a language, because
+  Whisper Tiny often mistakes the first seconds of Japanese or Vietnamese
+  for English. A short opening phrase may not be captioned.
+- **Caption history** doesn't save Online Translation yet, and its times are
+  approximate rather than word-accurate.
 - Audio sources are discovered at launch.
 - Online modes need a network connection. LILOPOP reconnects a few times after a
   brief drop, then reports the problem.
@@ -370,6 +461,8 @@ The portable core and its adapter boundaries are described in
 | --- | --- | --- |
 | **V1** | Live captions from the microphone and system audio, offline | ✅ Done |
 | **V2** | Online captions, real-time translation, vocabulary, secure key storage, appearance, Ubuntu package | ✅ Done |
+| **V2.x** | Offline translation, three themes, caption history and export | ✅ Done |
+| Next | More accurate offline Japanese and Vietnamese captions (streaming Zipformer) | 🧪 In progress |
 | **V3** | Richer language help (grammar, examples), plus vocabulary history | 🔭 Planned |
 | Later | Ubuntu ARM64 and Windows 10/11 | 🔭 Planned |
 

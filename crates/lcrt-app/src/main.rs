@@ -1,4 +1,5 @@
 mod controller;
+mod history;
 mod models;
 mod offline_translation;
 mod settings;
@@ -22,7 +23,7 @@ use lcrt_openai::credentials::API_KEY_ENVIRONMENT_VARIABLE;
 use lcrt_ui_gtk::{
     CaptionUiAction, CaptionUiMode, CaptionUiOptions, GtkCaptionSink, run_caption_ui,
 };
-use tracing::error;
+use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
@@ -127,6 +128,18 @@ fn run_application(
         smoke: config.smoke.is_some(),
     };
     let environment_key = env::var(API_KEY_ENVIRONMENT_VARIABLE).ok();
+    // A diagnostic run never saves history.
+    let history_dir = history::history_dir().filter(|_| config.smoke.is_none());
+    let history = history_dir.as_ref().and_then(|dir| {
+        history::History::start(
+            lcrt_core::history::HistoryStore::new(dir),
+            &preferences.history,
+            sink.clone(),
+        )
+        .map_err(|error| warn!(%error, "caption history is unavailable"))
+        .ok()
+    });
+    let history_dir = history_dir.filter(|_| history.is_some());
     let (actions, action_receiver) = sync_channel(UI_ACTION_CAPACITY);
     let controller = Controller::new(
         overrides,
@@ -135,6 +148,7 @@ fn run_application(
         preferences.clone(),
         store,
         environment_key,
+        history,
     );
     let controller = match thread::Builder::new()
         .name("lcrt-application-controller".to_owned())
@@ -159,6 +173,7 @@ fn run_application(
         sources,
         preferences,
         model_overridden: config.model_path.is_some(),
+        history_dir,
         ..CaptionUiOptions::default()
     };
     let status = run_caption_ui(events, actions, options);

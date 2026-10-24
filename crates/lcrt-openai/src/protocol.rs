@@ -106,6 +106,11 @@ pub trait Protocol: Send {
     fn on_audio_gap(&mut self) -> Vec<String> {
         Vec::new()
     }
+    /// Takes the text the service finished since the last call, if the
+    /// protocol can tell finished text from a replaceable hypothesis.
+    fn take_accepted(&mut self) -> Vec<lcrt_core::AcceptedText> {
+        Vec::new()
+    }
 }
 
 /// Returns at most `max_bytes` from the end of `text`, starting at a word

@@ -182,6 +182,7 @@ pub(crate) fn theme_css(theme: Theme, high_contrast: bool, variables: bool) -> S
              background-image: image(alpha(black, 0.2)); }\n\
          .error-banner { background-color: @error_bg_color; color: @error_fg_color; \
              border-radius: 10px; padding: 4px 4px 4px 10px; margin-top: 6px; }\n\
+         button.history-recording { color: @error_color; }\n\
          .theme-default-tag { background-color: @accent_bg_color; color: @accent_fg_color; \
              border-radius: 999px; padding: 2px 8px; font-weight: bold; font-size: smaller; }\n\
          .theme-swatch { min-width: 12px; min-height: 26px; border-radius: 4px; \

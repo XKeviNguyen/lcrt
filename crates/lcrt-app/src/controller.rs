@@ -17,7 +17,7 @@ use lcrt_audio_pipewire::{PipeWireCapture, PipeWireCaptureConfig};
 use lcrt_core::{
     AudioSourceDescriptor, CaptionPipeline, CaptionSinkError, Language, PipelineError, Preferences,
     ProcessingMode, RunSummary, RuntimeConfig, SessionGeneration, SessionOptions, TargetChange,
-    TargetStatus, Transcriber, TranscriptionError,
+    TargetStatus, Transcriber, TranscriptRecorder, TranscriptionError,
 };
 use lcrt_openai::{
     credentials::{ApiKey, CredentialStatus, Credentials, KeyringStore},
@@ -35,6 +35,7 @@ use lcrt_ui_gtk::{
 use tracing::{error, info, warn};
 
 use crate::{
+    history::History,
     models::offline_model,
     offline_translation::{LocalTranslation, UNSUPPORTED, supports},
     settings::SettingsStore,
@@ -342,6 +343,7 @@ pub(crate) struct Controller {
     state: ControllerState,
     generation: SessionGeneration,
     pending_start: Option<SessionOptions>,
+    history: Option<History>,
 }
 
 impl Controller {
@@ -352,6 +354,7 @@ impl Controller {
         preferences: Preferences,
         store: Option<SettingsStore>,
         environment_key: Option<String>,
+        history: Option<History>,
     ) -> Self {
         Self {
             overrides,
@@ -368,6 +371,7 @@ impl Controller {
             state: ControllerState::Idle,
             generation: SessionGeneration::default(),
             pending_start: None,
+            history,
         }
     }
 
@@ -575,7 +579,16 @@ impl Controller {
             mode = options.mode.label(),
             "starting caption session"
         );
-        match start_pipeline(source, backend, session_sink) {
+        // Online Translation's lanes have no turn boundaries to save by.
+        let recorder = self.history.as_ref().and_then(|history| {
+            if options.mode == ProcessingMode::Translation {
+                history.unsupported();
+                None
+            } else {
+                history.recorder(self.generation.value(), &options, source.kind())
+            }
+        });
+        match start_pipeline(source, backend, session_sink, recorder) {
             Ok(session) => {
                 session
                     .failures
@@ -668,6 +681,9 @@ impl Controller {
 
     fn save_preferences(&mut self, preferences: Preferences) {
         self.preferences = preferences.normalized();
+        if let Some(history) = &self.history {
+            history.configure(&self.preferences.history);
+        }
         self.persist_preferences();
     }
 
@@ -916,6 +932,7 @@ fn start_pipeline(
     source: AudioSourceDescriptor,
     backend: Backend,
     sink: GtkCaptionSink,
+    recorder: Option<Box<dyn TranscriptRecorder>>,
 ) -> Result<PipelineSession, String> {
     let startup = Arc::new(StartupGate::new());
     let worker_startup = Arc::clone(&startup);
@@ -955,7 +972,7 @@ fn start_pipeline(
                 abandoned: worker_abandoned,
                 failures: worker_failures,
             };
-            let result = run_pipeline(source, backend, sink, &worker_startup, flags)
+            let result = run_pipeline(source, backend, sink, &worker_startup, flags, recorder)
                 .map_err(|error| SessionFailure::from_pipeline(error.as_ref(), custom_model));
             let _ = result_sender.send(result);
         })
@@ -1100,6 +1117,7 @@ fn run_pipeline(
     sink: GtkCaptionSink,
     startup: &StartupGate,
     flags: BackendFlags,
+    recorder: Option<Box<dyn TranscriptRecorder>>,
 ) -> Result<RunSummary, Box<dyn std::error::Error + Send + Sync>> {
     let offline = matches!(backend, Backend::Offline { .. });
     let transcriber = open_backend(backend, &sink, flags)?;
@@ -1113,7 +1131,10 @@ fn run_pipeline(
     if offline && !startup.is_cancelled() {
         sink.set_status("Listening…")?;
     }
-    let pipeline = CaptionPipeline::new(audio, transcriber, sink, RuntimeConfig::default())?;
+    let mut pipeline = CaptionPipeline::new(audio, transcriber, sink, RuntimeConfig::default())?;
+    if let Some(recorder) = recorder {
+        pipeline = pipeline.with_recorder(recorder);
+    }
     Ok(pipeline.run(startup.cancellation_flag())?)
 }
 
@@ -1200,6 +1221,7 @@ mod tests {
             Vec::new(),
             sink,
             Preferences::default(),
+            None,
             None,
             None,
         );

@@ -2,7 +2,7 @@
 
 use std::{error::Error, fmt};
 
-use crate::{AudioChunk, CaptionStatus, Language};
+use crate::{AudioChunk, CaptionLane, CaptionStatus, Language};
 
 /// An incremental or final speech-to-text result.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -240,6 +240,25 @@ impl fmt::Display for TranscriptionError {
 
 impl Error for TranscriptionError {}
 
+/// Text a backend will never revise, reported exactly once.
+///
+/// Caption updates are cumulative presentation state that may be replaced or
+/// coalesced; accepted text is the transcript itself. A segment's source text
+/// is accepted before any of its translations, and segments are accepted in
+/// speech order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AcceptedText {
+    /// The segment, unique and increasing within one backend instance.
+    pub segment: u64,
+    /// The source speech, or its translation into one target.
+    pub lane: CaptionLane,
+    /// The accepted text, trimmed.
+    pub text: String,
+    /// Speech before this segment was lost: never transcribed, cut from an
+    /// overlong utterance, or skipped while the backend caught up.
+    pub after_gap: bool,
+}
+
 /// A local or remote-replaceable speech-to-text backend.
 pub trait Transcriber: Send {
     /// Consumes one bounded audio chunk and returns zero or more caption updates.
@@ -249,6 +268,11 @@ pub trait Transcriber: Send {
     ) -> Result<Vec<TranscriptUpdate>, TranscriptionError>;
     /// Flushes any buffered speech when capture stops.
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError>;
+    /// Takes the text accepted since the last call. A backend that cannot
+    /// tell accepted text from a replaceable hypothesis reports none.
+    fn take_accepted(&mut self) -> Vec<AcceptedText> {
+        Vec::new()
+    }
 }
 
 /// Lets the application choose a backend at runtime.
@@ -262,6 +286,10 @@ impl<T: Transcriber + ?Sized> Transcriber for Box<T> {
 
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
         (**self).finish()
+    }
+
+    fn take_accepted(&mut self) -> Vec<AcceptedText> {
+        (**self).take_accepted()
     }
 }
 
