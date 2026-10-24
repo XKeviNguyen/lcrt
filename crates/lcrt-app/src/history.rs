@@ -154,8 +154,18 @@ impl History {
         options: &SessionOptions,
         source: AudioSourceKind,
     ) -> Option<Box<dyn TranscriptRecorder>> {
+        self.session_recorder(generation, options, source)
+            .map(|recorder| Box::new(recorder) as Box<dyn TranscriptRecorder>)
+    }
+
+    fn session_recorder(
+        &self,
+        generation: u64,
+        options: &SessionOptions,
+        source: AudioSourceKind,
+    ) -> Option<Recorder> {
         let events = self.events.clone()?;
-        Some(Box::new(Recorder {
+        Some(Recorder {
             generation,
             template: SessionHeader {
                 version: FORMAT_VERSION,
@@ -177,7 +187,7 @@ impl History {
             heard_speech: false,
             lost: false,
             audio: Duration::ZERO,
-        }))
+        })
     }
 }
 
@@ -323,28 +333,50 @@ impl TranscriptRecorder for Recorder {
             return;
         }
         let generation = self.generation;
-        let mut end = WriterEvent::End {
-            generation,
-            reason: if completed {
-                EndReason::Completed
-            } else {
-                EndReason::Failed
-            },
-            audio_ms: self.audio.as_millis() as u64,
-        };
         // Capture has stopped, so a short bounded wait for room is fine; a
         // session whose end can't be written reads as interrupted.
         let deadline = Instant::now() + END_WAIT;
+        if std::mem::take(&mut self.lost) {
+            // Text dropped after the last saved segment: the ending is
+            // incomplete, so the session must not read as complete.
+            self.send_before(
+                deadline,
+                WriterEvent::Record {
+                    generation,
+                    record: HistoryRecord::Gap(GapRecord {
+                        reason: GapReason::Overloaded,
+                    }),
+                },
+            );
+        }
+        self.send_before(
+            deadline,
+            WriterEvent::End {
+                generation,
+                reason: if completed {
+                    EndReason::Completed
+                } else {
+                    EndReason::Failed
+                },
+                audio_ms: self.audio.as_millis() as u64,
+            },
+        );
+        self.state = RecorderState::Idle;
+    }
+}
+
+impl Recorder {
+    /// Sends `event`, waiting for room in the queue until `deadline`.
+    fn send_before(&self, deadline: Instant, mut event: WriterEvent) {
         loop {
-            match self.events.try_send(end) {
-                Err(TrySendError::Full(event)) if Instant::now() < deadline => {
-                    end = event;
+            match self.events.try_send(event) {
+                Err(TrySendError::Full(full)) if Instant::now() < deadline => {
+                    event = full;
                     thread::yield_now();
                 }
                 _ => break,
             }
         }
-        self.state = RecorderState::Idle;
     }
 }
 
@@ -357,6 +389,7 @@ impl Drop for Recorder {
 
 struct OpenSession {
     generation: u64,
+    header: SessionHeader,
     file: HistoryFile,
     segments: u64,
     gaps: u64,
@@ -449,6 +482,7 @@ impl Writer {
                 self.problem = None;
                 self.open.push(OpenSession {
                     generation,
+                    header: header.clone(),
                     file,
                     segments: 0,
                     gaps: 0,
@@ -461,14 +495,33 @@ impl Writer {
     }
 
     fn write(&mut self, generation: u64, record: &HistoryRecord) {
-        let Some(session) = self
+        let Some(index) = self
             .open
-            .iter_mut()
-            .find(|session| session.generation == generation)
+            .iter()
+            .position(|session| session.generation == generation)
         else {
             // Not saving this session: never begun, failed, or full.
             return;
         };
+        if !self.open[index].file.exists() {
+            // The user deleted it while it was open. What follows is saved
+            // as a new session that started late, not into the deleted file.
+            let header = SessionHeader {
+                started_at_ms: now_ms(),
+                started_late: true,
+                ..self.open.remove(index).header
+            };
+            self.begin(generation, &header);
+            if self
+                .open
+                .iter()
+                .any(|session| session.generation == generation)
+            {
+                self.write(generation, record);
+            }
+            return;
+        }
+        let session = &mut self.open[index];
         match record {
             HistoryRecord::Segment(segment) => {
                 session.segments += 1;
@@ -769,5 +822,69 @@ mod tests {
         drop(history);
         assert!(!store.dir().exists());
         fs::remove_file(blocker.dir()).unwrap();
+    }
+
+    #[test]
+    fn deleting_the_open_session_saves_what_follows_in_a_new_one() {
+        let store = temp_store("deleted-open");
+        let history = history(&store, true);
+        let mut recorder = history
+            .recorder(
+                7,
+                &options(ProcessingMode::OfflineCaptions),
+                AudioSourceKind::SystemOutput,
+            )
+            .unwrap();
+        recorder.record(Duration::from_secs(1), true, vec![source(1, "first")]);
+        // Wait for the writer to create the file, then delete everything,
+        // as Clear All History does while history is off.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while store.list().unwrap().sessions.is_empty() {
+            assert!(Instant::now() < deadline, "the session was never created");
+            thread::yield_now();
+        }
+        store.clear(None).unwrap();
+        recorder.record(
+            Duration::from_secs(2),
+            true,
+            vec![source(2, "after clearing")],
+        );
+        recorder.finish(true);
+        drop(recorder);
+        drop(history);
+        let library = store.list().unwrap();
+        assert_eq!(library.sessions.len(), 1);
+        let session = store.load(&library.sessions[0].id).unwrap();
+        assert!(session.header.started_late);
+        let texts: Vec<_> = session.segments.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(texts, ["after clearing"]);
+        fs::remove_dir_all(store.dir()).unwrap();
+    }
+
+    #[test]
+    fn text_lost_at_the_end_keeps_the_session_from_reading_complete() {
+        let store = temp_store("lost-end");
+        let history = history(&store, true);
+        let mut recorder = history
+            .session_recorder(
+                8,
+                &options(ProcessingMode::OfflineCaptions),
+                AudioSourceKind::SystemOutput,
+            )
+            .unwrap();
+        recorder.record(Duration::from_secs(1), true, vec![source(1, "saved")]);
+        // The queue overflowed on the last text: nothing later carries the gap.
+        recorder.lost = true;
+        recorder.finish(true);
+        drop(recorder);
+        drop(history);
+        let summary = store.list().unwrap().sessions.remove(0);
+        let session = store.load(&summary.id).unwrap();
+        assert!(session.ends_with_gap);
+        assert_eq!(
+            SessionStatus::of(&session.header, session.end.as_ref(), session.gaps, false),
+            SessionStatus::Incomplete
+        );
+        fs::remove_dir_all(store.dir()).unwrap();
     }
 }

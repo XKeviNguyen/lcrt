@@ -577,6 +577,7 @@ impl HistoryStore {
             match open_private(&self.path(&candidate)) {
                 Ok(file) => {
                     let mut file = HistoryFile {
+                        path: self.path(&candidate),
                         id: candidate,
                         file,
                     };
@@ -635,6 +636,7 @@ impl HistoryStore {
 #[derive(Debug)]
 pub struct HistoryFile {
     id: SessionId,
+    path: PathBuf,
     file: File,
 }
 
@@ -642,6 +644,13 @@ impl HistoryFile {
     /// The session.
     pub fn id(&self) -> &SessionId {
         &self.id
+    }
+
+    /// Whether the file is still saved under its name. The user may delete
+    /// a session, or all of them, while it is being written; appending to
+    /// the open file would then save nothing anyone can see.
+    pub fn exists(&self) -> bool {
+        fs::symlink_metadata(&self.path).is_ok_and(|metadata| metadata.is_file())
     }
 
     /// Appends one record as one line, written in a single call. Returns
@@ -1334,6 +1343,18 @@ mod tests {
         let left = store.list().unwrap();
         assert_eq!(left.sessions.len(), 1);
         assert_eq!(left.sessions[0].id, recording);
+        fs::remove_dir_all(store.dir()).unwrap();
+    }
+
+    #[test]
+    fn an_open_file_knows_when_it_was_deleted() {
+        let store = HistoryStore::new(temp_dir("deleted"));
+        let file = store
+            .create(SessionId::parse("13-1").unwrap(), &header())
+            .unwrap();
+        assert!(file.exists());
+        store.clear(None).unwrap();
+        assert!(!file.exists());
         fs::remove_dir_all(store.dir()).unwrap();
     }
 
