@@ -508,7 +508,7 @@ fn infer_and_publish(
     let audio_duration_ms = window.samples().len() * 1_000 / 16_000;
     // Audio Auto can't place in a language yet is not transcribed: a pass
     // in a guessed language could show a translation as captions.
-    let text = match decoding.for_pass(state, window.samples())? {
+    let text = match decoding.for_pass(state, window.samples(), kind == InferenceKind::Final)? {
         Some(parameters) => transcribe_window(state, window.samples(), parameters)?,
         None => String::new(),
     };
@@ -596,6 +596,9 @@ const LANGUAGE_LOCK_SAMPLES: usize = 5 * WHISPER_SAMPLE_RATE;
 /// language needs before it is kept. From 5 s on, right detections scored
 /// 0.87 or more and the one wrong one 0.58.
 const LANGUAGE_LOCK_CONFIDENCE: f32 = 0.85;
+/// Speech kept from utterances that ended before Auto knew their language,
+/// so that short sentences add up to enough audio to detect it.
+const DETECTION_CONTEXT_SAMPLES: usize = 8 * WHISPER_SAMPLE_RATE;
 /// How long a kept language is used before it is checked again.
 const LANGUAGE_RECHECK: Duration = Duration::from_secs(30);
 
@@ -660,6 +663,10 @@ struct Decoding<'a> {
     /// per language, which bounds that leak by the number of languages.
     by_language: Vec<(&'static str, FullParams<'a, 'a>)>,
     language: AutoLanguage,
+    /// The newest speech of utterances that ended before the language was
+    /// known, at most [`DETECTION_CONTEXT_SAMPLES`]. Detection hears it
+    /// before the current window.
+    unplaced: Vec<f32>,
     threads: i32,
     max_tokens: i32,
     audio_ctx: i32,
@@ -680,6 +687,7 @@ impl<'a> Decoding<'a> {
             auto: config.language.is_none() && multilingual,
             by_language: Vec::new(),
             language: AutoLanguage::default(),
+            unplaced: Vec::new(),
             threads,
             max_tokens,
             audio_ctx,
@@ -688,11 +696,12 @@ impl<'a> Decoding<'a> {
 
     /// The parameters to transcribe `samples` with.
     /// The parameters to transcribe `samples` with, or `None` while Auto
-    /// doesn't know the language.
+    /// doesn't know the language. An `ending` pass closes its utterance.
     fn for_pass(
         &mut self,
         state: &mut WhisperState,
         samples: &[f32],
+        ending: bool,
     ) -> Result<Option<&FullParams<'a, 'a>>, WhisperBackendError> {
         // A first pass contains much less audio than the rolling window.
         // Its decode budget must follow that audio, otherwise Tiny can spend
@@ -709,14 +718,27 @@ impl<'a> Decoding<'a> {
         let language = match self.language.current(now) {
             Some(language) => language,
             None => {
-                let (language, confidence) = detect_language(state, samples, self.threads)?;
+                let heard: Vec<f32>;
+                let detection = if self.unplaced.is_empty() {
+                    samples
+                } else {
+                    heard = [self.unplaced.as_slice(), samples].concat();
+                    &heard
+                };
+                let (language, confidence) = detect_language(state, detection, self.threads)?;
                 debug!(language, confidence, "Whisper detected the spoken language");
                 match self
                     .language
-                    .detected(language, confidence, samples.len(), now)
+                    .detected(language, confidence, detection.len(), now)
                 {
-                    Some(language) => language,
+                    Some(language) => {
+                        self.unplaced.clear();
+                        language
+                    }
                     None => {
+                        if ending {
+                            remember_unplaced(&mut self.unplaced, samples);
+                        }
                         debug!("spoken language not certain yet; pass skipped");
                         return Ok(None);
                     }
@@ -743,6 +765,14 @@ impl<'a> Decoding<'a> {
         parameters.set_max_tokens(max_tokens);
         Ok(Some(parameters))
     }
+}
+
+/// Keeps `samples` of an utterance Auto couldn't place after the speech kept
+/// before, dropping the oldest beyond [`DETECTION_CONTEXT_SAMPLES`].
+fn remember_unplaced(unplaced: &mut Vec<f32>, samples: &[f32]) {
+    unplaced.extend_from_slice(samples);
+    let excess = unplaced.len().saturating_sub(DETECTION_CONTEXT_SAMPLES);
+    unplaced.drain(..excess);
 }
 
 /// The most likely of the languages LCRT offers in `samples`, by Whisper's
@@ -875,9 +905,9 @@ mod tests {
     use lcrt_core::AudioChunk;
 
     use super::{
-        AutoLanguage, InputBacklog, LANGUAGE_LOCK_SAMPLES, LANGUAGE_RECHECK, WhisperTranscriber,
-        WorkerCommand, backlog_reservation_us, drain_backlog, most_likely_offered,
-        window_audio_ctx, window_token_limit,
+        AutoLanguage, DETECTION_CONTEXT_SAMPLES, InputBacklog, LANGUAGE_LOCK_SAMPLES,
+        LANGUAGE_RECHECK, WhisperTranscriber, WorkerCommand, backlog_reservation_us, drain_backlog,
+        most_likely_offered, remember_unplaced, window_audio_ctx, window_token_limit,
     };
     use crate::window::{InferenceKind, StreamingWindow};
     use crate::{WhisperBackendError, WhisperConfig};
@@ -934,6 +964,23 @@ mod tests {
             auto.detected("ja", 0.91, LANGUAGE_LOCK_SAMPLES, now),
             Some("ja")
         );
+    }
+
+    #[test]
+    fn short_unplaced_utterances_add_up_to_enough_audio_to_detect() {
+        let second = LANGUAGE_LOCK_SAMPLES / 5;
+        let mut unplaced = Vec::new();
+        // Three two-second sentences, each too short alone, together pass
+        // the 5 s Auto needs; the oldest is dropped past 8 s.
+        for sentence in 1..=5 {
+            remember_unplaced(&mut unplaced, &vec![sentence as f32; 2 * second]);
+            if sentence == 3 {
+                assert!(unplaced.len() >= LANGUAGE_LOCK_SAMPLES);
+            }
+        }
+        assert_eq!(unplaced.len(), DETECTION_CONTEXT_SAMPLES);
+        assert_eq!(unplaced[0], 2.0);
+        assert_eq!(*unplaced.last().unwrap(), 5.0);
     }
 
     #[test]
