@@ -240,8 +240,8 @@ pub(crate) fn css_font_family(family: Option<&str>) -> Option<String> {
     safe.then(|| family.to_owned())
 }
 
-/// How a labeled row's text fits `available` pixels of height, given the
-/// height of one `line`.
+/// How a row's text fits `available` pixels of height, given the height of
+/// one `line`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RowFit {
     /// One unwrapped line that follows the newest words, because there is
@@ -251,12 +251,24 @@ pub(crate) struct RowFit {
     pub(crate) top_gap: i32,
 }
 
-/// An unlabeled row (every mode but Translation) wraps and scrolls freely.
-pub(crate) fn row_fit(labeled: bool, available: i32, line: i32) -> RowFit {
-    if !labeled || line <= 0 {
+/// An unlabeled row (every mode but Translation) wraps and scrolls; once its
+/// text is taller than the row (`overflowing`), it too shows only whole
+/// lines, so the oldest visible line is never cut through at the top edge.
+pub(crate) fn row_fit(labeled: bool, available: i32, line: i32, overflowing: bool) -> RowFit {
+    if line <= 0 {
         return RowFit {
             single_line: false,
             top_gap: 0,
+        };
+    }
+    if !labeled {
+        return RowFit {
+            single_line: false,
+            top_gap: if overflowing && available >= line {
+                available % line
+            } else {
+                0
+            },
         };
     }
     RowFit {
@@ -501,7 +513,7 @@ mod tests {
         use super::{RowFit, row_fit};
         // Room for one line: a single line, with the spare pixels above it.
         assert_eq!(
-            row_fit(true, 60, 56),
+            row_fit(true, 60, 56, false),
             RowFit {
                 single_line: true,
                 top_gap: 4
@@ -509,7 +521,7 @@ mod tests {
         );
         // Just under two lines is still one line.
         assert_eq!(
-            row_fit(true, 108, 56),
+            row_fit(true, 108, 56, false),
             RowFit {
                 single_line: true,
                 top_gap: 52
@@ -517,14 +529,14 @@ mod tests {
         );
         // Two lines and more wrap, never showing part of a line.
         assert_eq!(
-            row_fit(true, 112, 56),
+            row_fit(true, 112, 56, false),
             RowFit {
                 single_line: false,
                 top_gap: 0
             }
         );
         assert_eq!(
-            row_fit(true, 155, 56),
+            row_fit(true, 155, 56, true),
             RowFit {
                 single_line: false,
                 top_gap: 43
@@ -533,21 +545,31 @@ mod tests {
         // Shorter than a line: the row is clipped, with nothing to align.
         for available in [40, 0] {
             assert_eq!(
-                row_fit(true, available, 56),
+                row_fit(true, available, 56, true),
                 RowFit {
                     single_line: true,
                     top_gap: 0
                 }
             );
         }
-        // An unlabeled row is left alone.
-        assert_eq!(
-            row_fit(false, 60, 56),
-            RowFit {
-                single_line: false,
-                top_gap: 0
-            }
-        );
+    }
+
+    #[test]
+    fn an_overflowing_unlabeled_row_never_cuts_through_its_top_line() {
+        use super::{RowFit, row_fit};
+        // Issue #36: 64 pt Japanese in a 158 px row. Text that fits needs no
+        // gap; text taller than the row shows whole lines, and keeps wrapping.
+        for (overflowing, top_gap) in [(false, 0), (true, 158 % 111)] {
+            assert_eq!(
+                row_fit(false, 158, 111, overflowing),
+                RowFit {
+                    single_line: false,
+                    top_gap
+                }
+            );
+        }
+        // Shorter than one line there is nothing to align.
+        assert_eq!(row_fit(false, 90, 111, true).top_gap, 0);
     }
 
     fn sources() -> Vec<AudioSourceDescriptor> {
