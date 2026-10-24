@@ -19,8 +19,8 @@ use std::{
 };
 
 use lcrt_core::{
-    AudioChunk, CaptionStatus, Language, TargetStatus, TargetText, Transcriber, TranscriptUpdate,
-    TranscriptionError, TranslationLanes,
+    AcceptedText, AudioChunk, CaptionLane, CaptionStatus, Language, TargetStatus, TargetText,
+    Transcriber, TranscriptUpdate, TranscriptionError, TranslationLanes,
 };
 use lcrt_openai::{
     lanes::{TargetControl, TargetStatusCallback},
@@ -320,6 +320,8 @@ impl Drop for Worker {
 /// Accepted source speech waiting for translation. Whisper no longer
 /// rewrites it, so it is translated once and its translation only appended.
 struct Segment {
+    /// The accepted source segment this translates.
+    id: u64,
     text: String,
     /// Older accepted speech was skipped because translation fell behind.
     after_gap: bool,
@@ -348,6 +350,11 @@ pub(crate) struct LocalTranslation {
     /// The one segment being decoded, with its request id.
     in_flight: Option<(u64, Segment)>,
     submitted: u64,
+    /// Accepted source segments and their translations, not yet taken.
+    accepted_texts: Vec<AcceptedText>,
+    segments: u64,
+    /// Source speech was skipped since the last accepted segment.
+    source_gap: bool,
 }
 
 impl LocalTranslation {
@@ -395,6 +402,9 @@ impl LocalTranslation {
             queue: VecDeque::new(),
             in_flight: None,
             submitted: 0,
+            accepted_texts: Vec::new(),
+            segments: 0,
+            source_gap: false,
         })
     }
 
@@ -458,6 +468,14 @@ impl LocalTranslation {
                 self.publish(translated.language, GAP);
             }
             self.publish(translated.language, &translated.text);
+            if !translated.text.trim().is_empty() {
+                self.accepted_texts.push(AcceptedText {
+                    segment: segment.id,
+                    lane: CaptionLane::Target(translated.language),
+                    text: translated.text.trim().to_owned(),
+                    after_gap: false,
+                });
+            }
         }
         Ok(changed)
     }
@@ -571,6 +589,7 @@ impl LocalTranslation {
                 None => {
                     // Skip what is pending, visibly, and continue from here.
                     warn!("Offline translation lost its place in a long utterance");
+                    self.source_gap = true;
                     self.accepted = end;
                     self.anchor.clear();
                     self.mark_missing(active);
@@ -579,8 +598,23 @@ impl LocalTranslation {
         }
         while let Some(cut) = segment_end(text, self.accepted, end, closed) {
             let segment = &text[self.accepted..cut];
-            if !segment.trim().is_empty() && !active.is_empty() {
-                self.enqueue(segment.trim(), active);
+            if !segment.trim().is_empty() {
+                // Source speech is kept even while every target is paused.
+                // Whisper marks the cut-off start of an overlong utterance.
+                let (saved, cut) = match segment.trim().strip_prefix("… ") {
+                    Some(rest) => (rest, true),
+                    None => (segment.trim(), false),
+                };
+                self.segments += 1;
+                self.accepted_texts.push(AcceptedText {
+                    segment: self.segments,
+                    lane: CaptionLane::Source,
+                    text: saved.to_owned(),
+                    after_gap: std::mem::take(&mut self.source_gap) || cut,
+                });
+                if !active.is_empty() {
+                    self.enqueue(self.segments, segment.trim(), active);
+                }
             }
             self.anchor = segment.to_owned();
             self.accepted = cut;
@@ -591,8 +625,9 @@ impl LocalTranslation {
         }
     }
 
-    fn enqueue(&mut self, text: &str, active: &[Language]) {
+    fn enqueue(&mut self, id: u64, text: &str, active: &[Language]) {
         self.queue.push_back(Segment {
+            id,
             text: text.to_owned(),
             after_gap: false,
         });
@@ -703,6 +738,9 @@ impl Transcriber for LocalTranslation {
         let active = self.reconcile();
         let translated = self.collect()?;
         let updates = self.speech.push_audio(chunk)?;
+        // Whisper's own accepted utterances are superseded by the sentence
+        // segments accepted here; drop them so they don't accumulate.
+        self.speech.take_accepted();
         let mut result = self.consume(updates, &active);
         self.dispatch(&active);
         if translated && result.is_empty() {
@@ -713,6 +751,7 @@ impl Transcriber for LocalTranslation {
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
         let active = self.reconcile();
         let updates = self.speech.finish()?;
+        self.speech.take_accepted();
         let mut result = self.consume(updates, &active);
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
@@ -740,6 +779,10 @@ impl Transcriber for LocalTranslation {
         self.worker.take();
         result.extend(self.update(CaptionStatus::Final));
         Ok(result)
+    }
+
+    fn take_accepted(&mut self) -> Vec<AcceptedText> {
+        std::mem::take(&mut self.accepted_texts)
     }
 }
 
@@ -1076,6 +1119,7 @@ for line in sys.stdin:
     }
     fn segment(text: &str) -> Segment {
         Segment {
+            id: 0,
             text: text.into(),
             after_gap: false,
         }
@@ -1209,6 +1253,28 @@ for line in sys.stdin:
         );
         assert_eq!(rewrites(&seen), 0);
         assert_eq!(adapter.accepted, 0, "a final utterance resets the cursor");
+        // History gets each sentence once, in order, and each translation
+        // tied to its sentence; never a partial.
+        let accepted: Vec<_> = adapter
+            .take_accepted()
+            .into_iter()
+            .map(|text| (text.segment, text.lane, text.text))
+            .collect();
+        let source = |id, text: &str| (id, CaptionLane::Source, text.to_owned());
+        let english =
+            |id, text: &str| (id, CaptionLane::Target(Language::English), text.to_owned());
+        assert_eq!(
+            accepted,
+            [
+                source(1, "雨が降っています。"),
+                english(1, "[雨が降っています。]"),
+                source(2, "風も強いです。"),
+                english(2, "[風も強いです。]"),
+                source(3, "気をつけて下さいね。"),
+                english(3, "[気をつけて下さいね。]"),
+            ]
+        );
+        assert!(adapter.take_accepted().is_empty());
         drop(adapter);
         std::fs::remove_dir_all(root).unwrap();
     }

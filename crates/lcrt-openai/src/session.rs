@@ -5,8 +5,9 @@
 //! slow network can neither block capture nor grow memory.
 
 use std::{
+    collections::VecDeque,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel},
     },
@@ -14,7 +15,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lcrt_core::{AudioChunk, AudioConverter, Transcriber, TranscriptUpdate, TranscriptionError};
+use lcrt_core::{
+    AcceptedText, AudioChunk, AudioConverter, Transcriber, TranscriptUpdate, TranscriptionError,
+};
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
@@ -111,6 +114,35 @@ enum WorkerEvent {
     Done,
 }
 
+/// Accepted text the worker has not handed over yet. It is taken every
+/// audio chunk, so the bound is only reached if the pipeline stalls.
+#[derive(Default)]
+struct AcceptedQueue {
+    texts: VecDeque<AcceptedText>,
+    /// Text was dropped at the bound; the next one taken follows a gap.
+    lost: bool,
+}
+
+const ACCEPTED_QUEUE_CAPACITY: usize = 256;
+
+impl AcceptedQueue {
+    fn push(&mut self, text: AcceptedText) {
+        if self.texts.len() < ACCEPTED_QUEUE_CAPACITY {
+            self.texts.push_back(text);
+        } else {
+            self.lost = true;
+        }
+    }
+
+    fn take(&mut self) -> Vec<AcceptedText> {
+        let mut texts: Vec<_> = self.texts.drain(..).collect();
+        if let Some(first) = texts.first_mut() {
+            first.after_gap |= std::mem::take(&mut self.lost);
+        }
+        texts
+    }
+}
+
 /// A running online session. Dropping it cancels the worker.
 pub struct OnlineSession {
     /// Audio for the worker. Dropping it tells the worker to finish.
@@ -130,6 +162,7 @@ pub struct OnlineSession {
     /// call, after those updates are delivered.
     pending_failure: Option<TransportError>,
     dropped_blocks: u64,
+    accepted: Arc<Mutex<AcceptedQueue>>,
 }
 
 impl OnlineSession {
@@ -148,6 +181,8 @@ impl OnlineSession {
         let worker_cancel = Arc::clone(&cancel);
         let backlog_full = Arc::new(AtomicBool::new(false));
         let worker_backlog_full = Arc::clone(&backlog_full);
+        let accepted = Arc::new(Mutex::new(AcceptedQueue::default()));
+        let worker_accepted = Arc::clone(&accepted);
         let worker = thread::Builder::new()
             .name("lcrt-online-session".to_owned())
             .spawn(move || {
@@ -163,6 +198,7 @@ impl OnlineSession {
                     limits,
                     finishing: false,
                     held_update: None,
+                    accepted: worker_accepted,
                 };
                 worker.run();
             })
@@ -181,6 +217,7 @@ impl OnlineSession {
             finished: false,
             pending_failure: None,
             dropped_blocks: 0,
+            accepted,
         })
     }
 
@@ -264,6 +301,13 @@ impl Transcriber for OnlineSession {
         let mut updates = self.begin_finish()?;
         updates.extend(self.wait_finished()?);
         Ok(updates)
+    }
+
+    fn take_accepted(&mut self) -> Vec<AcceptedText> {
+        self.accepted
+            .lock()
+            .map(|mut queue| queue.take())
+            .unwrap_or_default()
     }
 }
 
@@ -363,6 +407,7 @@ struct Worker<P> {
     finishing: bool,
     /// The newest update, held while the event queue is full.
     held_update: Option<TranscriptUpdate>,
+    accepted: Arc<Mutex<AcceptedQueue>>,
 }
 
 impl<P: Protocol> Worker<P> {
@@ -396,6 +441,7 @@ impl<P: Protocol> Worker<P> {
                         "online connection lost; reconnecting"
                     );
                     self.protocol.reset_connection();
+                    self.relay_accepted();
                     if !self.wait_before_reconnect(delay) {
                         break;
                     }
@@ -583,8 +629,24 @@ impl<P: Protocol> Worker<P> {
         }
     }
 
+    /// Hands accepted text to the session, apart from caption updates: an
+    /// update may be coalesced, accepted text never is.
+    fn relay_accepted(&mut self) {
+        let texts = self.protocol.take_accepted();
+        if texts.is_empty() {
+            return;
+        }
+        if let Ok(mut queue) = self.accepted.lock() {
+            for text in texts {
+                queue.push(text);
+            }
+        }
+    }
+
     fn handle_event(&mut self, text: &str) -> Result<(), TransportError> {
-        match self.protocol.on_event(text) {
+        let outcome = self.protocol.on_event(text);
+        self.relay_accepted();
+        match outcome {
             EventOutcome::Update(update) => self.publish(update),
             EventOutcome::ServiceError(error) => match error.impact() {
                 ServiceErrorImpact::Unauthorized => return Err(TransportError::Unauthorized),

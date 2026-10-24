@@ -16,8 +16,10 @@ use lcrt_core::{
 };
 use libadwaita::{self as adw, prelude::*};
 
+use lcrt_core::history::{DEFAULT_STORAGE_LIMIT_MB, HistoryStore, STORAGE_LIMITS_MB};
+
 use crate::{
-    CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey,
+    CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey, HistoryStatus,
     theme::{PREVIEW_SWATCHES, css_name},
 };
 
@@ -31,6 +33,10 @@ pub(crate) struct PreferencesShared {
     pub(crate) apply: Rc<dyn Fn(&Preferences)>,
     /// Whether `--model` or `LCRT_MODEL_PATH` overrides the chosen model.
     pub(crate) model_overridden: bool,
+    /// Where caption history is saved, if a data directory is known.
+    pub(crate) history_dir: Option<PathBuf>,
+    /// What caption history is doing now.
+    pub(crate) history: RefCell<HistoryStatus>,
     pending_save: RefCell<Option<glib::SourceId>>,
 }
 
@@ -40,12 +46,15 @@ impl PreferencesShared {
         actions: SyncSender<CaptionUiAction>,
         apply: Rc<dyn Fn(&Preferences)>,
         model_overridden: bool,
+        history_dir: Option<PathBuf>,
     ) -> Rc<Self> {
         Rc::new(Self {
             preferences,
             actions,
             apply,
             model_overridden,
+            history_dir,
+            history: RefCell::new(HistoryStatus::Off),
             pending_save: RefCell::new(None),
         })
     }
@@ -145,6 +154,7 @@ fn language_index(language: Language) -> u32 {
 /// The Preferences window plus the widgets updated from outside it.
 pub(crate) struct PreferencesWindow {
     window: adw::PreferencesWindow,
+    history: Rc<HistoryRows>,
     credential_status: adw::ActionRow,
     /// Disabled while a connection test is in flight.
     test_connection: gtk::Button,
@@ -172,9 +182,11 @@ impl PreferencesWindow {
         window.add(&online_page(shared, &credential_status, &test_connection));
         window.add(&appearance_page(shared));
         window.add(&vocabulary_page(shared));
-        window.add(&about_page());
+        let (privacy, history) = privacy_page(&window, shared);
+        window.add(&privacy);
         Self {
             window,
+            history,
             credential_status,
             test_connection,
             translation,
@@ -194,6 +206,11 @@ impl PreferencesWindow {
     pub(crate) fn show_page(&self, name: &str) {
         self.window.set_visible_page_name(name);
         self.window.present();
+    }
+
+    /// Shows what caption history is doing, and its storage now.
+    pub(crate) fn set_history_status(&self, status: &HistoryStatus) {
+        self.history.show(status);
     }
 
     pub(crate) fn set_credential(&self, view: &CredentialView) {
@@ -814,13 +831,206 @@ fn vocabulary_page(shared: &Rc<PreferencesShared>) -> adw::PreferencesPage {
     page
 }
 
-fn about_page() -> adw::PreferencesPage {
+/// The rows of Settings → History & Privacy that change while it is open.
+struct HistoryRows {
+    store: Option<HistoryStore>,
+    status: adw::ActionRow,
+    usage: adw::ActionRow,
+    clear: gtk::Button,
+    shared: Rc<PreferencesShared>,
+}
+
+impl HistoryRows {
+    fn show(self: &Rc<Self>, status: &HistoryStatus) {
+        let text = match status {
+            HistoryStatus::Off => "Off. Nothing is being saved.".to_owned(),
+            HistoryStatus::Ready => "On. The next session you start is saved.".to_owned(),
+            HistoryStatus::Recording(_) => "Saving the current session.".to_owned(),
+            HistoryStatus::Unsupported => {
+                "On, but Online Translation can't be saved yet: its source and translations \
+                 can't be matched up reliably. Other modes are saved."
+                    .to_owned()
+            }
+            HistoryStatus::StorageFull => {
+                "Not saving: history reached its storage limit. Delete sessions or raise the \
+                 limit."
+                    .to_owned()
+            }
+            HistoryStatus::Failed(message) => format!("Not saving: {message}"),
+        };
+        self.status.set_subtitle(&text);
+        self.refresh_usage();
+    }
+
+    /// Measures storage off the main thread.
+    fn refresh_usage(self: &Rc<Self>) {
+        let Some(store) = self.store.clone() else {
+            self.usage
+                .set_subtitle("Unavailable: no data folder is set ($XDG_DATA_HOME or $HOME).");
+            self.clear.set_sensitive(false);
+            return;
+        };
+        let rows = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let usage = gio::spawn_blocking(move || store.usage()).await;
+            let Some(rows) = rows.upgrade() else { return };
+            let limit = rows.shared.preferences.borrow().history.storage_limit_mb;
+            match usage {
+                Ok(Ok(bytes)) => rows
+                    .usage
+                    .set_subtitle(&format!("{} of {limit} MB", megabytes(bytes))),
+                _ => rows.usage.set_subtitle("Couldn't read the history folder."),
+            }
+        });
+    }
+}
+
+fn megabytes(bytes: u64) -> String {
+    format!("{:.1} MB", bytes as f64 / 1_000_000.0)
+}
+
+fn storage_limit_label(megabytes: u32) -> String {
+    if megabytes >= 1000 && megabytes.is_multiple_of(1000) {
+        format!("{} GB", megabytes / 1000)
+    } else {
+        format!("{megabytes} MB")
+    }
+}
+
+fn privacy_page(
+    window: &adw::PreferencesWindow,
+    shared: &Rc<PreferencesShared>,
+) -> (adw::PreferencesPage, Rc<HistoryRows>) {
     let page = adw::PreferencesPage::builder()
-        .title("Privacy")
+        .title("History & Privacy")
         .name("privacy")
         .icon_name("security-high-symbolic")
         .build();
+    let history = shared.preferences.borrow().history.clone();
     let group = adw::PreferencesGroup::builder()
+        .title("Caption history")
+        .description(
+            "When on, the text of your captions and translations is saved on this device so \
+             you can read, search, copy and export it later. No audio is ever saved, and \
+             nothing is uploaded. Saved text may include personal or sensitive speech. Only \
+             sessions started (or continued) while this is on are saved. Online Translation \
+             can't be saved yet.",
+        )
+        .build();
+    let enabled = adw::SwitchRow::builder()
+        .title("Save caption history")
+        .active(history.enabled)
+        .sensitive(shared.history_dir.is_some())
+        .build();
+    let s = Rc::clone(shared);
+    enabled.connect_active_notify(move |row| {
+        let active = row.is_active();
+        s.change(|preferences| preferences.history.enabled = active);
+        // Start or stop saving now, not after the usual save delay.
+        s.flush();
+    });
+    group.add(&enabled);
+    let status = adw::ActionRow::builder().title("Status").build();
+    group.add(&status);
+    let location = adw::ActionRow::builder()
+        .title("Saved in")
+        .subtitle(
+            shared
+                .history_dir
+                .as_ref()
+                .map_or("No data folder is available".into(), |dir| {
+                    dir.display().to_string()
+                }),
+        )
+        .subtitle_selectable(true)
+        .build();
+    let open_folder = gtk::Button::builder()
+        .label("Open Folder")
+        .valign(gtk::Align::Center)
+        .sensitive(shared.history_dir.is_some())
+        .build();
+    let store = shared.history_dir.clone().map(HistoryStore::new);
+    let folder_store = store.clone();
+    let parent = window.clone();
+    open_folder.connect_clicked(move |_| {
+        let Some(store) = folder_store.clone() else {
+            return;
+        };
+        // The folder may not exist before the first saved session.
+        if store.ensure_dir().is_ok() {
+            gtk::FileLauncher::new(Some(&gio::File::for_path(store.dir()))).launch(
+                Some(&parent),
+                gio::Cancellable::NONE,
+                |_| {},
+            );
+        }
+    });
+    location.add_suffix(&open_folder);
+    group.add(&location);
+    let usage = adw::ActionRow::builder()
+        .title("Storage used")
+        .subtitle("Measuring…")
+        .build();
+    group.add(&usage);
+    let limit = adw::ComboRow::builder()
+        .title("Storage limit")
+        .subtitle("At the limit LILOPOP stops saving and tells you; it never deletes history to make room.")
+        .model(&gtk::StringList::new(
+            &STORAGE_LIMITS_MB
+                .map(storage_limit_label)
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        ))
+        .selected(
+            STORAGE_LIMITS_MB
+                .iter()
+                .position(|limit| *limit == history.storage_limit_mb)
+                .or_else(|| STORAGE_LIMITS_MB.iter().position(|limit| *limit == DEFAULT_STORAGE_LIMIT_MB))
+                .unwrap_or_default() as u32,
+        )
+        .build();
+    group.add(&limit);
+    let retention = adw::ActionRow::builder()
+        .title("Keep sessions")
+        .subtitle("Until you delete them")
+        .build();
+    group.add(&retention);
+    let clear = gtk::Button::builder()
+        .label("Clear All History…")
+        .halign(gtk::Align::End)
+        .margin_top(12)
+        .sensitive(store.is_some())
+        .build();
+    clear.add_css_class("destructive-action");
+    group.add(&clear);
+    page.add(&group);
+
+    let rows = Rc::new(HistoryRows {
+        store,
+        status,
+        usage,
+        clear: clear.clone(),
+        shared: Rc::clone(shared),
+    });
+    let weak = Rc::downgrade(&rows);
+    limit.connect_selected_notify(move |row| {
+        let Some(rows) = weak.upgrade() else { return };
+        let megabytes = STORAGE_LIMITS_MB[row.selected() as usize % STORAGE_LIMITS_MB.len()];
+        rows.shared
+            .change(|preferences| preferences.history.storage_limit_mb = megabytes);
+        rows.shared.flush();
+        rows.refresh_usage();
+    });
+    let weak = Rc::downgrade(&rows);
+    let parent = window.clone();
+    clear.connect_clicked(move |_| {
+        let Some(rows) = weak.upgrade() else { return };
+        confirm_clear_history(&parent, &rows);
+    });
+    rows.show(&shared.history.borrow());
+
+    let about = adw::PreferencesGroup::builder()
         .title(format!("LILOPOP {}", env!("CARGO_PKG_VERSION")))
         .description(
             "Translate and caption, live — no connection needed.\n\
@@ -830,9 +1040,59 @@ fn about_page() -> adw::PreferencesPage {
              account.\n\
              Vocabulary (online modes only): the selected text and a little surrounding caption text are sent to \
              OpenAI when you select text.\n\
-             LILOPOP has no telemetry or analytics and never stores recordings or transcripts.",
+             LILOPOP has no telemetry or analytics and never records audio. Transcripts are \
+             saved only when caption history is on, and only on this device.",
         )
         .build();
-    page.add(&group);
-    page
+    page.add(&about);
+    (page, rows)
+}
+
+fn confirm_clear_history(parent: &adw::PreferencesWindow, rows: &Rc<HistoryRows>) {
+    let recording = matches!(&*rows.shared.history.borrow(), HistoryStatus::Recording(_));
+    let mut body = "This permanently removes your locally saved caption history. The action \
+                    cannot be undone. Settings, models and your API key are not affected."
+        .to_owned();
+    if recording {
+        body.push_str(
+            "\n\nThe session being saved right now is kept, because it is still open. Delete \
+             it from History once it has stopped.",
+        );
+    }
+    let dialog = adw::MessageDialog::builder()
+        .transient_for(parent)
+        .modal(true)
+        .heading("Delete all saved transcripts?")
+        .body(body)
+        .default_response("cancel")
+        .close_response("cancel")
+        .build();
+    dialog.add_responses(&[("cancel", "Cancel"), ("delete", "Delete All History")]);
+    dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+    let weak = Rc::downgrade(rows);
+    dialog.connect_response(None, move |_, response| {
+        if response != "delete" {
+            return;
+        }
+        let Some(rows) = weak.upgrade() else { return };
+        let Some(store) = rows.store.clone() else {
+            return;
+        };
+        // The session being saved right now is kept: its file is still open.
+        let keep = match &*rows.shared.history.borrow() {
+            HistoryStatus::Recording(id) => Some(id.clone()),
+            _ => None,
+        };
+        let weak = Rc::downgrade(&rows);
+        glib::spawn_future_local(async move {
+            let result = gio::spawn_blocking(move || store.clear(keep.as_ref())).await;
+            let Some(rows) = weak.upgrade() else { return };
+            rows.refresh_usage();
+            if !matches!(result, Ok(Ok(_))) {
+                rows.status
+                    .set_subtitle("Couldn't delete every saved session. Try again.");
+            }
+        });
+    });
+    dialog.present();
 }

@@ -10,7 +10,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lcrt_core::{AudioChunk, AudioConverter, Transcriber, TranscriptUpdate, TranscriptionError};
+use lcrt_core::{
+    AcceptedText, AudioChunk, AudioConverter, CaptionLane, CaptionStatus, Transcriber,
+    TranscriptUpdate, TranscriptionError,
+};
 use tracing::{debug, info};
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
@@ -18,7 +21,7 @@ use whisper_rs::{
 
 use crate::{
     WhisperBackendError, WhisperConfig,
-    transcript::TranscriptAssembler,
+    transcript::{TRUNCATION_PREFIX, TranscriptAssembler},
     window::{InferenceKind, StreamingWindow, WHISPER_SAMPLE_RATE},
 };
 
@@ -43,6 +46,10 @@ pub struct WhisperTranscriber {
     finish_timeout: Duration,
     finished: bool,
     inference_count: Arc<AtomicU64>,
+    /// Finished utterances not yet taken: each final result is accepted
+    /// speech that Whisper will not rewrite.
+    accepted: Vec<AcceptedText>,
+    utterances: u64,
 }
 
 impl WhisperTranscriber {
@@ -93,6 +100,8 @@ impl WhisperTranscriber {
                 finish_timeout,
                 finished: false,
                 inference_count,
+                accepted: Vec::new(),
+                utterances: 0,
             }),
             Ok(Err(error)) => {
                 drop(commands);
@@ -264,6 +273,42 @@ impl WhisperTranscriber {
     }
 }
 
+impl WhisperTranscriber {
+    fn accept_finals(&mut self, updates: &[TranscriptUpdate]) {
+        self.accepted
+            .extend(accepted_finals(updates, &mut self.utterances));
+    }
+}
+
+/// Each finished utterance among `updates`, in order, numbered after
+/// `utterances`: a final result is speech Whisper will not rewrite.
+fn accepted_finals(updates: &[TranscriptUpdate], utterances: &mut u64) -> Vec<AcceptedText> {
+    let mut accepted = Vec::new();
+    for update in updates {
+        if update.status() != CaptionStatus::Final {
+            continue;
+        }
+        // An utterance longer than the transcript bound lost its start,
+        // which the assembler marks.
+        let (text, after_gap) = match update.text().strip_prefix(TRUNCATION_PREFIX) {
+            Some(rest) => (rest, true),
+            None => (update.text(), false),
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        *utterances += 1;
+        accepted.push(AcceptedText {
+            segment: *utterances,
+            lane: CaptionLane::Source,
+            text: text.to_owned(),
+            after_gap,
+        });
+    }
+    accepted
+}
+
 impl Transcriber for WhisperTranscriber {
     fn push_audio(
         &mut self,
@@ -281,13 +326,23 @@ impl Transcriber for WhisperTranscriber {
             ));
         }
         self.send_reserved(chunk, duration_us)?;
-        self.collect_available()
-            .map_err(|error| TranscriptionError::new(error.to_string()))
+        let updates = self
+            .collect_available()
+            .map_err(|error| TranscriptionError::new(error.to_string()))?;
+        self.accept_finals(&updates);
+        Ok(updates)
     }
 
     fn finish(&mut self) -> Result<Vec<TranscriptUpdate>, TranscriptionError> {
-        self.finish_worker()
-            .map_err(|error| TranscriptionError::new(error.to_string()))
+        let updates = self
+            .finish_worker()
+            .map_err(|error| TranscriptionError::new(error.to_string()))?;
+        self.accept_finals(&updates);
+        Ok(updates)
+    }
+
+    fn take_accepted(&mut self) -> Vec<AcceptedText> {
+        std::mem::take(&mut self.accepted)
     }
 }
 
@@ -1270,5 +1325,29 @@ mod tests {
         assert_eq!(window_token_limit(Duration::from_secs(8)), 59);
         assert_eq!(window_token_limit(Duration::from_millis(1)), 1);
         assert_eq!(window_token_limit(Duration::from_secs(120)), 220);
+    }
+
+    #[test]
+    fn only_finished_utterances_are_accepted_once_in_order() {
+        let updates = [
+            lcrt_core::TranscriptUpdate::partial("hello").unwrap(),
+            lcrt_core::TranscriptUpdate::incremental("hello ", "wor").unwrap(),
+            lcrt_core::TranscriptUpdate::finalized("hello world.").unwrap(),
+            lcrt_core::TranscriptUpdate::finalized("… the rest of a long one").unwrap(),
+        ];
+        let mut utterances = 4;
+        let accepted = super::accepted_finals(&updates, &mut utterances);
+        let texts: Vec<_> = accepted
+            .iter()
+            .map(|text| (text.segment, text.text.as_str(), text.after_gap))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                (5, "hello world.", false),
+                (6, "the rest of a long one", true)
+            ]
+        );
+        assert_eq!(utterances, 6);
     }
 }

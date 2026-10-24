@@ -1,7 +1,9 @@
 # LILOPOP privacy
 
 LILOPOP has no telemetry, analytics or crash reporting. It never uploads usage
-data or hardware information. It does not save audio or transcripts to disk.
+data or hardware information. It never saves audio. It saves transcripts only
+if you turn on caption history, and then only on this device (see
+[Caption history](#caption-history)).
 
 What leaves your computer depends only on the mode and features you choose.
 
@@ -78,6 +80,47 @@ selecting text sends nothing.
 Test connection sends one request to list OpenAI models, which checks that
 the key works. No audio or text is sent.
 
+## Caption history
+
+Caption history is **off** until you turn on **Save caption history** in
+Settings → History & Privacy. A fresh installation saves no transcript, and
+sessions from before you turned it on were never saved and can't be recovered.
+
+When it is on, LILOPOP saves the text it has accepted as final: in Offline
+Captions each finished utterance, in Offline Translation each accepted sentence
+and its translations, and in Online Captions each turn the service completed.
+Replaceable in-progress text (partials) is never saved. Online Translation is
+not saved yet: its service has no sentence boundaries to match the original
+speech with its translations, so LILOPOP shows that history isn't available for
+that mode instead of saving misleading text.
+
+What a saved session contains: the accepted text and translations, approximate
+times (measured on the session's audio, not exact speech timing), the mode,
+languages, whether the source was system audio or a microphone (not the device
+name), and when it started and ended. **No audio is ever saved.** Saved text
+may contain personal or sensitive information spoken near you or played on
+your computer.
+
+Where: `$XDG_DATA_HOME/lcrt/history/`, or `~/.local/share/lcrt/history/` when
+`XDG_DATA_HOME` isn't set. The folder is readable only by you (mode 0700) and
+each session is one file readable only by you (0600). History is never
+uploaded, synced or sent anywhere, and no new network connection is made for
+it; offline modes stay fully offline.
+
+Turning it off stops saving at once; what was already saved stays until you
+delete it. Turning it back on during the same session continues that session
+and marks the gap.
+
+Storage: you choose a limit (25 MB to 1 GB, default 100 MB; a one-hour session
+is typically well under 1 MB). At the limit LILOPOP stops saving and tells you.
+It never deletes history on its own: sessions are kept until you delete them.
+
+Reading, exporting and deleting: open the History button in the caption
+window's title bar to search, read, copy and export sessions as plain text,
+SubRip (`.srt`) or WebVTT (`.vtt`). Delete one session there, or delete all of
+them in Settings → History & Privacy → **Clear All History…**, which removes
+only history files (not settings, models or your key).
+
 ## Your OpenAI API key
 
 LILOPOP uses the first key available from these sources:
@@ -98,14 +141,17 @@ saved until you try again.
 
 ## Files LILOPOP writes
 
-LILOPOP writes one file, `~/.config/lcrt/preferences.json`, readable only by
-you. It holds these settings:
+LILOPOP writes `~/.config/lcrt/preferences.json`, readable only by you, and,
+only while caption history is on, one file per saved session in its history
+folder (see [Caption history](#caption-history)). The preferences file holds
+these settings:
 
 - mode, audio source and languages;
 - a custom model path, if you chose one;
 - which translation lanes you hid;
 - appearance;
-- vocabulary settings.
+- vocabulary settings;
+- whether caption history is on, and its storage limit.
 
 It contains no key, audio or transcript text.
 

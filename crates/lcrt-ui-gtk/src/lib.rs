@@ -2,6 +2,7 @@
 
 mod bridge;
 mod captions;
+mod history;
 mod lane_controls;
 mod preferences;
 mod presentation;
@@ -10,6 +11,6 @@ mod window;
 
 pub use bridge::{
     CaptionUiAction, CredentialTone, CredentialView, EnteredApiKey, GtkCaptionReceiver,
-    GtkCaptionSink, VocabularyCard, VocabularyOutcome, VocabularyProblem,
+    GtkCaptionSink, HistoryStatus, VocabularyCard, VocabularyOutcome, VocabularyProblem,
 };
 pub use window::{CaptionUiMode, CaptionUiOptions, run_caption_ui};

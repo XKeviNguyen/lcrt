@@ -303,6 +303,11 @@ impl SessionGeneration {
     pub fn next(self) -> Self {
         Self(self.0.wrapping_add(1))
     }
+
+    /// The generation as a number.
+    pub fn value(self) -> u64 {
+        self.0
+    }
 }
 
 impl fmt::Display for SessionGeneration {
