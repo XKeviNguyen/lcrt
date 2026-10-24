@@ -111,17 +111,18 @@ pub fn run_caption_ui(
     application.run_with_args(&[application_id])
 }
 
-/// Dropdown items as plain labels, optionally ellipsized at the end.
-fn label_factory(ellipsize: bool) -> gtk::SignalListItemFactory {
+/// Dropdown items as plain labels. With `min_chars`, a label narrower than
+/// its text is ellipsized at the end, down to that many characters.
+fn label_factory(min_chars: Option<i32>) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
     factory.connect_setup(move |_, item| {
         let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
             return;
         };
         let label = gtk::Label::builder().xalign(0.0).build();
-        if ellipsize {
+        if let Some(min_chars) = min_chars {
             label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-            label.set_width_chars(12);
+            label.set_width_chars(min_chars);
         }
         item.set_child(Some(&label));
     });
@@ -203,6 +204,10 @@ impl CaptionWindow {
 
         let mode = gtk::DropDown::from_strings(&ProcessingMode::ALL.map(ProcessingMode::label));
         mode.set_tooltip_text(Some("Processing mode"));
+        // The control row must fit narrow and scaled screens: its labels
+        // shorten before the row pushes Stop and Settings off-screen.
+        mode.set_factory(Some(&label_factory(Some(6))));
+        mode.set_list_factory(Some(&label_factory(None)));
         mode.update_property(&[gtk::accessible::Property::Label("Processing mode")]);
         let source_labels: Vec<String> = options.sources.iter().map(source_label).collect();
         let source = gtk::DropDown::new(Some(string_list(&source_labels)), None::<gtk::Expression>);
@@ -211,8 +216,8 @@ impl CaptionWindow {
         source.set_hexpand(true);
         // A long device name must not force the caption window wider; the
         // popup list still shows full names.
-        source.set_factory(Some(&label_factory(true)));
-        source.set_list_factory(Some(&label_factory(false)));
+        source.set_factory(Some(&label_factory(Some(6))));
+        source.set_list_factory(Some(&label_factory(None)));
         let language_labels: Vec<String> = std::iter::once("Auto".to_owned())
             .chain(
                 Language::ALL
@@ -227,7 +232,12 @@ impl CaptionWindow {
         let start = gtk::Button::with_label("Start");
         start.add_css_class("suggested-action");
         start.set_tooltip_text(Some("Start or stop captions"));
-        let status = gtk::Label::new(Some("Ready"));
+        let status = gtk::Label::builder()
+            .label("Ready")
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .width_chars(3)
+            .build();
+        status.connect_label_notify(|status| status.set_tooltip_text(Some(&status.label())));
         status.add_css_class("dim-label");
         let settings = gtk::Button::from_icon_name("emblem-system-symbolic");
         settings.set_tooltip_text(Some("Settings"));
