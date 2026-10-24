@@ -73,13 +73,15 @@ struct Lane {
     labeled: Rc<Cell<bool>>,
 }
 
-/// Fits a labeled row's text to its height.
+/// Fits a row's text to its height.
 ///
-/// With room for two lines the text wraps; with less it is one unwrapped
-/// line that follows the newest words, so the row is always full rather than
-/// showing the last word of a wrapped paragraph. Only whole lines are shown:
-/// the height left over goes above the text, and the badge moves down with it
-/// to stay level with the first line.
+/// With room for two lines a labeled row's text wraps; with less it is one
+/// unwrapped line that follows the newest words, so the row is always full
+/// rather than showing the last word of a wrapped paragraph. Only whole lines
+/// are shown: the height left over goes above the text, and the badge moves
+/// down with it to stay level with the first line. Every row asks for at
+/// least one line of height, so a large font grows the window instead of
+/// cutting its glyphs in half.
 fn fit_lines(
     view: &gtk::TextView,
     scroller: &gtk::ScrolledWindow,
@@ -87,9 +89,14 @@ fn fit_lines(
     labeled: bool,
 ) {
     let margin = scroller.margin_top();
-    let available = scroller.vadjustment().page_size() as i32 + margin;
+    let adjustment = scroller.vadjustment();
+    let available = adjustment.page_size() as i32 + margin;
     let line = view.iter_location(&view.buffer().start_iter()).height();
-    let fit = row_fit(labeled, available, line);
+    if line > 0 && scroller.min_content_height() != line {
+        scroller.set_min_content_height(line);
+    }
+    let overflowing = adjustment.upper() as i32 > available;
+    let fit = row_fit(labeled, available, line, overflowing);
     if fit.single_line != (view.wrap_mode() == gtk::WrapMode::None) {
         if fit.single_line {
             // Let the line overflow sideways first, or unwrapping it would
@@ -104,6 +111,32 @@ fn fit_lines(
     if fit.top_gap != margin {
         scroller.set_margin_top(fit.top_gap);
         badge.set_margin_top(fit.top_gap);
+    }
+}
+
+/// Starts the visible part of a single line that is scrolled to its end at
+/// a whole character, rather than cutting the oldest one in half: the sliver
+/// after the newest one is left empty instead. The margin changes the line's
+/// width, and the scroll that follows is aligned.
+fn align_line_start(view: &gtk::TextView) {
+    let Some(adjustment) = view.hadjustment() else {
+        return;
+    };
+    let start = (adjustment.upper() - adjustment.page_size()) as i32 - view.right_margin();
+    let margin = view
+        .iter_at_location(start, 0)
+        .filter(|_| start > 0 && view.wrap_mode() == gtk::WrapMode::None)
+        .map(|mut first| {
+            // The nearest boundary may be after the character that is cut.
+            if view.iter_location(&first).x() > start {
+                first.backward_char();
+            }
+            view.iter_location(&first)
+        })
+        .filter(|location| location.x() < start)
+        .map_or(0, |location| location.x() + location.width() - start);
+    if margin != view.right_margin() {
+        view.set_right_margin(margin);
     }
 }
 
@@ -129,14 +162,26 @@ impl Lane {
         scroller.add_css_class("caption-lane");
         // Keep the newest words in view, down and sideways, while the user
         // is not selecting.
-        for adjustment in [scroller.vadjustment(), scroller.hadjustment()] {
+        for (adjustment, sideways) in [
+            (scroller.vadjustment(), false),
+            (scroller.hadjustment(), true),
+        ] {
             let text = view.downgrade();
             adjustment.connect_changed(move |adjustment| {
-                if text
-                    .upgrade()
-                    .is_some_and(|view| !view.buffer().has_selection())
-                {
-                    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                let Some(view) = text.upgrade().filter(|view| !view.buffer().has_selection())
+                else {
+                    return;
+                };
+                let value = adjustment.upper() - adjustment.page_size();
+                adjustment.set_value(value);
+                if sideways {
+                    // The text can't be measured during this layout pass.
+                    let view = view.downgrade();
+                    glib::idle_add_local_once(move || {
+                        if let Some(view) = view.upgrade() {
+                            align_line_start(&view);
+                        }
+                    });
                 }
             });
         }
