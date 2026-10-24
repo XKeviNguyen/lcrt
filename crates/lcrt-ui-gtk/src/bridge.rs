@@ -6,6 +6,7 @@ use std::{
 use lcrt_core::{
     CaptionSink, CaptionSinkError, CaptionSnapshot, CaptionStatus, Language, Preferences,
     SessionGeneration, SessionOptions, TargetChange, TargetStatus, TranslationTargets,
+    history::SessionId,
 };
 
 /// An API key typed into Preferences. `Debug` never reveals it.
@@ -120,6 +121,24 @@ pub struct VocabularyOutcome {
     pub result: Result<VocabularyCard, VocabularyProblem>,
 }
 
+/// What caption history is doing, as the window shows it.
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub enum HistoryStatus {
+    /// History is off.
+    #[default]
+    Off,
+    /// On, and no session is being saved.
+    Ready,
+    /// Saving this session.
+    Recording(SessionId),
+    /// On, but the running mode's text can't be saved.
+    Unsupported,
+    /// Saving stopped because history reached its storage limit.
+    StorageFull,
+    /// Saving stopped after a storage error. Captions continue.
+    Failed(String),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub(crate) struct UiPresentation {
     pub(crate) caption: Option<CaptionSnapshot>,
@@ -180,6 +199,7 @@ pub(crate) struct UiUpdate {
     pub(crate) error_needs_settings: bool,
     pub(crate) credential: Option<CredentialView>,
     pub(crate) vocabulary: Option<VocabularyOutcome>,
+    pub(crate) history: Option<HistoryStatus>,
     pub(crate) quit: bool,
 }
 
@@ -193,6 +213,7 @@ struct BridgeState {
     error_needs_settings: bool,
     credential: Option<CredentialView>,
     vocabulary: Option<VocabularyOutcome>,
+    history: Option<HistoryStatus>,
     current_generation: SessionGeneration,
     quit: bool,
 }
@@ -208,6 +229,7 @@ impl Default for BridgeState {
             error_needs_settings: false,
             credential: None,
             vocabulary: None,
+            history: None,
             current_generation: SessionGeneration::default(),
             quit: false,
         }
@@ -297,6 +319,11 @@ impl GtkCaptionSink {
                 state.vocabulary = Some(outcome);
             }
         })
+    }
+
+    /// Shows what caption history is doing; the newest status wins.
+    pub fn set_history(&self, status: HistoryStatus) -> Result<(), CaptionSinkError> {
+        self.update(move |state| state.history = Some(status))
     }
 
     /// Updates whether captioning is running.
@@ -472,6 +499,7 @@ impl GtkCaptionReceiver {
             error_needs_settings: state.error_needs_settings,
             credential: state.credential.take(),
             vocabulary: state.vocabulary.take(),
+            history: state.history.take(),
             quit: state.quit,
         };
         if !producers_alive
@@ -479,6 +507,7 @@ impl GtkCaptionReceiver {
             && update.error.is_none()
             && update.credential.is_none()
             && update.vocabulary.is_none()
+            && update.history.is_none()
             && !update.quit
         {
             return Err(CaptionSinkError::new(

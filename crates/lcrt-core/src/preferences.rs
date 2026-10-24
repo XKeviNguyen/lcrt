@@ -54,6 +54,8 @@ pub struct Preferences {
     pub appearance: AppearancePreferences,
     /// Vocabulary explanations.
     pub vocabulary: VocabularyPreferences,
+    /// Caption history.
+    pub history: HistoryPreferences,
 }
 
 impl Preferences {
@@ -76,6 +78,9 @@ impl Preferences {
             self.general.second_translation_target,
         );
         self.general.set_translation_targets(Some(first), second);
+        if !crate::history::STORAGE_LIMITS_MB.contains(&self.history.storage_limit_mb) {
+            self.history.storage_limit_mb = crate::history::DEFAULT_STORAGE_LIMIT_MB;
+        }
         self
     }
 }
@@ -328,6 +333,26 @@ impl Default for VocabularyPreferences {
     }
 }
 
+/// Caption history. Off until the user turns it on: transcripts are personal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HistoryPreferences {
+    /// Whether accepted captions are saved on this device.
+    pub enabled: bool,
+    /// Storage budget for all saved sessions, in megabytes. At the limit no
+    /// new text is saved; nothing is ever deleted to make room.
+    pub storage_limit_mb: u32,
+}
+
+impl Default for HistoryPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            storage_limit_mb: crate::history::DEFAULT_STORAGE_LIMIT_MB,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AppearancePreferences, PREFERENCES_VERSION, Preferences, Rgb, Theme};
@@ -350,6 +375,20 @@ mod tests {
         preferences.appearance.text_color = Rgb::new(250, 240, 10);
         preferences.appearance.background_opacity = 0.3;
         preferences
+    }
+
+    #[test]
+    fn history_is_off_on_a_fresh_install_and_in_older_preferences() {
+        assert!(!Preferences::default().history.enabled);
+        let older: Preferences =
+            serde_json::from_str(r#"{"version": 1, "general": {}, "appearance": {}}"#).unwrap();
+        assert!(!older.history.enabled);
+        let mut odd = Preferences::default();
+        odd.history.storage_limit_mb = 7;
+        assert_eq!(
+            odd.normalized().history.storage_limit_mb,
+            crate::history::DEFAULT_STORAGE_LIMIT_MB
+        );
     }
 
     #[test]

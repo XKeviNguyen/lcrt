@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 
 use base64::Engine as _;
-use lcrt_core::{Language, TranscriptUpdate};
+use lcrt_core::{AcceptedText, CaptionLane, Language, TranscriptUpdate, history::bound_text};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, warn};
@@ -37,6 +37,11 @@ struct Turn {
     item_id: String,
     text: String,
     complete: bool,
+    /// The service's whole transcript of a completed turn; `None` while it
+    /// is incomplete or when it failed or was cut off.
+    transcript: Option<String>,
+    /// Handed over as accepted text, or as a gap.
+    accepted: bool,
 }
 
 /// Client state for one transcription session, reset on reconnect.
@@ -49,6 +54,11 @@ pub struct TranscriptionProtocol {
     /// than re-adding it out of order.
     retired: VecDeque<String>,
     uncommitted_turns: usize,
+    /// Completed turns not yet taken, in speech order.
+    accepted: Vec<AcceptedText>,
+    accepted_turns: u64,
+    /// A turn was lost since the last accepted one.
+    gap: bool,
 }
 
 impl TranscriptionProtocol {
@@ -61,6 +71,9 @@ impl TranscriptionProtocol {
             turns: Vec::new(),
             retired: VecDeque::with_capacity(RETIRED_MEMORY),
             uncommitted_turns: 0,
+            accepted: Vec::new(),
+            accepted_turns: 0,
+            gap: false,
         }
     }
 
@@ -88,6 +101,8 @@ impl TranscriptionProtocol {
                     item_id: item_id.to_owned(),
                     text: String::new(),
                     complete: false,
+                    transcript: None,
+                    accepted: false,
                 });
                 self.prune();
                 self.turns.len() - 1
@@ -106,6 +121,8 @@ impl TranscriptionProtocol {
             item_id,
             text: String::new(),
             complete: false,
+            transcript: None,
+            accepted: false,
         };
         let position = previous_item_id
             .and_then(|previous| self.turns.iter().position(|turn| turn.item_id == previous))
@@ -120,10 +137,41 @@ impl TranscriptionProtocol {
     fn prune(&mut self) {
         while self.turns.len() > MAX_TURNS {
             let oldest = self.turns.remove(0);
+            // Its text, if it ever completes, will not be saved.
+            self.gap |= !oldest.accepted;
             if self.retired.len() == RETIRED_MEMORY {
                 self.retired.pop_front();
             }
             self.retired.push_back(oldest.item_id);
+        }
+    }
+
+    /// Accepts the completed turns at the front, in order: a turn that is
+    /// still open holds back later ones, so saved text keeps speech order.
+    fn accept_completed(&mut self) {
+        for turn in &mut self.turns {
+            if !turn.complete {
+                break;
+            }
+            if turn.accepted {
+                continue;
+            }
+            turn.accepted = true;
+            match turn.transcript.take() {
+                Some(text) if !text.trim().is_empty() => {
+                    self.accepted_turns += 1;
+                    self.accepted.push(AcceptedText {
+                        segment: self.accepted_turns,
+                        lane: CaptionLane::Source,
+                        text: text.trim().to_owned(),
+                        after_gap: std::mem::take(&mut self.gap),
+                    });
+                }
+                // Silence: nothing was said.
+                Some(_) => {}
+                // Failed or cut off: speech was lost.
+                None => self.gap = true,
+            }
         }
     }
 
@@ -269,10 +317,14 @@ impl Protocol for TranscriptionProtocol {
                     return EventOutcome::Ignored;
                 };
                 // The completed transcript is authoritative over accumulated deltas.
-                let transcript = event.transcript.unwrap_or_default();
+                let mut transcript = event.transcript.unwrap_or_default();
                 turn.text = bounded_tail(&transcript, MAX_TURN_BYTES).to_owned();
                 turn.complete = true;
+                bound_text(&mut transcript);
+                turn.transcript = Some(transcript);
+                self.accept_completed();
                 self.prune();
+                self.accept_completed();
                 self.caption()
                     .map_or(EventOutcome::Ignored, EventOutcome::Update)
             }
@@ -283,7 +335,9 @@ impl Protocol for TranscriptionProtocol {
                 if let Some(error) = event.error {
                     warn!(category = %error.category(), "a transcription turn failed");
                 }
+                self.accept_completed();
                 self.prune();
+                self.accept_completed();
                 self.caption()
                     .map_or(EventOutcome::Ignored, EventOutcome::Update)
             }
@@ -305,6 +359,8 @@ impl Protocol for TranscriptionProtocol {
     }
 
     fn on_audio_gap(&mut self) -> Vec<String> {
+        // Skipped audio is speech that will never be transcribed.
+        self.gap = true;
         // Close the open turn so words after the gap start a new one.
         let mut messages = Vec::new();
         for action in self.detector.finish() {
@@ -317,10 +373,21 @@ impl Protocol for TranscriptionProtocol {
         self.detector = TurnDetector::new(TurnConfig::default());
         self.outgoing.clear();
         self.uncommitted_turns = 0;
-        // Turns cut off by the lost connection keep their partial text.
+        // Turns cut off by the lost connection keep their partial text on
+        // screen, but it is not accepted: the service never completed it.
         for turn in &mut self.turns {
             turn.complete = true;
         }
+        self.accept_completed();
+        // Audio buffered for the lost connection, and spoken while it was
+        // down, is never transcribed.
+        self.gap = true;
+    }
+
+    fn take_accepted(&mut self) -> Vec<AcceptedText> {
+        // A retired turn may have released completed ones behind it.
+        self.accept_completed();
+        std::mem::take(&mut self.accepted)
     }
 }
 
@@ -581,5 +648,57 @@ mod tests {
         protocol.reset_connection();
         assert!(protocol.is_drained());
         assert_eq!(protocol.caption().unwrap().status(), CaptionStatus::Final);
+    }
+
+    #[test]
+    fn completed_turns_are_accepted_once_in_speech_order_and_losses_are_gaps() {
+        let accepted = |protocol: &mut TranscriptionProtocol| -> Vec<(u64, String, bool)> {
+            protocol
+                .take_accepted()
+                .into_iter()
+                .map(|text| (text.segment, text.text, text.after_gap))
+                .collect()
+        };
+        let failed = |item: &str| {
+            json!({"type": "conversation.item.input_audio_transcription.failed", "item_id": item})
+                .to_string()
+        };
+        let mut protocol = TranscriptionProtocol::new(None);
+        protocol.on_event(&committed("a", None));
+        protocol.on_event(&committed("b", Some("a")));
+        protocol.on_event(&delta("a", "partial words"));
+        // The later turn completes first; it waits for the earlier one.
+        protocol.on_event(&completed("b", "second."));
+        assert!(accepted(&mut protocol).is_empty());
+        protocol.on_event(&completed("a", "first."));
+        protocol.on_event(&completed("a", "first again."));
+        assert_eq!(
+            accepted(&mut protocol),
+            [
+                (1, "first.".to_owned(), false),
+                (2, "second.".to_owned(), false)
+            ]
+        );
+        // A failed turn is a gap before the next accepted one; silence isn't.
+        protocol.on_event(&committed("c", Some("b")));
+        protocol.on_event(&failed("c"));
+        protocol.on_event(&committed("d", Some("c")));
+        protocol.on_event(&completed("d", " "));
+        protocol.on_event(&committed("e", Some("d")));
+        protocol.on_event(&completed("e", "after the failure."));
+        assert_eq!(
+            accepted(&mut protocol),
+            [(3, "after the failure.".to_owned(), true)]
+        );
+        // Text cut off by a lost connection stays on screen but isn't saved.
+        protocol.on_event(&committed("f", Some("e")));
+        protocol.on_event(&delta("f", "cut off"));
+        protocol.reset_connection();
+        protocol.on_event(&committed("g", None));
+        protocol.on_event(&completed("g", "reconnected."));
+        assert_eq!(
+            accepted(&mut protocol),
+            [(4, "reconnected.".to_owned(), true)]
+        );
     }
 }

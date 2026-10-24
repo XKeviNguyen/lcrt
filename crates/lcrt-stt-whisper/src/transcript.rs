@@ -3,6 +3,8 @@ use lcrt_core::TranscriptUpdate;
 use crate::{WhisperBackendError, window::InferenceKind};
 
 const TRUNCATION_MARKER: &str = "…";
+/// How a front-truncated transcript begins.
+pub(crate) const TRUNCATION_PREFIX: &str = "… ";
 
 /// Bounded transcript state for one utterance.
 ///

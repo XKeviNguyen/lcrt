@@ -16,8 +16,9 @@ use libadwaita as adw;
 use tracing::{debug, info};
 
 use crate::{
-    CaptionUiAction, CredentialView, GtkCaptionReceiver,
+    CaptionUiAction, CredentialView, GtkCaptionReceiver, HistoryStatus,
     captions::{CaptionViews, Vocabulary},
+    history::HistoryWindow,
     lane_controls::{LaneAction, LaneControls},
     preferences::{PreferencesShared, PreferencesWindow},
     presentation::{
@@ -47,6 +48,8 @@ pub struct CaptionUiOptions {
     pub preferences: Preferences,
     /// Whether `--model` or `LCRT_MODEL_PATH` overrides the chosen model.
     pub model_overridden: bool,
+    /// Where caption history is saved, if a data directory is known.
+    pub history_dir: Option<std::path::PathBuf>,
 }
 
 /// GTK application identity for the current process.
@@ -75,6 +78,7 @@ impl Default for CaptionUiOptions {
             sources: Vec::new(),
             preferences: Preferences::default(),
             model_overridden: false,
+            history_dir: None,
         }
     }
 }
@@ -174,6 +178,10 @@ struct CaptionWindow {
     session: RefCell<Option<SessionOptions>>,
     /// What each target of the running session reported last.
     target_statuses: RefCell<Vec<(Language, TargetStatus)>>,
+    /// Opens caption history; its look says whether history is saving.
+    history_button: gtk::Button,
+    history_dir: Option<std::path::PathBuf>,
+    history_window: OnceCell<Rc<HistoryWindow>>,
 }
 
 impl CaptionWindow {
@@ -269,8 +277,14 @@ impl CaptionWindow {
         content.append(&controls);
         content.append(&notice);
 
+        let history_button = gtk::Button::from_icon_name("document-open-recent-symbolic");
+        history_button.add_css_class("flat");
+        history_button.update_property(&[gtk::accessible::Property::Label("Caption history")]);
+        history_button.set_visible(options.history_dir.is_some());
+        let header = adw::HeaderBar::new();
+        header.pack_start(&history_button);
         let toolbar = adw::ToolbarView::new();
-        toolbar.add_top_bar(&adw::HeaderBar::new());
+        toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&content));
         let appearance = preferences.borrow().appearance.clone();
         let window = adw::ApplicationWindow::builder()
@@ -298,6 +312,7 @@ impl CaptionWindow {
                     actions.clone(),
                     apply,
                     options.model_overridden,
+                    options.history_dir.clone(),
                 ),
                 preferences,
                 preferences_window: OnceCell::new(),
@@ -321,6 +336,9 @@ impl CaptionWindow {
                 updating_controls: Cell::new(false),
                 session: RefCell::new(None),
                 target_statuses: RefCell::new(Vec::new()),
+                history_button: history_button.clone(),
+                history_dir: options.history_dir.clone(),
+                history_window: OnceCell::new(),
             }
         });
 
@@ -352,6 +370,18 @@ impl CaptionWindow {
 
         this.initialize_controls();
         this.apply_preferences(&this.preferences.borrow().clone());
+        let initial = if this.preferences.borrow().history.enabled {
+            HistoryStatus::Ready
+        } else {
+            HistoryStatus::Off
+        };
+        this.show_history_status(&initial);
+        let weak = Rc::downgrade(&this);
+        history_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.open_history();
+            }
+        });
         let weak = Rc::downgrade(&this);
         adw::StyleManager::default().connect_high_contrast_notify(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -770,6 +800,94 @@ impl CaptionWindow {
         });
     }
 
+    fn open_history(self: &Rc<Self>) {
+        let Some(dir) = &self.history_dir else {
+            return;
+        };
+        let history = self.history_window.get_or_init(|| {
+            let weak = Rc::downgrade(self);
+            let history = HistoryWindow::new(
+                &self.window,
+                lcrt_core::history::HistoryStore::new(dir),
+                move || {
+                    if let Some(this) = weak.upgrade() {
+                        this.open_preferences(Some("privacy"));
+                    }
+                },
+            );
+            history.set_status(&self.shared.history.borrow());
+            history
+        });
+        history.present();
+    }
+
+    /// Shows what history is doing on its button, in Settings and in the
+    /// History window. A failure is also shown once in the banner; captions
+    /// carry on either way.
+    fn show_history_status(&self, status: &HistoryStatus) {
+        let (icon, tooltip, recording) = match status {
+            HistoryStatus::Off => (
+                "document-open-recent-symbolic",
+                "Caption history (saving is off)".to_owned(),
+                false,
+            ),
+            HistoryStatus::Ready => (
+                "document-open-recent-symbolic",
+                "Caption history (saving is on)".to_owned(),
+                false,
+            ),
+            HistoryStatus::Recording(_) => (
+                "media-record-symbolic",
+                "Caption history — saving this session".to_owned(),
+                true,
+            ),
+            HistoryStatus::Unsupported => (
+                "document-open-recent-symbolic",
+                "Caption history — this mode can't be saved yet".to_owned(),
+                false,
+            ),
+            HistoryStatus::StorageFull => (
+                "dialog-warning-symbolic",
+                "Caption history is full — not saving. Free space in Settings.".to_owned(),
+                false,
+            ),
+            HistoryStatus::Failed(message) => (
+                "dialog-warning-symbolic",
+                format!("Caption history isn't saving: {message}"),
+                false,
+            ),
+        };
+        self.history_button.set_icon_name(icon);
+        self.history_button.set_tooltip_text(Some(&tooltip));
+        if recording {
+            self.history_button.add_css_class("history-recording");
+        } else {
+            self.history_button.remove_css_class("history-recording");
+        }
+        let previous = self.shared.history.replace(status.clone());
+        if previous != *status {
+            match status {
+                HistoryStatus::StorageFull => self.show_error(
+                    "Caption history reached its storage limit, so this session isn't being \
+                     saved. Captions continue. Delete old sessions or raise the limit in \
+                     Settings → History & Privacy.",
+                    false,
+                ),
+                HistoryStatus::Failed(message) => self.show_error(
+                    &format!("Caption history couldn't be saved ({message}). Captions continue."),
+                    false,
+                ),
+                _ => {}
+            }
+        }
+        if let Some(history) = self.history_window.get() {
+            history.set_status(status);
+        }
+        if let Some(preferences) = self.preferences_window.get() {
+            preferences.set_history_status(status);
+        }
+    }
+
     fn open_preferences(self: &Rc<Self>, page: Option<&str>) {
         let preferences = self
             .preferences_window
@@ -946,6 +1064,9 @@ impl CaptionWindow {
             }
             if let (Some(outcome), Some(vocabulary)) = (update.vocabulary, this.vocabulary.get()) {
                 vocabulary.deliver(outcome);
+            }
+            if let Some(status) = update.history {
+                this.show_history_status(&status);
             }
             if update.quit {
                 if let Some(application) = &application {

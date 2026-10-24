@@ -8,6 +8,7 @@ pub mod audio;
 pub mod caption;
 pub mod config;
 pub mod convert;
+pub mod history;
 pub mod pipeline;
 pub mod preferences;
 pub mod session;
@@ -21,9 +22,10 @@ pub use audio::{
 pub use caption::{Caption, CaptionSnapshot, CaptionState, CaptionStateError, CaptionStatus};
 pub use config::{RuntimeConfig, RuntimeConfigError};
 pub use convert::{AudioConversionError, AudioConverter};
-pub use pipeline::{CaptionPipeline, PipelineError, RunSummary};
+pub use pipeline::{CaptionPipeline, PipelineError, RunSummary, TranscriptRecorder};
 pub use preferences::{
-    AppearancePreferences, GeneralPreferences, Preferences, Rgb, Theme, VocabularyPreferences,
+    AppearancePreferences, GeneralPreferences, HistoryPreferences, Preferences, Rgb, Theme,
+    VocabularyPreferences,
 };
 pub use session::{
     CaptionLane, Language, LanguageSelection, MAX_CAPTION_LANES, MAX_TRANSLATION_TARGETS,
@@ -31,7 +33,7 @@ pub use session::{
     TranslationTargets,
 };
 pub use transcription::{
-    TargetText, Transcriber, TranscriptUpdate, TranscriptUpdateError, TranscriptionError,
-    TranslationLanes,
+    AcceptedText, TargetText, Transcriber, TranscriptUpdate, TranscriptUpdateError,
+    TranscriptionError, TranslationLanes,
 };
 pub use ui::{CaptionSink, CaptionSinkError};
